@@ -1,0 +1,42 @@
+rules_version = '2';
+
+// Teacher Records Kit — Firestore 安全規則範本
+// 安裝時把 {{OWNER_EMAIL}} 換成擁有者的 Google email，存成 firestore.rules 後部署：
+//   firebase deploy --only firestore:rules --project <YOUR_PROJECT>
+//
+// 核心保證：只有擁有者本人（Google 登入 + 已驗證）能讀寫；其餘所有人一律 deny。
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner() {
+      return request.auth != null
+        && request.auth.token.email == '{{OWNER_EMAIL}}'
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
+    }
+
+    // 每生摘要
+    match /students/{id} {
+      allow read, write: if isOwner();
+
+      // 每則觀察一份文件；文件 id ＝ 日期（YYYY-MM-DD）
+      match /records/{recordId} {
+        allow read:   if isOwner();
+        allow create: if isOwner() && request.resource.data.date == recordId;
+        allow update: if isOwner() && request.resource.data.date == resource.data.date;
+        allow delete: if false;   // 不從前端硬刪
+      }
+    }
+
+    // 代號↔姓名對照（供儀表板顯示真名；僅擁有者）
+    match /roster/{doc} {
+      allow read, write: if isOwner();
+    }
+
+    // 預設：其餘全部禁止
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

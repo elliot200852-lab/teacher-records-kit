@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>學生紀錄</title>
+<style>
+  :root { --brand: #2F7AC4; --ok: #2f7a3d; --todo: #c8483e; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, "Noto Sans TC", sans-serif; background: #fafafa; color: #222; margin: 0; }
+  .shell { max-width: 920px; margin: 2rem auto; padding: 1rem 1.5rem; }
+  h1 { font-weight: 700; }
+  .auth, .meta { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; }
+  .auth { padding: 1.8rem; text-align: center; margin-top: 1rem; }
+  .auth button { padding: .7rem 1.6rem; background: var(--brand); color: #fff; border: none; border-radius: 6px; cursor: pointer; font: inherit; font-size: 1rem; }
+  .meta { display: flex; justify-content: space-between; align-items: center; padding: .8rem 1rem; margin: 1rem 0; flex-wrap: wrap; gap: .5rem; }
+  .meta button { padding: .4rem .9rem; background: #fff; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font: inherit; }
+  .month-summary strong { color: var(--brand); }
+  .student-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap: .7rem; margin-top: 1rem; }
+  .student-card { text-align: left; padding: .8rem 1rem; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; cursor: pointer; font: inherit; }
+  .student-card:hover { border-color: var(--brand); box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+  .student-card.is-todo { border-color: #f3c5c5; }
+  .sc-name { font-size: 1.05rem; font-weight: 600; }
+  .sc-id { font-size: .8rem; color: #999; margin-left: .4rem; }
+  .sc-meta { font-size: .8rem; color: #777; margin-top: .4rem; }
+  .badge { display: inline-block; margin-top: .5rem; padding: .15rem .6rem; border-radius: 999px; font-size: .78rem; font-weight: 600; }
+  .badge.done { background: #e6f3e8; color: var(--ok); }
+  .badge.todo { background: #fdeaea; color: var(--todo); }
+  .filter-row { margin-top: 1rem; font-size: .9rem; color: #555; }
+  .detail-head { display: flex; align-items: baseline; gap: .8rem; margin: 1rem 0; flex-wrap: wrap; }
+  .detail-head h2 { margin: 0; }
+  .back-link { background: none; border: none; color: var(--brand); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; }
+  .add-btn { padding: .35rem .9rem; background: var(--ok); color: #fff; border: none; border-radius: 4px; cursor: pointer; font: inherit; font-size: .85rem; }
+  .record-card { padding: 1rem 1.2rem; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: .9rem; }
+  .record-head { font-size: .9rem; color: #555; margin-bottom: .5rem; display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  .rc-date { font-weight: 600; color: #333; }
+  .record-tag { display: inline-block; margin-left: .4rem; padding: .1rem .5rem; background: #eef4fb; color: var(--brand); border-radius: 4px; font-size: .78rem; }
+  .record-body { margin: 0; line-height: 1.7; white-space: pre-wrap; word-wrap: break-word; }
+  .editor, #add-form { margin-top: .6rem; }
+  #add-form { background: #fff; border: 1px solid var(--ok); border-radius: 8px; padding: .9rem; margin-bottom: 1rem; }
+  .editor input, #add-form input, .editor textarea, #add-form textarea { width: 100%; padding: .45rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; margin-bottom: .4rem; }
+  .editor textarea, #add-form textarea { line-height: 1.6; resize: vertical; }
+  .add-row { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .add-row input[type=date] { width: auto; }
+  .add-row input.tags { flex: 1; min-width: 160px; }
+  .editbtns { display: flex; gap: .5rem; align-items: center; }
+  .editbtns button { padding: .35rem .9rem; border-radius: 4px; cursor: pointer; font: inherit; font-size: .85rem; }
+  .save { background: var(--brand); color: #fff; border: none; }
+  .cancel { background: #fff; color: #666; border: 1px solid #ccc; }
+  .msg { font-size: .8rem; color: #888; }
+  .flag em { color: #a0457f; font-size: .78rem; font-style: normal; }
+  .empty-state { padding: 2rem; text-align: center; color: #888; }
+  .rc-edit { padding: .25rem .7rem; background: #fff; border: 1px solid var(--brand); color: var(--brand); border-radius: 4px; cursor: pointer; font: inherit; font-size: .8rem; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <h1>學生紀錄</h1>
+  <p style="color:#666">只有擁有者本人能讀寫；資料受 Firestore 伺服器端規則保護。</p>
+
+  <div id="auth" class="auth">
+    <div id="auth-initial">
+      <p>請以擁有者的 Google 帳號登入。</p>
+      <button id="signin">Google 登入</button>
+    </div>
+    <div id="auth-wrong" hidden>
+      <p>此帳號 <strong id="wrong-email"></strong> 無權檢視。</p>
+      <button id="signout-wrong">登出換帳號</button>
+    </div>
+  </div>
+
+  <div id="content" hidden>
+    <div class="meta">
+      <span>登入身分：<strong id="who"></strong></span>
+      <span class="month-summary" id="month-summary"></span>
+      <button id="signout">登出</button>
+    </div>
+
+    <div id="overview">
+      <div class="filter-row"><label><input type="checkbox" id="filter-todo"> 只看本月還沒記的</label></div>
+      <div id="student-grid" class="student-grid"><div class="empty-state">載入中…</div></div>
+    </div>
+
+    <div id="detail" hidden>
+      <div class="detail-head">
+        <button class="back-link" id="back">← 回全班</button>
+        <h2 id="detail-name"></h2>
+        <button class="add-btn" id="add-record">＋ 新增一則紀錄</button>
+      </div>
+      <div id="add-form" hidden>
+        <div class="add-row">
+          <input id="add-date" type="date">
+          <input id="add-tags" class="tags" type="text" placeholder="#課堂 #學習">
+        </div>
+        <textarea id="add-body" rows="6" placeholder="觀察內容（客觀描述具體事件）…"></textarea>
+        <div class="editbtns"><button id="add-save" class="save">新增</button><button id="add-cancel" class="cancel">取消</button><span id="add-msg" class="msg"></span></div>
+      </div>
+      <div id="record-list"><div class="empty-state">載入中…</div></div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, query, orderBy, updateDoc, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { firebaseConfig, OWNER_EMAIL } from "./js/firebase-config.js";
+
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const $ = id => document.getElementById(id);
+const authBox = $('auth'), authInitial = $('auth-initial'), authWrong = $('auth-wrong'), wrongEmail = $('wrong-email');
+const content = $('content'), whoEl = $('who'), gridEl = $('student-grid'), overviewEl = $('overview'),
+  detailEl = $('detail'), recordListEl = $('record-list'), detailNameEl = $('detail-name'),
+  monthSummaryEl = $('month-summary'), filterTodo = $('filter-todo');
+
+$('signin').onclick = async () => {
+  const p = new GoogleAuthProvider(); p.addScope('email'); p.setCustomParameters({ prompt: 'select_account' });
+  try { await signInWithPopup(auth, p); } catch (e) { console.error(e); }
+};
+$('signout').onclick = () => signOut(auth);
+$('signout-wrong').onclick = () => signOut(auth);
+$('back').onclick = showOverview;
+filterTodo.onchange = renderGrid;
+
+let currentId = null;
+const existingDates = new Set();
+const addForm = $('add-form'), addBtn = $('add-record'), addDate = $('add-date'), addTags = $('add-tags'), addBody = $('add-body'), addMsg = $('add-msg');
+function todayStr() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+function thisYearMonth() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); }
+function closeAddForm() { addForm.hidden = true; addBtn.hidden = false; addMsg.textContent = ''; }
+addBtn.onclick = () => { addDate.value = todayStr(); addTags.value = ''; addBody.value = ''; addMsg.textContent = ''; addForm.hidden = false; addBtn.hidden = true; addBody.focus(); };
+$('add-cancel').onclick = closeAddForm;
+$('add-save').onclick = async (e) => {
+  const btn = e.currentTarget;
+  const date = (addDate.value || '').trim(), body = addBody.value.trim();
+  const tags = addTags.value.trim().split(/\s+/).filter(Boolean).map(t => t.startsWith('#') ? t : '#'+t);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { addMsg.textContent = '請選日期'; return; }
+  if (!body) { addMsg.textContent = '內容不能空白'; return; }
+  if (existingDates.has(date)) { addMsg.textContent = `${date} 已有一則，請改編輯或換日期`; return; }
+  btn.disabled = true; addMsg.textContent = '新增中…';
+  try {
+    await setDoc(doc(db,'students',currentId,'records',date),
+      { date, tags, body, editedOnWeb: true, webEditedAt: serverTimestamp() });
+    existingDates.add(date);
+    const empty = recordListEl.querySelector('.empty-state'); if (empty) recordListEl.innerHTML = '';
+    recordListEl.insertBefore(renderRecordCard(currentId, date, { date, tags, body, editedOnWeb: true }), recordListEl.firstChild);
+    btn.disabled = false; closeAddForm();
+  } catch (err) { console.error(err); addMsg.textContent = '新增失敗：' + (err?.message || err); btn.disabled = false; }
+};
+
+function ownerEmail(u) { return u?.email || u?.providerData?.find(p => p.providerId==='google.com')?.email || null; }
+
+let students = [];
+
+onAuthStateChanged(auth, async (user) => {
+  if (!user) { authBox.hidden = false; authInitial.hidden = false; authWrong.hidden = true; content.hidden = true; return; }
+  const email = ownerEmail(user);
+  if (email !== OWNER_EMAIL) { authBox.hidden = false; authInitial.hidden = true; authWrong.hidden = false; wrongEmail.textContent = email || '(no email)'; content.hidden = true; return; }
+  authBox.hidden = true; content.hidden = false; whoEl.textContent = email; await loadOverview();
+});
+
+async function loadOverview() {
+  gridEl.innerHTML = '<div class="empty-state">載入中…</div>';
+  try {
+    const rosterSnap = await getDoc(doc(db,'roster','main'));
+    const nameById = {};
+    if (rosterSnap.exists()) (rosterSnap.data().students || []).forEach(s => { nameById[s.id] = s.name; });
+    const studentsSnap = await getDocs(collection(db,'students'));
+    const statusById = {}; studentsSnap.forEach(d => { statusById[d.id] = d.data(); });
+    const ids = Object.keys(nameById).length ? Object.keys(nameById) : Object.keys(statusById);
+    students = ids.sort().map(id => {
+      const st = statusById[id] || {};
+      return { id, name: nameById[id] || id, monthsRecorded: st.monthsRecorded || [], lastRecordDate: st.lastRecordDate || null, recordCount: st.recordCount || 0 };
+    });
+    renderGrid();
+  } catch (err) { console.error(err); gridEl.innerHTML = `<div class="empty-state">載入失敗：${esc(err.message||String(err))}</div>`; }
+}
+
+function renderGrid() {
+  const ym = thisYearMonth();
+  const done = students.filter(s => s.monthsRecorded.includes(ym)).length;
+  monthSummaryEl.innerHTML = `本月（${ym}）已記 <strong>${done}</strong> ／ ${students.length}`;
+  const list = students.filter(s => !filterTodo.checked || !s.monthsRecorded.includes(ym));
+  if (!list.length) { gridEl.innerHTML = '<div class="empty-state">' + (filterTodo.checked ? '本月都記過了 🎉' : '尚無學生資料。') + '</div>'; return; }
+  gridEl.innerHTML = '';
+  list.forEach(s => {
+    const isDone = s.monthsRecorded.includes(ym);
+    const card = document.createElement('button');
+    card.className = 'student-card' + (isDone ? '' : ' is-todo');
+    card.innerHTML = `<div><span class="sc-name">${esc(s.name)}</span><span class="sc-id">${esc(s.id)}</span></div>
+      <div class="sc-meta">${s.recordCount} 則 · ${s.lastRecordDate ? '最後 ' + esc(s.lastRecordDate) : '尚無紀錄'}</div>
+      <span class="badge ${isDone?'done':'todo'}">${isDone?'本月已記':'本月未記'}</span>`;
+    card.onclick = () => showDetail(s);
+    gridEl.appendChild(card);
+  });
+}
+
+async function showDetail(s) {
+  overviewEl.hidden = true; detailEl.hidden = false; currentId = s.id;
+  detailNameEl.textContent = `${s.name}（${s.id}）`; closeAddForm(); existingDates.clear();
+  recordListEl.innerHTML = '<div class="empty-state">載入中…</div>';
+  try {
+    const snap = await getDocs(query(collection(db,'students',s.id,'records'), orderBy('date','desc')));
+    recordListEl.innerHTML = '';
+    if (snap.empty) { recordListEl.innerHTML = '<div class="empty-state">還沒有紀錄——點上方「＋ 新增一則紀錄」開始。</div>'; }
+    else snap.forEach(d => { const r = d.data(); if (r.date) existingDates.add(r.date); recordListEl.appendChild(renderRecordCard(s.id, d.id, r)); });
+  } catch (err) { console.error(err); recordListEl.innerHTML = `<div class="empty-state">載入失敗：${esc(err.message||String(err))}</div>`; }
+}
+
+function renderRecordCard(id, rid, r) {
+  const card = document.createElement('div'); card.className = 'record-card';
+  const tags = (r.tags||[]).map(t => `<span class="record-tag">${esc(t)}</span>`).join('');
+  const flag = r.editedOnWeb ? '<em>（已編輯，待同步）</em>' : '';
+  card.innerHTML = `<div class="record-head"><span><span class="rc-date">${esc(r.date||'')}</span> ${tags} <span class="flag">${flag}</span></span><button class="rc-edit">編輯</button></div>
+    <p class="record-body">${esc(r.body||'')}</p>
+    <div class="editor" hidden>
+      <input class="tags" type="text" value="${esc((r.tags||[]).join(' '))}" placeholder="#tag">
+      <textarea class="body-edit" rows="6">${esc(r.body||'')}</textarea>
+      <div class="editbtns"><button class="save">儲存</button><button class="cancel">取消</button><span class="msg"></span></div>
+    </div>`;
+  const bodyEl = card.querySelector('.record-body'), editorEl = card.querySelector('.editor'), editBtn = card.querySelector('.rc-edit'), msg = card.querySelector('.msg');
+  editBtn.onclick = () => { bodyEl.hidden = true; editorEl.hidden = false; editBtn.hidden = true; };
+  card.querySelector('.cancel').onclick = () => { bodyEl.hidden = false; editorEl.hidden = true; editBtn.hidden = false; };
+  card.querySelector('.save').onclick = async (e) => {
+    const btn = e.currentTarget; btn.disabled = true; msg.textContent = '儲存中…';
+    const nb = card.querySelector('.body-edit').value.trim();
+    const nt = card.querySelector('.editor .tags').value.trim().split(/\s+/).filter(Boolean).map(t => t.startsWith('#')?t:'#'+t);
+    try {
+      await updateDoc(doc(db,'students',id,'records',rid), { body: nb, tags: nt, editedOnWeb: true, webEditedAt: serverTimestamp() });
+      bodyEl.textContent = nb; card.querySelector('.flag').innerHTML = '<em>（已編輯，待同步）</em>';
+      bodyEl.hidden = false; editorEl.hidden = true; editBtn.hidden = false; msg.textContent = '';
+    } catch (err) { console.error(err); msg.textContent = '儲存失敗：' + (err?.message||err); btn.disabled = false; }
+  };
+  return card;
+}
+
+function showOverview() { detailEl.hidden = true; overviewEl.hidden = false; }
+function esc(s) { return (s ?? '').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+</script>
+</body>
+</html>

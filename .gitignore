@@ -1,0 +1,20 @@
+# ════════════════════════════════════════════════════════════════
+# 個資 / 機密 —— 這是 public repo，以下一律「絕不」上傳
+# ════════════════════════════════════════════════════════════════
+config.yaml                  # 你的設定（含 email / 專案 id）
+.env                         # SMTP App Password 等密鑰
+data/                        # 你真實的學生紀錄、名冊、家長通訊錄全放這裡
+*-key.json                   # 服務帳號金鑰
+serviceAccount*.json
+site/js/firebase-config.js   # 你真實的 Firebase 設定（範本是 firebase-config.example.js）
+.parent-emails-handled.tsv   # 已寄/略過紀錄
+*.prev.md                    # 回寫前的備份
+
+# ════════════════════════════════════════════════════════════════
+# 一般
+# ════════════════════════════════════════════════════════════════
+.DS_Store
+node_modules/
+__pycache__/
+*.pyc
+output/
