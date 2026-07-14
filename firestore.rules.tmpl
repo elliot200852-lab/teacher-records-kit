@@ -29,6 +29,14 @@ service cloud.firestore {
       }
     }
 
+    // 全班觀察（非針對單一學生的整班層次觀察；文件 id ＝ 日期）
+    match /class-observations/{recordId} {
+      allow read:   if isOwner();
+      allow create: if isOwner() && request.resource.data.date == recordId;
+      allow update: if isOwner() && request.resource.data.date == resource.data.date;
+      allow delete: if false;   // 不從前端硬刪
+    }
+
     // 代號↔姓名對照（供儀表板顯示真名；僅擁有者）
     match /roster/{doc} {
       allow read, write: if isOwner();

@@ -52,6 +52,9 @@
   .flag em { color: #a0457f; font-size: .78rem; font-style: normal; }
   .empty-state { padding: 2rem; text-align: center; color: #888; }
   .rc-edit { padding: .25rem .7rem; background: #fff; border: 1px solid var(--brand); color: var(--brand); border-radius: 4px; cursor: pointer; font: inherit; font-size: .8rem; }
+  .tag-chips { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0 0 .5rem; }
+  .tag-chips button { padding: .2rem .6rem; background: #eef4fb; color: var(--brand); border: 1px solid #d6e3f3; border-radius: 999px; cursor: pointer; font: inherit; font-size: .8rem; }
+  .tag-chips button.on { background: var(--brand); color: #fff; border-color: var(--brand); }
 </style>
 </head>
 <body>
@@ -63,6 +66,7 @@
     <div id="auth-initial">
       <p>請以擁有者的 Google 帳號登入。</p>
       <button id="signin">Google 登入</button>
+      <div id="auth-help" style="margin-top:1rem;font-size:.85rem;color:#777;line-height:1.7"></div>
     </div>
     <div id="auth-wrong" hidden>
       <p>此帳號 <strong id="wrong-email"></strong> 無權檢視。</p>
@@ -78,7 +82,10 @@
     </div>
 
     <div id="overview">
-      <div class="filter-row"><label><input type="checkbox" id="filter-todo"> 只看本月還沒記的</label></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem;margin-top:.6rem">
+        <div class="filter-row" style="margin-top:0"><label><input type="checkbox" id="filter-todo"> 只看本月還沒記的</label></div>
+        <button class="add-btn" id="open-class-obs" style="background:#5a6b8c">📋 全班觀察紀錄</button>
+      </div>
       <div id="student-grid" class="student-grid"><div class="empty-state">載入中…</div></div>
     </div>
 
@@ -91,9 +98,10 @@
       <div id="add-form" hidden>
         <div class="add-row">
           <input id="add-date" type="date">
-          <input id="add-tags" class="tags" type="text" placeholder="#課堂 #學習">
+          <input id="add-tags" class="tags" type="text" placeholder="點下方分類，或自己打 #標籤">
         </div>
-        <textarea id="add-body" rows="6" placeholder="觀察內容（客觀描述具體事件）…"></textarea>
+        <div id="tag-chips" class="tag-chips"></div>
+        <textarea id="add-body" rows="6" placeholder="觀察內容（客觀描述具體事件；請用代號、勿寫真名）…"></textarea>
         <div class="editbtns"><button id="add-save" class="save">新增</button><button id="add-cancel" class="cancel">取消</button><span id="add-msg" class="msg"></span></div>
       </div>
       <div id="record-list"><div class="empty-state">載入中…</div></div>
@@ -103,7 +111,7 @@
 
 <script type="module">
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, collection, getDocs, query, orderBy, updateDoc, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
@@ -119,37 +127,143 @@ const content = $('content'), whoEl = $('who'), gridEl = $('student-grid'), over
   detailEl = $('detail'), recordListEl = $('record-list'), detailNameEl = $('detail-name'),
   monthSummaryEl = $('month-summary'), filterTodo = $('filter-todo');
 
-$('signin').onclick = async () => {
+// ── 單租戶 Firestore 路徑（全部在頂層，只有擁有者能讀寫）──
+const rosterRef = () => doc(db, 'roster', 'main');
+const studentsCol = () => collection(db, 'students');
+const recordsCol = (id) => collection(db, 'students', id, 'records');
+const recordRef = (id, rid) => doc(db, 'students', id, 'records', rid);
+const classObsCol = () => collection(db, 'class-observations');
+const classObsRef = (rid) => doc(db, 'class-observations', rid);
+
+// ── 登入防呆：popup 失敗自動 redirect；App 內建瀏覽器導引到 Safari/Chrome ──
+const authHelp = $('auth-help');
+function authMsg(t) { if (authHelp) authHelp.innerHTML = `<span style="color:#b4654a">${esc(t)}</span>`; }
+function inAppBrowser() {
+  const ua = navigator.userAgent || '';
+  if (/\bLine\//i.test(ua)) return 'line';
+  if (/FBAN|FBAV|FB_IAB/i.test(ua)) return 'fb';
+  if (/Instagram/i.test(ua)) return 'ig';
+  if (/MicroMessenger/i.test(ua)) return 'wechat';
+  return null;
+}
+function externalBrowserUrl() {
+  try { const u = new URL(location.href); u.searchParams.set('openExternalBrowser', '1'); return u.toString(); }
+  catch (_) { return location.href; }
+}
+const cleanUrl = () => location.origin + location.pathname;
+function showStorageHelp() {
+  if (!authHelp) return;
+  authHelp.innerHTML =
+    `<div style="color:#8a5a3a;background:#fdf3e7;border:1px solid #eed9bd;border-radius:8px;padding:.7rem;text-align:left">
+       此瀏覽器（多半是 App 內建瀏覽器，如 LINE）無法完成 Google 登入。<br>
+       請改用 <strong>Safari 或 Chrome</strong> 開啟本頁再登入：<br>
+       <code style="word-break:break-all">${esc(cleanUrl())}</code><br>
+       <button id="auth-copy" style="margin-top:.5rem;padding:.4rem .8rem;font:inherit;cursor:pointer">複製網址</button>
+     </div>`;
+  const cp = $('auth-copy');
+  if (cp) cp.onclick = async () => { try { await navigator.clipboard.writeText(cleanUrl()); cp.textContent = '已複製 ✓'; } catch (_) { cp.textContent = '請手動複製上方網址'; } };
+}
+async function googleSignIn() {
   const p = new GoogleAuthProvider(); p.addScope('email'); p.setCustomParameters({ prompt: 'select_account' });
-  try { await signInWithPopup(auth, p); } catch (e) { console.error(e); }
-};
+  try { await signInWithPopup(auth, p); }
+  catch (e) {
+    console.error(e);
+    const code = (e && e.code) || '', msg = (e && e.message) || String(e);
+    if (/web-storage-unsupported/i.test(code) || /save initial state|sessionStorage/i.test(msg)) { showStorageHelp(); return; }
+    if (/popup|operation-not-supported|internal-error|cancelled/i.test(code)) {
+      try { await signInWithRedirect(auth, p); return; }
+      catch (e2) {
+        const m2 = (e2 && e2.message) || String(e2);
+        if (/save initial state|web-storage|sessionStorage/i.test(m2)) showStorageHelp();
+        else authMsg('登入失敗：' + m2);
+        return;
+      }
+    }
+    if (/network-request-failed/i.test(code)) { authMsg('網路連線不穩，請確認網路後再試一次。'); return; }
+    authMsg('登入失敗：' + msg);
+  }
+}
+$('signin').onclick = () => googleSignIn();
+// 內建瀏覽器：進站就提示（LINE 給一鍵跳外部；FB/IG/WeChat 給指引）
+(function initAuthHelp() {
+  const iab = inAppBrowser();
+  if (!authHelp || !iab) return;
+  if (iab === 'line') {
+    authHelp.innerHTML = `<div style="color:#8a5a3a;background:#fdf3e7;border:1px solid #eed9bd;border-radius:8px;padding:.7rem;text-align:left">您在 <strong>LINE 內建瀏覽器</strong>中，Google 登入常被擋。<br><button id="auth-ext" style="margin-top:.5rem;padding:.4rem .8rem;font:inherit;cursor:pointer">改用外部瀏覽器開啟本頁</button></div>`;
+    const eb = $('auth-ext'); if (eb) eb.onclick = () => { location.href = externalBrowserUrl(); };
+  } else {
+    const name = { fb: 'Facebook', ig: 'Instagram', wechat: 'WeChat' }[iab] || 'App';
+    authHelp.innerHTML = `<div style="color:#8a5a3a;background:#fdf3e7;border:1px solid #eed9bd;border-radius:8px;padding:.7rem;text-align:left">您在 <strong>${name} 內建瀏覽器</strong>中，Google 登入常被擋。請點右上角選單 →「以外部瀏覽器開啟」，再登入。</div>`;
+  }
+})();
+// 整頁轉址登入回來時完成（行動裝置 / 部分瀏覽器）
+getRedirectResult(auth).catch(e => {
+  const m = (e && e.message) || String(e);
+  if (/save initial state|web-storage|sessionStorage/i.test(m)) showStorageHelp(); else console.error(e);
+});
 $('signout').onclick = () => signOut(auth);
 $('signout-wrong').onclick = () => signOut(auth);
 $('back').onclick = showOverview;
 filterTodo.onchange = renderGrid;
 
-let currentId = null;
+let activeCtx = null;   // 目前開啟的紀錄來源：{ title, listCol:()=>Col, refFor:(rid)=>DocRef }
 const existingDates = new Set();
 const addForm = $('add-form'), addBtn = $('add-record'), addDate = $('add-date'), addTags = $('add-tags'), addBody = $('add-body'), addMsg = $('add-msg');
 function todayStr() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 function thisYearMonth() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); }
+// 標籤正規化：去掉開頭多餘的 #（避免 ##重複）、統一單一 #、去重
+function normalizeTags(str) {
+  const seen = new Set(), out = [];
+  (str || '').split(/[\s,]+/).forEach(raw => {
+    const t = raw.replace(/^#+/, '').trim();
+    if (!t) return;
+    const tag = '#' + t;
+    if (!seen.has(tag)) { seen.add(tag); out.push(tag); }
+  });
+  return out;
+}
 function closeAddForm() { addForm.hidden = true; addBtn.hidden = false; addMsg.textContent = ''; }
-addBtn.onclick = () => { addDate.value = todayStr(); addTags.value = ''; addBody.value = ''; addMsg.textContent = ''; addForm.hidden = false; addBtn.hidden = true; addBody.focus(); };
+addBtn.onclick = () => { addDate.value = todayStr(); addTags.value = ''; addBody.value = ''; addMsg.textContent = ''; addForm.hidden = false; addBtn.hidden = true; renderChips(); addBody.focus(); };
 $('add-cancel').onclick = closeAddForm;
+$('open-class-obs').onclick = () => showClassObs();
+
+// 題材分類快速鍵（起手式清單——請改成適合你科目/年段的分類）
+const CATEGORIES = ['#課堂','#學習態度','#人際','#情緒','#專注意志','#語文','#數學','#藝術','#體能','#生活自理'];
+const tagChipsEl = $('tag-chips');
+function currentTagSet() { return new Set(normalizeTags(addTags.value)); }
+function renderChips() {
+  if (!tagChipsEl) return;
+  const on = currentTagSet();
+  tagChipsEl.innerHTML = '';
+  CATEGORIES.forEach(cat => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = cat;
+    if (on.has(cat)) b.classList.add('on');
+    b.onclick = () => {
+      const set = currentTagSet();
+      set.has(cat) ? set.delete(cat) : set.add(cat);
+      addTags.value = [...set].join(' ');
+      renderChips();
+    };
+    tagChipsEl.appendChild(b);
+  });
+}
+addTags.addEventListener('input', renderChips);
+
 $('add-save').onclick = async (e) => {
   const btn = e.currentTarget;
+  if (!activeCtx) return;
   const date = (addDate.value || '').trim(), body = addBody.value.trim();
-  const tags = addTags.value.trim().split(/\s+/).filter(Boolean).map(t => t.startsWith('#') ? t : '#'+t);
+  const tags = normalizeTags(addTags.value);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { addMsg.textContent = '請選日期'; return; }
   if (!body) { addMsg.textContent = '內容不能空白'; return; }
   if (existingDates.has(date)) { addMsg.textContent = `${date} 已有一則，請改編輯或換日期`; return; }
   btn.disabled = true; addMsg.textContent = '新增中…';
   try {
-    await setDoc(doc(db,'students',currentId,'records',date),
+    await setDoc(activeCtx.refFor(date),
       { date, tags, body, editedOnWeb: true, webEditedAt: serverTimestamp() });
     existingDates.add(date);
     const empty = recordListEl.querySelector('.empty-state'); if (empty) recordListEl.innerHTML = '';
-    recordListEl.insertBefore(renderRecordCard(currentId, date, { date, tags, body, editedOnWeb: true }), recordListEl.firstChild);
+    recordListEl.insertBefore(renderRecordCard(date, { date, tags, body, editedOnWeb: true }), recordListEl.firstChild);
     btn.disabled = false; closeAddForm();
   } catch (err) { console.error(err); addMsg.textContent = '新增失敗：' + (err?.message || err); btn.disabled = false; }
 };
@@ -168,10 +282,10 @@ onAuthStateChanged(auth, async (user) => {
 async function loadOverview() {
   gridEl.innerHTML = '<div class="empty-state">載入中…</div>';
   try {
-    const rosterSnap = await getDoc(doc(db,'roster','main'));
+    const rosterSnap = await getDoc(rosterRef());
     const nameById = {};
     if (rosterSnap.exists()) (rosterSnap.data().students || []).forEach(s => { nameById[s.id] = s.name; });
-    const studentsSnap = await getDocs(collection(db,'students'));
+    const studentsSnap = await getDocs(studentsCol());
     const statusById = {}; studentsSnap.forEach(d => { statusById[d.id] = d.data(); });
     const ids = Object.keys(nameById).length ? Object.keys(nameById) : Object.keys(statusById);
     students = ids.sort().map(id => {
@@ -201,19 +315,34 @@ function renderGrid() {
   });
 }
 
-async function showDetail(s) {
-  overviewEl.hidden = true; detailEl.hidden = false; currentId = s.id;
-  detailNameEl.textContent = `${s.name}（${s.id}）`; closeAddForm(); existingDates.clear();
+function showDetail(s) {
+  openRecords({
+    title: `${s.name}（${s.id}）`,
+    listCol: () => recordsCol(s.id),
+    refFor: (rid) => recordRef(s.id, rid),
+  });
+}
+function showClassObs() {
+  openRecords({
+    title: '全班觀察紀錄',
+    listCol: () => classObsCol(),
+    refFor: (rid) => classObsRef(rid),
+  });
+}
+async function openRecords(ctx) {
+  activeCtx = ctx;
+  overviewEl.hidden = true; detailEl.hidden = false;
+  detailNameEl.textContent = ctx.title; closeAddForm(); existingDates.clear();
   recordListEl.innerHTML = '<div class="empty-state">載入中…</div>';
   try {
-    const snap = await getDocs(query(collection(db,'students',s.id,'records'), orderBy('date','desc')));
+    const snap = await getDocs(query(ctx.listCol(), orderBy('date','desc')));
     recordListEl.innerHTML = '';
     if (snap.empty) { recordListEl.innerHTML = '<div class="empty-state">還沒有紀錄——點上方「＋ 新增一則紀錄」開始。</div>'; }
-    else snap.forEach(d => { const r = d.data(); if (r.date) existingDates.add(r.date); recordListEl.appendChild(renderRecordCard(s.id, d.id, r)); });
+    else snap.forEach(d => { const r = d.data(); if (r.date) existingDates.add(r.date); recordListEl.appendChild(renderRecordCard(d.id, r)); });
   } catch (err) { console.error(err); recordListEl.innerHTML = `<div class="empty-state">載入失敗：${esc(err.message||String(err))}</div>`; }
 }
 
-function renderRecordCard(id, rid, r) {
+function renderRecordCard(rid, r) {
   const card = document.createElement('div'); card.className = 'record-card';
   const tags = (r.tags||[]).map(t => `<span class="record-tag">${esc(t)}</span>`).join('');
   const flag = r.editedOnWeb ? '<em>（已編輯，待同步）</em>' : '';
@@ -230,9 +359,9 @@ function renderRecordCard(id, rid, r) {
   card.querySelector('.save').onclick = async (e) => {
     const btn = e.currentTarget; btn.disabled = true; msg.textContent = '儲存中…';
     const nb = card.querySelector('.body-edit').value.trim();
-    const nt = card.querySelector('.editor .tags').value.trim().split(/\s+/).filter(Boolean).map(t => t.startsWith('#')?t:'#'+t);
+    const nt = normalizeTags(card.querySelector('.editor .tags').value);
     try {
-      await updateDoc(doc(db,'students',id,'records',rid), { body: nb, tags: nt, editedOnWeb: true, webEditedAt: serverTimestamp() });
+      await updateDoc(activeCtx.refFor(rid), { body: nb, tags: nt, editedOnWeb: true, webEditedAt: serverTimestamp() });
       bodyEl.textContent = nb; card.querySelector('.flag').innerHTML = '<em>（已編輯，待同步）</em>';
       bodyEl.hidden = false; editorEl.hidden = true; editBtn.hidden = false; msg.textContent = '';
     } catch (err) { console.error(err); msg.textContent = '儲存失敗：' + (err?.message||err); btn.disabled = false; }

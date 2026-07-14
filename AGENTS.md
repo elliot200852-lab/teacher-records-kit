@@ -24,6 +24,7 @@
 1. 問老師的**擁有者 Google email**（之後只有這個帳號能讀寫）。
 2. 引導他到 [Firebase Console](https://console.firebase.google.com)：建立專案（或用現有的）→ 建立 **Firestore Database**（正式模式）→ 在 **Authentication** 啟用 **Google** 登入。
 3. 在專案設定加一個**網頁 App**，取得 web config（apiKey 等）。
+   - ⚠️ **iOS Safari 防坑**：若老師會用 Firebase Hosting 上線（第 3 步 A 的變體 / `<project>.web.app`），建議把 `authDomain` 設成**與 hosting 同源**的網域（如 `<project>.web.app`）。否則 iOS Safari 的跨網域儲存分區會讓 Google 登入壞掉。見 `docs/REPORT.md` Troubleshooting。
 4. 把資料寫進兩個檔（都 gitignored）：
    - `cp config.example.yaml config.yaml`，填 `owner_email`、`firebase.*`。
    - `cp site/js/firebase-config.example.js site/js/firebase-config.js`，貼上 web config + `OWNER_EMAIL`。
@@ -57,6 +58,9 @@
      - 為每位學生建 `data/students/<代號>/observations.md`（參考 `templates/observation.example.md`）。
 2. **提醒老師哪些還沒做**：列出目前沒有任何紀錄的學生，建議先從幾位開始。
 3. 告訴他：之後要記錄，可直接在**網頁儀表板**點學生「＋新增」，或（進階）寫進本機 `observations.md` 再同步。
+4. 順帶告訴他兩個好用功能：
+   - **題材分類快速鍵**：新增紀錄時，內容框上方有一排 `#標籤` 按鈕，點一下即加入（可改成適合他科目的分類——在 `site/dashboard.html` 的 `CATEGORIES` 陣列）。
+   - **全班觀察紀錄**：全班一覽頁右上「📋 全班觀察紀錄」記錄不針對單一學生的整班層次觀察，資料模型與學生紀錄相同。
 
 ## 第 5 步（選用·進階）：本機同步 + 寄家長 + 提醒
 
@@ -66,6 +70,7 @@
 - **寄家長信**：問家長 email 來源 → 填 `data/contacts.csv`（參考 `templates/contacts.example.csv`）+ 設定 `email`（SMTP App Password 放環境變數 `KIT_SMTP_APP_PASSWORD` 或 `.env`）。寄信用 `python3 scripts/parent_email.py --id S-01 --date <日期> --subject ... --body-file ...`；**一律先把改寫稿給老師看、確認才寄**。
 - **待寄提醒**：`python3 scripts/pending.py` 列出有觀察但還沒處理寄家長的紀錄；老師說不用就 `python3 scripts/pending.py --mark <代號> <日期> skip`。
 - **每月提醒**：`python3 scripts/monthly_reminder.py` 把本月未記名單寄給老師。
+- **期末匯出取材**：`python3 scripts/export_records.py`（讀 `config.yaml` 的 `firebase.project_id`，需 `gcloud auth login`）。把全班歷次觀察＋全班觀察匯出成 Markdown，供撰寫期末評量。常用旗標：`--out FILE` 寫檔、`--json` 結構化、`--by-tag` 依題材分組、`--id S-01` 只抓一位、`--split DIR` 逐生備份（含 `roster.md`）。這是「拿資料去寫評量」，唯讀不會動到雲端資料。
 
 ## 完成檢查
 

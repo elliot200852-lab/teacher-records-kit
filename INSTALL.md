@@ -10,6 +10,7 @@
 2. **填設定**
    - `cp config.example.yaml config.yaml`，填 `owner_email`、`firebase.*`。
    - `cp site/js/firebase-config.example.js site/js/firebase-config.js`，貼上 web config，設好 `OWNER_EMAIL`。
+   - **iOS Safari 防坑**：若你用 Firebase Hosting 上線，把 `authDomain` 設成與 hosting 同源的網域（如 `<project>.web.app`），避免 iOS Safari 登入失敗（見 `docs/REPORT.md` Troubleshooting）。
 3. **部署規則**
    - 把 `firestore.rules.tmpl` 的 `{{OWNER_EMAIL}}` 換成你的 email → 存成 `firestore.rules`。
    - `npm i -g firebase-tools && firebase login`
@@ -32,6 +33,7 @@
    - 待寄清單：`python3 scripts/pending.py`
    - 寄家長：`python3 scripts/parent_email.py --id S-01 --date 2026-09-15 --subject "..." --body-file msg.txt`（先 `--dry-run`）
    - 每月提醒：`python3 scripts/monthly_reminder.py --dry-run`
+   - 期末匯出取材：`python3 scripts/export_records.py --out ~/records.md`（`--by-tag` 依題材、`--id S-01` 單生、`--split DIR` 逐生備份、`--json` 結構化）
 5. 排程（每日同步 / 每月提醒）：用 cron 或 macOS launchd 定時跑上面指令。
 
 ## 隱私檢查（重要）
