@@ -7,6 +7,7 @@ data/                        # 你真實的學生紀錄、名冊、家長通訊�
 *-key.json                   # 服務帳號金鑰
 serviceAccount*.json
 site/js/firebase-config.js   # 你真實的 Firebase 設定（範本是 firebase-config.example.js）
+firestore.rules              # 你的規則產生檔（{{OWNER_EMAIL}} 已換成真實 email）；正本是 firestore.rules.tmpl
 .parent-emails-handled.tsv   # 已寄/略過紀錄
 *.prev.md                    # 回寫前的備份
 
