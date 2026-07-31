@@ -113,7 +113,7 @@
 import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, collection, getDocs, query, orderBy, updateDoc, serverTimestamp }
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, query, orderBy, limit, getCountFromServer, updateDoc, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { firebaseConfig, OWNER_EMAIL } from "./js/firebase-config.js";
 
@@ -264,9 +264,21 @@ $('add-save').onclick = async (e) => {
     existingDates.add(date);
     const empty = recordListEl.querySelector('.empty-state'); if (empty) recordListEl.innerHTML = '';
     recordListEl.insertBefore(renderRecordCard(date, { date, tags, body, editedOnWeb: true }), recordListEl.firstChild);
+    bumpAfterAdd(activeCtx.sid, date);   // 回全班時計數／徽章就是新的（重新整理時會重算）
     btn.disabled = false; closeAddForm();
   } catch (err) { console.error(err); addMsg.textContent = '新增失敗：' + (err?.message || err); btn.disabled = false; }
 };
+
+// 網頁新增成功後，就地把該生的計數加一並重繪總覽（全班觀察沒有卡片，sid 為空就跳過）。
+// 只求即時、不求權威——重新整理時 deriveCounts() 會從 Firestore 重算。
+function bumpAfterAdd(sid, date) {
+  if (!sid) return;
+  const s = students.find(x => x.id === sid);
+  if (!s) return;
+  s.recordCount += 1;
+  if (!s.lastRecordDate || date > s.lastRecordDate) s.lastRecordDate = date;
+  renderGrid();
+}
 
 function ownerEmail(u) { return u?.email || u?.providerData?.find(p => p.providerId==='google.com')?.email || null; }
 
@@ -279,6 +291,28 @@ onAuthStateChanged(auth, async (user) => {
   authBox.hidden = true; content.hidden = false; whoEl.textContent = email; await loadOverview();
 });
 
+// ── 計數／最後日期：讀取時即時衍生，不看 students/{id} 上的摘要欄位 ──
+// 那三個欄位（recordCount / lastRecordDate / monthsRecorded）只有進階腳本 sync.py 會寫。
+// 純網頁模式（README 與說明書都說「多數人夠用」的那個模式）下沒有任何東西會更新它們，
+// 於是記了一整個月，每張卡片還是「0 則 · 尚無紀錄 · 本月未記」——全班一覽整片是死的。
+// 改成每位學生發 1 次 count 聚合 ＋ 1 筆 limit(1)：不必改規則、不必跑腳本、不新增寫入者。
+// （摘要欄位保留不動，sync.py 仍可寫，只是儀表板不再依賴它。）
+async function deriveCounts(id) {
+  const col = recordsCol(id);
+  const [recordCount, lastRecordDate] = await Promise.all([
+    getCountFromServer(col).then(s => s.data().count).catch(e => { console.error(e); return 0; }),
+    getDocs(query(col, orderBy('date', 'desc'), limit(1)))
+      .then(s => s.empty ? '' : (s.docs[0].data().date || ''))
+      .catch(e => { console.error(e); return ''; }),
+  ]);
+  return { recordCount, lastRecordDate };
+}
+// 「本月已記」＝最後一則落在本月一號之後。日期填成未來月份時會提早變綠，
+// 那是罕見誤填，不值得為它每位學生多打一次查詢。
+function recordedThisMonth(lastRecordDate) {
+  return !!lastRecordDate && lastRecordDate >= thisYearMonth() + '-01';
+}
+
 async function loadOverview() {
   gridEl.innerHTML = '<div class="empty-state">載入中…</div>';
   try {
@@ -286,25 +320,28 @@ async function loadOverview() {
     const nameById = {};
     if (rosterSnap.exists()) (rosterSnap.data().students || []).forEach(s => { nameById[s.id] = s.name; });
     const studentsSnap = await getDocs(studentsCol());
-    const statusById = {}; studentsSnap.forEach(d => { statusById[d.id] = d.data(); });
-    const ids = Object.keys(nameById).length ? Object.keys(nameById) : Object.keys(statusById);
-    students = ids.sort().map(id => {
-      const st = statusById[id] || {};
-      return { id, name: nameById[id] || id, monthsRecorded: st.monthsRecorded || [], lastRecordDate: st.lastRecordDate || null, recordCount: st.recordCount || 0 };
-    });
+    const idSet = new Set(Object.keys(nameById));
+    studentsSnap.forEach(d => idSet.add(d.id));   // 名冊沒有、但已有紀錄的代號也要列出
+    const ids = [...idSet].sort();
+    const derived = await Promise.all(ids.map(deriveCounts));
+    students = ids.map((id, i) => ({
+      id, name: nameById[id] || id,
+      recordCount: derived[i].recordCount,
+      lastRecordDate: derived[i].lastRecordDate,
+    }));
     renderGrid();
   } catch (err) { console.error(err); gridEl.innerHTML = `<div class="empty-state">載入失敗：${esc(err.message||String(err))}</div>`; }
 }
 
 function renderGrid() {
   const ym = thisYearMonth();
-  const done = students.filter(s => s.monthsRecorded.includes(ym)).length;
+  const done = students.filter(s => recordedThisMonth(s.lastRecordDate)).length;
   monthSummaryEl.innerHTML = `本月（${ym}）已記 <strong>${done}</strong> ／ ${students.length}`;
-  const list = students.filter(s => !filterTodo.checked || !s.monthsRecorded.includes(ym));
+  const list = students.filter(s => !filterTodo.checked || !recordedThisMonth(s.lastRecordDate));
   if (!list.length) { gridEl.innerHTML = '<div class="empty-state">' + (filterTodo.checked ? '本月都記過了 🎉' : '尚無學生資料。') + '</div>'; return; }
   gridEl.innerHTML = '';
   list.forEach(s => {
-    const isDone = s.monthsRecorded.includes(ym);
+    const isDone = recordedThisMonth(s.lastRecordDate);
     const card = document.createElement('button');
     card.className = 'student-card' + (isDone ? '' : ' is-todo');
     card.innerHTML = `<div><span class="sc-name">${esc(s.name)}</span><span class="sc-id">${esc(s.id)}</span></div>
@@ -317,6 +354,7 @@ function renderGrid() {
 
 function showDetail(s) {
   openRecords({
+    sid: s.id,                       // 新增成功後就地更新該生的計數／徽章用
     title: `${s.name}（${s.id}）`,
     listCol: () => recordsCol(s.id),
     refFor: (rid) => recordRef(s.id, rid),
