@@ -49,6 +49,22 @@ service cloud.firestore {
       allow delete: if false;   // 不從前端硬刪
     }
 
+    // 課程（主課程／科任）── 2026-07-31 加。
+    // 課程卡本身 owner 可讀可寫：單租戶下 owner 就是唯一寫入者，沒有「防竄改計數」
+    // 這個問題（計數也不存在文件上，儀表板是開頁即時算的）。這讓老師純用網頁就能建課程，
+    // 不必為了建一門課去裝 gcloud——這是本 kit 的前提。
+    match /courses/{courseId} {
+      allow read, write: if isOwner();
+
+      // 單則課程紀錄：規則與 students/{id}/records 完全同款
+      match /records/{recordId} {
+        allow read:   if isOwner();
+        allow create: if isOwner() && validRid(recordId, request.resource.data.date);
+        allow update: if isOwner() && request.resource.data.date == resource.data.date;
+        allow delete: if false;   // 不從前端硬刪
+      }
+    }
+
     // 代號↔姓名對照（供儀表板顯示真名；僅擁有者）
     match /roster/{doc} {
       allow read, write: if isOwner();

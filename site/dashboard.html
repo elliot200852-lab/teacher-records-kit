@@ -55,6 +55,23 @@
   .tag-chips { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0 0 .5rem; }
   .tag-chips button { padding: .2rem .6rem; background: #eef4fb; color: var(--brand); border: 1px solid #d6e3f3; border-radius: 999px; cursor: pointer; font: inherit; font-size: .8rem; }
   .tag-chips button.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+  /* ── 分頁列（學生觀察／課程紀錄）── */
+  .tab-bar { display: flex; gap: .3rem; margin-top: 1.2rem; border-bottom: 2px solid #e0e0e0; flex-wrap: wrap; }
+  .tab-btn { padding: .5rem 1.1rem; background: none; border: none; cursor: pointer; font: inherit; font-size: 1rem; color: #666; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+  .tab-btn.active { color: #1f5c96; border-bottom-color: var(--brand); font-weight: 600; }
+
+  /* ── 課程紀錄分頁 ── */
+  .courses-toolbar { margin-top: 1rem; }
+  .section-head { font-size: 1.05rem; font-weight: 700; color: #333; margin: 1.4rem 0 .2rem; }
+  .season-head { font-size: .95rem; font-weight: 600; color: #555; margin: 1.1rem 0 .2rem; }
+  .chip { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .75rem; margin-right: .35rem; background: #f0f0f0; color: #666; }
+  .course-card .cc-chips { margin-top: .45rem; }
+  #new-course-form { background: #fff; border: 1px solid var(--ok); border-radius: 8px; padding: .9rem; margin: .6rem 0 1rem; }
+  #new-course-form input, #new-course-form select { width: 100%; padding: .45rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; margin-bottom: .4rem; background: #fff; }
+  #new-course-form .nc-row { display: flex; gap: .5rem; flex-wrap: wrap; }
+  #new-course-form .nc-row > * { flex: 1; min-width: 130px; }
+  .nc-hint { font-size: .8rem; color: #888; margin: 0 0 .5rem; line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -82,11 +99,44 @@
     </div>
 
     <div id="overview">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem;margin-top:.6rem">
-        <div class="filter-row" style="margin-top:0"><label><input type="checkbox" id="filter-todo"> 只看本月還沒記的</label></div>
-        <button class="add-btn" id="open-class-obs" style="background:#5a6b8c">📋 全班觀察紀錄</button>
+      <div class="tab-bar">
+        <button class="tab-btn active" id="tab-students">學生觀察</button>
+        <button class="tab-btn" id="tab-courses">課程紀錄</button>
       </div>
-      <div id="student-grid" class="student-grid"><div class="empty-state">載入中…</div></div>
+
+      <!-- 分頁一：學生觀察（預設） -->
+      <div id="pane-students">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem;margin-top:.6rem">
+          <div class="filter-row" style="margin-top:0"><label><input type="checkbox" id="filter-todo"> 只看本月還沒記的</label></div>
+          <button class="add-btn" id="open-class-obs" style="background:#5a6b8c">📋 全班觀察紀錄</button>
+        </div>
+        <div id="student-grid" class="student-grid"><div class="empty-state">載入中…</div></div>
+      </div>
+
+      <!-- 分頁二：課程紀錄（首次點入才載入） -->
+      <div id="pane-courses" hidden>
+        <div class="courses-toolbar">
+          <button class="add-btn" id="add-course-btn">＋ 新增課程</button>
+        </div>
+        <div id="new-course-form" hidden>
+          <p class="nc-hint">「課程」是你想分開記的一門課或一段教學（如某一塊主課程、某一門科任課）。
+            只有課程名稱是必填，其餘留空就好——留空的欄位不會顯示。</p>
+          <input id="nc-title" type="text" placeholder="課程名稱（必填），例如：分數、地方探究、音樂">
+          <div class="nc-row">
+            <select id="nc-kind">
+              <option value="main">主課程／教學區塊</option>
+              <option value="subject">科任／各科</option>
+            </select>
+            <input id="nc-season" type="text" placeholder="學季（選填）如 秋">
+          </div>
+          <div class="nc-row">
+            <input id="nc-weeks" type="text" placeholder="週次（選填）如 秋1–3">
+            <input id="nc-teacher" type="text" placeholder="授課老師（選填）">
+          </div>
+          <div class="editbtns"><button id="nc-save" class="save">建立</button><button id="nc-cancel" class="cancel">取消</button><span id="nc-msg" class="msg"></span></div>
+        </div>
+        <div id="course-sections"><div class="empty-state">載入中…</div></div>
+      </div>
     </div>
 
     <div id="detail" hidden>
@@ -134,6 +184,12 @@ const recordsCol = (id) => collection(db, 'students', id, 'records');
 const recordRef = (id, rid) => doc(db, 'students', id, 'records', rid);
 const classObsCol = () => collection(db, 'class-observations');
 const classObsRef = (rid) => doc(db, 'class-observations', rid);
+// 課程（主課程／科任）。單租戶下 owner 就是唯一寫入者，所以課程卡直接從網頁建，
+// 不必為了建一門課去裝 gcloud 或跑腳本——「純網頁模式就夠用」是這套的前提。
+const coursesCol = () => collection(db, 'courses');
+const courseRef = (cid) => doc(db, 'courses', cid);
+const courseRecordsCol = (cid) => collection(db, 'courses', cid, 'records');
+const courseRecordRef = (cid, rid) => doc(db, 'courses', cid, 'records', rid);
 
 // ── 登入防呆：popup 失敗自動 redirect；App 內建瀏覽器導引到 Safari/Chrome ──
 const authHelp = $('auth-help');
@@ -203,7 +259,7 @@ getRedirectResult(auth).catch(e => {
 });
 $('signout').onclick = () => signOut(auth);
 $('signout-wrong').onclick = () => signOut(auth);
-$('back').onclick = showOverview;
+$('back').onclick = () => showOverview(activeCtx && activeCtx.tab);
 filterTodo.onchange = renderGrid;
 
 let activeCtx = null;   // 目前開啟的紀錄來源：{ sid, title, listCol:()=>Col, refFor:(rid)=>DocRef }
@@ -292,7 +348,7 @@ $('add-save').onclick = async (e) => {
     existingRids.add(rid);
     const empty = recordListEl.querySelector('.empty-state'); if (empty) recordListEl.innerHTML = '';
     recordListEl.insertBefore(renderRecordCard(rid, { date, tags, body, editedOnWeb: true }), recordListEl.firstChild);
-    bumpAfterAdd(activeCtx.sid, date);   // 回全班時計數／徽章就是新的（重新整理時會重算）
+    if (activeCtx.bump) activeCtx.bump(date);   // 回上一層時計數／徽章就是新的
     pendingRid = pendingRidDate = null;
     btn.disabled = false; closeAddForm();
   } catch (err) {
@@ -308,15 +364,166 @@ $('add-save').onclick = async (e) => {
   }
 };
 
-// 網頁新增成功後，就地把該生的計數加一並重繪總覽（全班觀察沒有卡片，sid 為空就跳過）。
-// 只求即時、不求權威——重新整理時 deriveCounts() 會從 Firestore 重算。
-function bumpAfterAdd(sid, date) {
-  if (!sid) return;
-  const s = students.find(x => x.id === sid);
-  if (!s) return;
-  s.recordCount += 1;
-  if (!s.lastRecordDate || date > s.lastRecordDate) s.lastRecordDate = date;
-  renderGrid();
+// 網頁新增成功後就地把計數加一並重繪（只求即時、不求權威——重新整理時會重算）。
+function bumpItem(list, key, date, rerender) {
+  const it = list.find(x => x.id === key);
+  if (!it) return;
+  it.recordCount += 1;
+  if (!it.lastRecordDate || date > it.lastRecordDate) it.lastRecordDate = date;
+  rerender();
+}
+
+// ══ 分頁：學生觀察／課程紀錄 ══════════════════════════════════════════
+const tabStudentsBtn = $('tab-students'), tabCoursesBtn = $('tab-courses'),
+  paneStudentsEl = $('pane-students'), paneCoursesEl = $('pane-courses'),
+  courseSectionsEl = $('course-sections'), addCourseBtn = $('add-course-btn'),
+  newCourseForm = $('new-course-form'), ncMsg = $('nc-msg');
+
+function setTab(tab) {
+  const isCourses = tab === 'courses';
+  tabStudentsBtn.classList.toggle('active', !isCourses);
+  tabCoursesBtn.classList.toggle('active', isCourses);
+  paneStudentsEl.hidden = isCourses;
+  paneCoursesEl.hidden = !isCourses;
+  if (isCourses && !coursesLoaded) loadCourses();
+}
+tabStudentsBtn.onclick = () => setTab('students');
+tabCoursesBtn.onclick = () => setTab('courses');
+
+// ══ 課程 ═════════════════════════════════════════════════════════════
+// 課程是「你想分開記的一門課或一段教學」。學季（season）完全是選填——
+// 這個 kit 給任何學制、任何科目的老師用，不預設四季主課程那套。
+// 有人填了季節就按季節分組顯示，沒人填就是一份平鋪清單。
+let courses = [], coursesLoaded = false;
+
+function courseSort(a, b) {
+  return (a.order || 0) - (b.order || 0) || (a.title || a.id).localeCompare(b.title || b.id);
+}
+
+async function loadCourses() {
+  courseSectionsEl.innerHTML = '<div class="empty-state">載入中…</div>';
+  try {
+    const snap = await getDocs(coursesCol());
+    const list = [];
+    snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+    const derived = await Promise.all(list.map(c => deriveCounts(courseRecordsCol(c.id))));
+    list.forEach((c, i) => { c.recordCount = derived[i].recordCount; c.lastRecordDate = derived[i].lastRecordDate; });
+    courses = list; coursesLoaded = true;
+    renderCourses();
+  } catch (err) {
+    console.error(err);
+    // 網頁是靜態檔、一更新就生效；規則要人工重新部署。中間那段時間 courses 會落在
+    // 「其餘全部禁止」那條底下 → 與其丟 Firebase 原文，不如直接講怎麼修。
+    const denied = /permission-denied|insufficient permissions/i
+      .test(`${err?.code || ''} ${err?.message || ''}`);
+    courseSectionsEl.innerHTML = denied
+      ? '<div class="empty-state">讀不到課程——你的安全規則還沒有 <code>courses</code> 區塊。<br>請把最新的 <code>firestore.rules</code> 重新部署一次，再重新整理本頁。</div>'
+      : `<div class="empty-state">載入失敗：${esc(err.message || String(err))}</div>`;
+    // coursesLoaded 保持 false → 下次切回本分頁自動重試
+  }
+}
+
+function renderCourses() {
+  courseSectionsEl.innerHTML = '';
+  if (!courses.length) {
+    courseSectionsEl.innerHTML = '<div class="empty-state">還沒有課程——點上方「＋ 新增課程」建第一門。</div>';
+    return;
+  }
+  const groups = [['main', '【主課程／教學區塊】'], ['subject', '【科任／各科】']];
+  const others = courses.filter(c => c.kind !== 'main' && c.kind !== 'subject');
+  groups.forEach(([kind, label]) => {
+    const inKind = courses.filter(c => c.kind === kind);
+    if (!inKind.length) return;
+    appendHead('section-head', label);
+    // 季節是選填：這一類底下有人填了才分組，沒有就直接平鋪
+    const seasons = [...new Set(inKind.map(c => c.season).filter(Boolean))];
+    if (!seasons.length) { appendGrid(inKind.slice().sort(courseSort)); return; }
+    seasons.sort((a, b) => {
+      const ia = Math.min(...inKind.filter(c => c.season === a).map(c => c.order || 0));
+      const ib = Math.min(...inKind.filter(c => c.season === b).map(c => c.order || 0));
+      return ia - ib || a.localeCompare(b);
+    });
+    seasons.forEach(se => {
+      appendHead('season-head', se);
+      appendGrid(inKind.filter(c => c.season === se).sort(courseSort));
+    });
+    const noSeason = inKind.filter(c => !c.season).sort(courseSort);
+    if (noSeason.length) { appendHead('season-head', '（未指定學季）'); appendGrid(noSeason); }
+  });
+  if (others.length) { appendHead('section-head', '【其他】'); appendGrid(others.slice().sort(courseSort)); }
+}
+function appendHead(cls, text) {
+  const h = document.createElement('h3'); h.className = cls; h.textContent = text;
+  courseSectionsEl.appendChild(h);
+}
+function appendGrid(list) {
+  const grid = document.createElement('div'); grid.className = 'student-grid';
+  list.forEach(c => grid.appendChild(renderCourseCard(c)));
+  courseSectionsEl.appendChild(grid);
+}
+function renderCourseCard(c) {
+  const card = document.createElement('button');
+  card.className = 'student-card course-card';
+  const chips = [c.season, c.weeks, c.teacherName].filter(Boolean)
+    .map(x => `<span class="chip">${esc(x)}</span>`).join('');
+  card.innerHTML = `<div class="sc-name">${esc(c.title || c.id)}</div>
+    ${chips ? `<div class="cc-chips">${chips}</div>` : ''}
+    <div class="sc-meta">${c.recordCount || 0} 則 · ${c.lastRecordDate ? '最後 ' + esc(c.lastRecordDate) : '尚無紀錄'}</div>`;
+  card.onclick = () => showCourse(c);
+  return card;
+}
+
+// 建立課程：id 由「學季-課名」（沒學季就課名）組出來，人看得懂、也不必另外記一組編號。
+function courseIdFor(title, season) {
+  return `${season ? season + '-' : ''}${title}`.replace(/[\/\.\x00-\x1f]/g, '-').trim().slice(0, 200);
+}
+addCourseBtn.onclick = () => {
+  newCourseForm.hidden = false; addCourseBtn.hidden = true;
+  ncMsg.textContent = ''; $('nc-title').focus();
+};
+$('nc-cancel').onclick = () => { newCourseForm.hidden = true; addCourseBtn.hidden = false; ncMsg.textContent = ''; };
+$('nc-save').onclick = async (e) => {
+  const btn = e.currentTarget;
+  const title = $('nc-title').value.trim();
+  if (!title) { ncMsg.textContent = '請填課程名稱'; return; }
+  const season = $('nc-season').value.trim();
+  const cid = courseIdFor(title, season);
+  if (!cid) { ncMsg.textContent = '課程名稱不能只有符號'; return; }
+  if (courses.some(c => c.id === cid)) { ncMsg.textContent = `已經有一門「${cid}」了`; return; }
+  const data = {
+    title, kind: $('nc-kind').value, season,
+    weeks: $('nc-weeks').value.trim(), teacherName: $('nc-teacher').value.trim(),
+    order: courses.length + 1,
+  };
+  btn.disabled = true; ncMsg.textContent = '建立中…';
+  try {
+    const existing = await getDoc(courseRef(cid));
+    if (existing.exists()) { ncMsg.textContent = `已經有一門「${cid}」了`; btn.disabled = false; return; }
+    await setDoc(courseRef(cid), data);
+    courses.push({ id: cid, ...data, recordCount: 0, lastRecordDate: '' });
+    renderCourses();
+    ['nc-title', 'nc-season', 'nc-weeks', 'nc-teacher'].forEach(k => { $(k).value = ''; });
+    newCourseForm.hidden = true; addCourseBtn.hidden = false; ncMsg.textContent = '';
+  } catch (err) {
+    console.error(err);
+    const denied = /permission-denied|insufficient permissions/i
+      .test(`${err?.code || ''} ${err?.message || ''}`);
+    ncMsg.textContent = denied
+      ? '建立失敗：安全規則還沒有 courses 區塊，請重新部署 firestore.rules。'
+      : '建立失敗：' + (err?.message || err);
+  }
+  btn.disabled = false;
+};
+
+function showCourse(c) {
+  openRecords({
+    title: c.title || c.id,
+    backLabel: '← 回課程列表',
+    placeholder: '課程紀錄（進行到哪、教學內容、學生整體反應、下次調整；提及個別學生請用代號）…',
+    listCol: () => courseRecordsCol(c.id),
+    refFor: (rid) => courseRecordRef(c.id, rid),
+    bump: (date) => bumpItem(courses, c.id, date, renderCourses),
+  });
 }
 
 function ownerEmail(u) { return u?.email || u?.providerData?.find(p => p.providerId==='google.com')?.email || null; }
@@ -336,8 +543,7 @@ onAuthStateChanged(auth, async (user) => {
 // 於是記了一整個月，每張卡片還是「0 則 · 尚無紀錄 · 本月未記」——全班一覽整片是死的。
 // 改成每位學生發 1 次 count 聚合 ＋ 1 筆 limit(1)：不必改規則、不必跑腳本、不新增寫入者。
 // （摘要欄位保留不動，sync.py 仍可寫，只是儀表板不再依賴它。）
-async function deriveCounts(id) {
-  const col = recordsCol(id);
+async function deriveCounts(col) {
   const [recordCount, lastRecordDate] = await Promise.all([
     getCountFromServer(col).then(s => s.data().count).catch(e => { console.error(e); return 0; }),
     getDocs(query(col, orderBy('date', 'desc'), limit(1)))
@@ -362,7 +568,7 @@ async function loadOverview() {
     const idSet = new Set(Object.keys(nameById));
     studentsSnap.forEach(d => idSet.add(d.id));   // 名冊沒有、但已有紀錄的代號也要列出
     const ids = [...idSet].sort();
-    const derived = await Promise.all(ids.map(deriveCounts));
+    const derived = await Promise.all(ids.map(id => deriveCounts(recordsCol(id))));
     students = ids.map((id, i) => ({
       id, name: nameById[id] || id,
       recordCount: derived[i].recordCount,
@@ -393,23 +599,29 @@ function renderGrid() {
 
 function showDetail(s) {
   openRecords({
-    sid: s.id,                       // 新增成功後就地更新該生的計數／徽章用
+    tab: 'students',
     title: `${s.name}（${s.id}）`,
     listCol: () => recordsCol(s.id),
     refFor: (rid) => recordRef(s.id, rid),
+    bump: (date) => bumpItem(students, s.id, date, renderGrid),
   });
 }
 function showClassObs() {
   openRecords({
+    tab: 'students',
     title: '全班觀察紀錄',
+    placeholder: '整班觀察（班級氛圍、節奏、群體動力、課程進行狀況；提及個別學生請用代號）…',
     listCol: () => classObsCol(),
     refFor: (rid) => classObsRef(rid),
-  });
+  });   // 全班觀察在總覽上沒有卡片，不用 bump
 }
 async function openRecords(ctx) {
   activeCtx = ctx;
   overviewEl.hidden = true; detailEl.hidden = false;
-  detailNameEl.textContent = ctx.title; closeAddForm(); existingRids.clear();
+  detailNameEl.textContent = ctx.title;
+  $('back').textContent = ctx.backLabel || '← 回全班';
+  addBody.placeholder = ctx.placeholder || '觀察內容（客觀描述具體事件；請用代號、勿寫真名）…';
+  closeAddForm(); existingRids.clear();
   recordListEl.innerHTML = '<div class="empty-state">載入中…</div>';
   try {
     const snap = await getDocs(query(ctx.listCol(), orderBy('date','desc')));
@@ -456,7 +668,10 @@ function renderRecordCard(rid, r) {
   return card;
 }
 
-function showOverview() { detailEl.hidden = true; overviewEl.hidden = false; }
+function showOverview(tab) {
+  detailEl.hidden = true; overviewEl.hidden = false;
+  setTab(tab || 'students');
+}
 function esc(s) { return (s ?? '').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 </script>
 </body>
