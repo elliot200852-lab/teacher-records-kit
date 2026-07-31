@@ -206,8 +206,33 @@ $('signout-wrong').onclick = () => signOut(auth);
 $('back').onclick = showOverview;
 filterTodo.onchange = renderGrid;
 
-let activeCtx = null;   // 目前開啟的紀錄來源：{ title, listCol:()=>Col, refFor:(rid)=>DocRef }
-const existingDates = new Set();
+let activeCtx = null;   // 目前開啟的紀錄來源：{ sid, title, listCol:()=>Col, refFor:(rid)=>DocRef }
+const existingRids = new Set();
+
+// ── 一天可以記很多則 ──
+// 紀錄 id：當天第一則就是日期本身（`2026-09-10`，與舊資料完全相容）；
+// 之後每一則帶建立時間（`2026-09-10-1435`，同分鐘再撞就補到秒 `-143512`）。
+// 身分由「日期＋時間」決定，所以在檔案中間插入一則不會讓其他則改名——
+// 用流水號（-2、-3）會，那會讓同步腳本把舊副本當新紀錄再建一次，而規則不准刪。
+const pad2 = n => String(n).padStart(2, '0');
+function hhmm(d) { return pad2(d.getHours()) + pad2(d.getMinutes()); }
+function hhmmss(d) { return hhmm(d) + pad2(d.getSeconds()); }
+
+// 送出失敗重試時要沿用同一個 id，否則「其實寫成功了、只是回應掉了」的那種重送
+// 會生出一則永久刪不掉的重複。日期改掉就重配。
+let pendingRid = null, pendingRidDate = null;
+async function allocRid(date) {
+  if (pendingRid && pendingRidDate === date) return pendingRid;
+  const now = new Date();
+  // ⚠️ 一定要實查 Firestore——只看本地清單，會在「頁面停留很久／兩個分頁同時開著」時
+  // 把別處剛寫的那則整篇蓋掉。
+  for (const rid of [date, `${date}-${hhmm(now)}`, `${date}-${hhmmss(now)}`]) {
+    const snap = await getDoc(activeCtx.refFor(rid));
+    if (!snap.exists()) { pendingRid = rid; pendingRidDate = date; return rid; }
+  }
+  pendingRid = `${date}-${hhmmss(now)}`; pendingRidDate = date;   // 同一秒重送＝同一則，覆寫自己
+  return pendingRid;
+}
 const addForm = $('add-form'), addBtn = $('add-record'), addDate = $('add-date'), addTags = $('add-tags'), addBody = $('add-body'), addMsg = $('add-msg');
 function todayStr() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 function thisYearMonth() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); }
@@ -222,7 +247,10 @@ function normalizeTags(str) {
   });
   return out;
 }
-function closeAddForm() { addForm.hidden = true; addBtn.hidden = false; addMsg.textContent = ''; }
+function closeAddForm() {
+  addForm.hidden = true; addBtn.hidden = false; addMsg.textContent = '';
+  pendingRid = pendingRidDate = null;   // 取消／關閉＝這一則不寫了，配過的 id 作廢
+}
 addBtn.onclick = () => { addDate.value = todayStr(); addTags.value = ''; addBody.value = ''; addMsg.textContent = ''; addForm.hidden = false; addBtn.hidden = true; renderChips(); addBody.focus(); };
 $('add-cancel').onclick = closeAddForm;
 $('open-class-obs').onclick = () => showClassObs();
@@ -256,17 +284,28 @@ $('add-save').onclick = async (e) => {
   const tags = normalizeTags(addTags.value);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { addMsg.textContent = '請選日期'; return; }
   if (!body) { addMsg.textContent = '內容不能空白'; return; }
-  if (existingDates.has(date)) { addMsg.textContent = `${date} 已有一則，請改編輯或換日期`; return; }
   btn.disabled = true; addMsg.textContent = '新增中…';
   try {
-    await setDoc(activeCtx.refFor(date),
+    const rid = await allocRid(date);
+    await setDoc(activeCtx.refFor(rid),
       { date, tags, body, editedOnWeb: true, webEditedAt: serverTimestamp() });
-    existingDates.add(date);
+    existingRids.add(rid);
     const empty = recordListEl.querySelector('.empty-state'); if (empty) recordListEl.innerHTML = '';
-    recordListEl.insertBefore(renderRecordCard(date, { date, tags, body, editedOnWeb: true }), recordListEl.firstChild);
+    recordListEl.insertBefore(renderRecordCard(rid, { date, tags, body, editedOnWeb: true }), recordListEl.firstChild);
     bumpAfterAdd(activeCtx.sid, date);   // 回全班時計數／徽章就是新的（重新整理時會重算）
+    pendingRid = pendingRidDate = null;
     btn.disabled = false; closeAddForm();
-  } catch (err) { console.error(err); addMsg.textContent = '新增失敗：' + (err?.message || err); btn.disabled = false; }
+  } catch (err) {
+    console.error(err);
+    // 前端會先更新（靜態檔一 pull 就生效），規則要人工重新部署——中間那段時間，
+    // 同一天的第二則會被舊規則擋掉。與其把 Firebase 原文丟給老師，不如直接講怎麼修。
+    const denied = /permission-denied|insufficient permissions/i
+      .test(`${err?.code || ''} ${err?.message || ''}`);
+    addMsg.textContent = (denied && pendingRid && pendingRid !== date)
+      ? '新增失敗：你的安全規則還是舊版（一天只允許一則）。請重新部署 firestore.rules 後再試一次。'
+      : '新增失敗：' + (err?.message || err);
+    btn.disabled = false;
+  }
 };
 
 // 網頁新增成功後，就地把該生的計數加一並重繪總覽（全班觀察沒有卡片，sid 為空就跳過）。
@@ -370,21 +409,31 @@ function showClassObs() {
 async function openRecords(ctx) {
   activeCtx = ctx;
   overviewEl.hidden = true; detailEl.hidden = false;
-  detailNameEl.textContent = ctx.title; closeAddForm(); existingDates.clear();
+  detailNameEl.textContent = ctx.title; closeAddForm(); existingRids.clear();
   recordListEl.innerHTML = '<div class="empty-state">載入中…</div>';
   try {
     const snap = await getDocs(query(ctx.listCol(), orderBy('date','desc')));
     recordListEl.innerHTML = '';
     if (snap.empty) { recordListEl.innerHTML = '<div class="empty-state">還沒有紀錄——點上方「＋ 新增一則紀錄」開始。</div>'; }
-    else snap.forEach(d => { const r = d.data(); if (r.date) existingDates.add(r.date); recordListEl.appendChild(renderRecordCard(d.id, r)); });
+    else snap.forEach(d => { existingRids.add(d.id); recordListEl.appendChild(renderRecordCard(d.id, d.data())); });
   } catch (err) { console.error(err); recordListEl.innerHTML = `<div class="empty-state">載入失敗：${esc(err.message||String(err))}</div>`; }
+}
+
+// 同一天多則時，第二則之後的 id 帶建立時間（`…-1435`）——把它顯示出來，
+// 否則畫面上會出現兩個一模一樣的日期，分不出誰是誰。
+function ridTimeLabel(rid, date) {
+  if (!rid || !date || !rid.startsWith(date + '-')) return '';
+  const suf = rid.slice(date.length + 1);
+  if (/^\d{4}$/.test(suf)) return ` ${suf.slice(0,2)}:${suf.slice(2)}`;
+  if (/^\d{6}$/.test(suf)) return ` ${suf.slice(0,2)}:${suf.slice(2,4)}:${suf.slice(4)}`;
+  return '';
 }
 
 function renderRecordCard(rid, r) {
   const card = document.createElement('div'); card.className = 'record-card';
   const tags = (r.tags||[]).map(t => `<span class="record-tag">${esc(t)}</span>`).join('');
   const flag = r.editedOnWeb ? '<em>（已編輯，待同步）</em>' : '';
-  card.innerHTML = `<div class="record-head"><span><span class="rc-date">${esc(r.date||'')}</span> ${tags} <span class="flag">${flag}</span></span><button class="rc-edit">編輯</button></div>
+  card.innerHTML = `<div class="record-head"><span><span class="rc-date">${esc((r.date||'') + ridTimeLabel(rid, r.date))}</span> ${tags} <span class="flag">${flag}</span></span><button class="rc-edit">編輯</button></div>
     <p class="record-body">${esc(r.body||'')}</p>
     <div class="editor" hidden>
       <input class="tags" type="text" value="${esc((r.tags||[]).join(' '))}" placeholder="#tag">

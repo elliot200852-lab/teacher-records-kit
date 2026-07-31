@@ -3,6 +3,10 @@
 """
 sync.py — 本機 observations.md  <->  Firestore（雙向、衝突安全）
   正向：每位學生 <students_dir>/<id>/observations.md 的 ## YYYY-MM-DD 區塊 → Firestore
+  一天多則：當天第一則的區塊標題就是純日期（doc id ＝ 日期）；第二則之後標題帶時間
+    `## 2026-09-10 14:35`，doc id ＝ `2026-09-10-1435`。id 由「日期＋時間」決定，
+    所以在檔案中間插入一則不會讓後面的紀錄改名（用出現順序編號就會，那會讓這支腳本
+    把舊副本當新紀錄再建一次，而規則不准刪 → 永久重複）。
   回寫：網頁編輯/新增（doc 帶 editedOnWeb）→ 寫回對應檔案區塊（無檔則建檔）
   衝突：網頁與檔案同一則都改 → 不覆蓋、印出來
   代號制：內容禁含真名（名冊真名出現即攔下）；姓名只推 roster/main（擁有者可讀）
@@ -19,21 +23,22 @@ sha = lambda t: hashlib.sha256(t.encode()).hexdigest()[:16]
 def parse_file(path):
     lines = open(path, encoding="utf-8").read().split("\n")
     starts = [i for i, l in enumerate(lines) if lib.DATE_RE.match(l)]
-    blocks, seen = [], {}
+    blocks = []
     for k, si in enumerate(starts):
         ei = starts[k + 1] if k + 1 < len(starts) else len(lines)
-        date = lib.DATE_RE.match(lines[si]).group(1)
-        tags = re.findall(r"#\S+", lines[si])
+        m = lib.DATE_RE.match(lines[si])
+        date, tm = m.group(1), m.group(2)
+        tags = re.findall(r"#\S+", m.group(3) or "")
         body = "\n".join(lines[si + 1:ei]).strip()
-        seen[date] = seen.get(date, 0) + 1
-        rid = date if seen[date] == 1 else "%s-%d" % (date, seen[date])
-        blocks.append({"rid": rid, "date": date, "tags": tags, "body": body,
+        blocks.append({"rid": lib.rid_for(date, tm), "date": date, "time": tm,
+                       "tags": tags, "body": body,
                        "hash": sha("|".join(tags) + "\n" + body), "start": si, "end": ei})
     return lines, blocks
 
 
-def render(date, tags, body):
-    return ["## " + date + ((" " + " ".join(tags)) if tags else ""), ""] + body.split("\n") + [""]
+def render(date, tm, tags, body):
+    head = "## " + date + ((" " + tm) if tm else "") + ((" " + " ".join(tags)) if tags else "")
+    return [head, ""] + body.split("\n") + [""]
 
 
 def get_records(base, sid, tok):
@@ -86,7 +91,9 @@ def main():
             wb_body, wb_tags = fs.get("body", ""), fs.get("tags", [])
             if any(nm in (wb_body + " " + " ".join(wb_tags)) for nm in names):
                 leaks += 1; notes.append("PII %s %s（網頁新增含真名）" % (sid, rid)); continue
-            pend_new.append({"rid": rid, "date": fs.get("date", rid), "tags": wb_tags, "body": wb_body}); created += 1
+            pend_new.append({"rid": rid, "date": fs.get("date", rid),
+                             "time": lib.time_from_rid(fs.get("date", rid), rid),
+                             "tags": wb_tags, "body": wb_body}); created += 1
 
         if DRY:
             continue
@@ -98,10 +105,10 @@ def main():
             else:
                 shutil.copy2(path, os.path.join(sdir_i, ".observations.prev.md"))
             for b, body, tags in sorted(pend_wb, key=lambda x: -x[0]["start"]):
-                lines[b["start"]:b["end"]] = render(b["date"], tags, body)
-            for n in sorted(pend_new, key=lambda x: x["date"]):
+                lines[b["start"]:b["end"]] = render(b["date"], b["time"], tags, body)
+            for n in sorted(pend_new, key=lambda x: x["rid"]):
                 if lines and lines[-1].strip() != "": lines.append("")
-                lines += render(n["date"], n["tags"], n["body"])
+                lines += render(n["date"], n["time"], n["tags"], n["body"])
             open(path, "w", encoding="utf-8").write("\n".join(lines))
             _, nb = parse_file(path); byrid = {x["rid"]: x for x in nb}
             for rid in [b["rid"] for b, _, _ in pend_wb] + [n["rid"] for n in pend_new]:

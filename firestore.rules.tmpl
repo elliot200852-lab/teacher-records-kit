@@ -16,23 +16,35 @@ service cloud.firestore {
         && request.auth.token.firebase.sign_in_provider == 'google.com';
     }
 
+    // ── 紀錄 id 的形狀（2026-07-31 起）──
+    // 一天可以記很多則：當天第一則 id ＝ 日期本身，之後每一則 ＝ 日期-建立時間
+    // （`2026-09-10-1435`，同分鐘再撞就補到秒 `-143512`）。
+    // 重點是「哪天記的」仍然釘死在 id 上：id 一旦建立就改不了，date 欄位也不准改
+    //（見下方 update 條件），所以一則紀錄的日期歸屬事後無法竄改。
+    function validDate(d) {
+      return d is string && d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+    function validRid(rid, d) {
+      return validDate(d) && (rid == d || rid.matches('^' + d + '-([0-9]{4}|[0-9]{6})$'));
+    }
+
     // 每生摘要
     match /students/{id} {
       allow read, write: if isOwner();
 
-      // 每則觀察一份文件；文件 id ＝ 日期（YYYY-MM-DD）
+      // 每則觀察一份文件；文件 id ＝ 日期，或日期-建立時間（見 validRid）
       match /records/{recordId} {
         allow read:   if isOwner();
-        allow create: if isOwner() && request.resource.data.date == recordId;
+        allow create: if isOwner() && validRid(recordId, request.resource.data.date);
         allow update: if isOwner() && request.resource.data.date == resource.data.date;
         allow delete: if false;   // 不從前端硬刪
       }
     }
 
-    // 全班觀察（非針對單一學生的整班層次觀察；文件 id ＝ 日期）
+    // 全班觀察（非針對單一學生的整班層次觀察；文件 id 規則同上）
     match /class-observations/{recordId} {
       allow read:   if isOwner();
-      allow create: if isOwner() && request.resource.data.date == recordId;
+      allow create: if isOwner() && validRid(recordId, request.resource.data.date);
       allow update: if isOwner() && request.resource.data.date == resource.data.date;
       allow delete: if false;   // 不從前端硬刪
     }

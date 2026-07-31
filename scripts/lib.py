@@ -6,7 +6,29 @@ from email.mime.text import MIMEText
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG = os.path.join(ROOT, "config.yaml")
-DATE_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\b\s*(.*)$")
+# `## YYYY-MM-DD [HH:MM[:SS]] #標籤`
+# 時間是「同一天第二則之後」才會出現的可選欄位（第一則沿用純日期，與舊檔完全相容）。
+DATE_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}:\d{2}(?::\d{2})?))?\b\s*(.*)$")
+
+
+def rid_for(date, tm):
+    """紀錄 id：當天第一則＝日期本身；之後帶建立時間 → `2026-09-10-1435`。
+    身分由「日期＋時間」決定，所以在檔案中間插入一則不會讓其他則改名——
+    用出現順序編號（-2、-3）會，那會讓下一次同步把舊副本當成新紀錄再建一次，
+    而規則不准刪，重複就永久留著。"""
+    return date if not tm else "%s-%s" % (date, tm.replace(":", ""))
+
+
+def time_from_rid(date, rid):
+    """反解：`2026-09-10-1435` → `14:35`、`-143512` → `14:35:12`、純日期 → None。"""
+    if not rid or rid == date or not rid.startswith(date + "-"):
+        return None
+    suf = rid[len(date) + 1:]
+    if len(suf) == 4 and suf.isdigit():
+        return suf[:2] + ":" + suf[2:]
+    if len(suf) == 6 and suf.isdigit():
+        return suf[:2] + ":" + suf[2:4] + ":" + suf[4:]
+    return None
 
 
 def die(msg):
@@ -118,7 +140,8 @@ def parse_blocks(path):
         m = DATE_RE.match(line)
         if m:
             if cur: recs.append(cur)
-            cur = {"date": m.group(1), "tags": re.findall(r"#\S+", m.group(2) or ""), "body": []}
+            cur = {"date": m.group(1), "time": m.group(2),
+                   "tags": re.findall(r"#\S+", m.group(3) or ""), "body": []}
         elif cur is not None:
             cur["body"].append(line)
     if cur: recs.append(cur)
