@@ -259,7 +259,12 @@ getRedirectResult(auth).catch(e => {
 });
 $('signout').onclick = () => signOut(auth);
 $('signout-wrong').onclick = () => signOut(auth);
-$('back').onclick = () => showOverview(activeCtx && activeCtx.tab);
+$('back').onclick = () => history.back();
+// 手機系統返回鍵：明細頁進站時補一筆歷史，讓返回鍵先回 overview 而不是直接離站。
+// 明細→明細切換（目前 UI 沒有這條路徑，但保留判斷以防未來新增）不重複疊歷史。
+window.addEventListener('popstate', () => {
+  if (!detailEl.hidden) showOverview(activeCtx && activeCtx.tab);
+});
 filterTodo.onchange = renderGrid;
 
 let activeCtx = null;   // 目前開啟的紀錄來源：{ sid, title, listCol:()=>Col, refFor:(rid)=>DocRef }
@@ -517,6 +522,7 @@ $('nc-save').onclick = async (e) => {
 
 function showCourse(c) {
   openRecords({
+    tab: 'courses',
     title: c.title || c.id,
     backLabel: '← 回課程列表',
     placeholder: '課程紀錄（進行到哪、教學內容、學生整體反應、下次調整；提及個別學生請用代號）…',
@@ -616,8 +622,10 @@ function showClassObs() {
   });   // 全班觀察在總覽上沒有卡片，不用 bump
 }
 async function openRecords(ctx) {
+  const wasInDetail = !detailEl.hidden;   // 明細→明細切換不再疊一筆歷史
   activeCtx = ctx;
   overviewEl.hidden = true; detailEl.hidden = false;
+  if (!wasInDetail) history.pushState({ detail: 1 }, '');
   detailNameEl.textContent = ctx.title;
   $('back').textContent = ctx.backLabel || '← 回全班';
   addBody.placeholder = ctx.placeholder || '觀察內容（客觀描述具體事件；請用代號、勿寫真名）…';
