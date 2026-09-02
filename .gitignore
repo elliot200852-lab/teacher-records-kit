@@ -1,15 +1,23 @@
 # ════════════════════════════════════════════════════════════════
 # 個資 / 機密 —— 這是 public repo，以下一律「絕不」上傳
 # ════════════════════════════════════════════════════════════════
-config.yaml                  # 你的設定（含 email / 專案 id）
-.env                         # SMTP App Password 等密鑰
-data/                        # 你真實的學生紀錄、名冊、家長通訊錄全放這裡
-*-key.json                   # 服務帳號金鑰
+# 你的設定（含 email / 專案 id）
+config.yaml
+# SMTP App Password 等密鑰
+.env
+# 你真實的學生紀錄、名冊、家長通訊錄全放這裡
+data/
+# 服務帳號金鑰
+*-key.json
 serviceAccount*.json
-site/js/firebase-config.js   # 你真實的 Firebase 設定（範本是 firebase-config.example.js）
-firestore.rules              # 你的規則產生檔（{{OWNER_EMAIL}} 已換成真實 email）；正本是 firestore.rules.tmpl
-.parent-emails-handled.tsv   # 已寄/略過紀錄
-*.prev.md                    # 回寫前的備份
+# 你真實的 Firebase 設定（範本是 firebase-config.example.js）
+site/js/firebase-config.js
+# 你的規則產生檔（{{OWNER_EMAIL}} 已換成真實 email）；正本是 firestore.rules.tmpl
+firestore.rules
+# 已寄/略過紀錄
+.parent-emails-handled.tsv
+# 回寫前的備份
+*.prev.md
 
 # ════════════════════════════════════════════════════════════════
 # 一般
