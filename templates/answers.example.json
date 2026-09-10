@@ -14,10 +14,21 @@
     "app_id": "1:000000000000:web:0000000000000000000000"
   },
 
-  "_註解_students": "count＝班級人數，代號會自動生成 S-01…S-NN（前綴看 id_prefix）。也可以改用 ids 明列，例如 [\"S-01\",\"S-02\"]。",
+  "_註解_students": "count＝班級人數，代號會自動生成 S-01…S-NN（前綴看 id_prefix）。也可以改用 ids 明列，例如 [\"S-01\",\"S-02\"]。streams＝從 config/student-streams.library.json 勾選的記錄類型 id（一種都不預設勾；這個範例勾了導師班級紀錄與個案追蹤兩種）。extra_fields／extra_tags＝那一種類型你自己要加的欄位與分類詞。custom_streams＝清單外的類型（AI 問完四件事之後填這裡，scope 是 class＝全班每一位，或 case＝只有列入的學生）。members＝個案型類型列入哪些學生（寫進 data/roster.csv 第三欄，可以先空著）。",
   "students": {
     "enabled": true,
-    "count": 3
+    "count": 3,
+    "streams": ["homeroom", "case"],
+    "extra_fields": {
+      "case": [{"name": "校內協同", "type": "text"}]
+    },
+    "extra_tags": {
+      "homeroom": ["#班級事務"]
+    },
+    "custom_streams": [],
+    "members": {
+      "case": ["S-02"]
+    }
   },
 
   "_註解_courses": "安裝時先建幾門課。id 只能用英數與連字號（會變成資料夾名與雲端文件 id）；title 隨你寫。",

@@ -4,7 +4,8 @@
 # 你的設定（含 email / 專案 id / Drive 夾 id）；範本是 config/*.example.json
 config/kit.json
 config/tabs.json
-# v2 舊設定（setup.py --upgrade 會把它轉成 config/kit.json）
+# v2 舊設定（老師從 v2 升上來時放在 repo 根目錄，setup.py --upgrade 會把它轉成
+# config/kit.json）。v2 的格式長什麼樣看 docs/legacy-config.example.yaml。
 config.yaml
 # 安裝進度（含你的答案）
 setup/progress.json

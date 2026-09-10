@@ -3,6 +3,9 @@
 """sync.py — 本機 markdown ⇄ Firestore 雙向同步（四種記錄共用一套邏輯）。
 
 四種目標：學生記錄、班級整體觀察、課程記錄、業務記錄（由 lib.targets 產生）。
+學生與班級記錄還多一層「記錄類型（stream）」：雲端同一個集合 `students/<代號>/records`
+靠文件裡的 `stream` 欄位分流，本機則是一種類型一個檔（homeroom 沿用 observations.md）。
+每一則推上去都會帶 `stream` 與 `sourceFile`，這樣網頁與 AI 都知道它是哪一種、來自哪個檔。
 
 規則（每一條都是為了「不要弄丟老師的字」）：
   · 正向：檔案裡有、雲端沒有（而且以前沒同步過）→ 推上去。
@@ -66,7 +69,13 @@ def cloud_record(fs):
             "body": fs.get("body", "")}
 
 
-def record_body(b, keep=None):
+def doc_stream(fs):
+    """雲端那則屬於哪一種記錄類型。v2 留下來的（沒有 stream 欄位）一律當導師班級紀錄，
+    因為它們本來就寫在 observations.md 裡。"""
+    return (fs.get("stream") or "").strip() or "homeroom"
+
+
+def record_body(b, keep=None, t=None):
     """本機一則 → 要寫上雲的欄位（保留雲端原有的 source／taskId）。"""
     keep = keep or {}
     out = {"date": b["date"], "tags": b["tags"], "fields": b["fields"],
@@ -75,15 +84,19 @@ def record_body(b, keep=None):
            "source": keep.get("source") or "file"}
     if keep.get("taskId"):
         out["taskId"] = keep["taskId"]
-    if keep.get("sourceFile"):
-        out["sourceFile"] = keep["sourceFile"]
+    if t and t.get("stream"):
+        out["stream"] = t["stream"]                    # 規則要求 students 的紀錄必帶
+    out["sourceFile"] = (t or {}).get("sourceFile") or keep.get("sourceFile") or ""
+    if not out["sourceFile"]:
+        out.pop("sourceFile")
     return out
 
 
-def sync_target(t, base, tok, names, state, dry, notes, counters):
-    key = "%s/%s" % (t["kind"], t["id"])
+def sync_target(t, base, tok, names, state, dry, notes, counters, cards):
+    key = t["key"]
     known = set(state.get(key, {}).get("rids") or [])
-    cloud = {rid: (fs, ut) for rid, fs, ut in lib.list_docs(base, t["records"], tok)}
+    cloud = {rid: (fs, ut) for rid, fs, ut in lib.list_docs(base, t["records"], tok)
+             if not t["stream"] or doc_stream(fs) == t["stream"]}
     lines, blocks = lib.parse_file(t["path"])
     file_exists = os.path.exists(t["path"])
     by_rid = {b["rid"]: b for b in blocks}
@@ -161,7 +174,9 @@ def sync_target(t, base, tok, names, state, dry, notes, counters):
             shutil.copy2(t["path"], os.path.join(d, "." + name.replace(".md", "") + ".prev.md"))
         else:
             os.makedirs(os.path.dirname(t["path"]), exist_ok=True)
-            lines = lib.file_header(t["kind"], t["id"], t["label"]).split("\n")
+            kind = "case" if (t["kind"] == "students" and t["scope"] == "case") else t["kind"]
+            lines = lib.file_header(kind, t["id"], t["label"],
+                                    t.get("streamLabel") or "").split("\n")
         edits = []
         for b, rec, _ in pend_write:
             edits.append((b["start"], b["end"],
@@ -191,7 +206,7 @@ def sync_target(t, base, tok, names, state, dry, notes, counters):
             fs, ut = cloud.get(rid, ({}, None))
             try:
                 lib.http("PATCH", base, "%s/%s" % (t["records"], rid), tok,
-                         record_body(x, fs), precondition_update_time=ut, raise_errors=True)
+                         record_body(x, fs, t), precondition_update_time=ut, raise_errors=True)
             except lib.Precondition:
                 counters["conflict"] += 1
                 notes.append("衝突 %s %s：正要清旗標時網頁又改了一次——已保留兩邊，下次再同步" % (key, rid))
@@ -203,23 +218,149 @@ def sync_target(t, base, tok, names, state, dry, notes, counters):
     for b, ut, fs in pend_push:
         try:
             lib.http("PATCH", base, "%s/%s" % (t["records"], b["rid"]), tok,
-                     record_body(b, fs), precondition_update_time=ut,
+                     record_body(b, fs, t), precondition_update_time=ut,
                      precondition_exists=None if ut else False, raise_errors=True)
         except lib.Precondition:
             counters["conflict"] += 1
             counters["push"] -= 1
             notes.append("衝突 %s %s：雲端在同步途中被改過——這一則沒上傳" % (key, b["rid"]))
 
-    # ── 卡片摘要（用 updateMask，免得蓋掉網頁上填的課名等欄位）──
+    # ── 卡片摘要：同一位學生的每一種記錄類型共用一張卡，所以先累加、迴圈跑完再寫一次 ──
     _, fb = lib.parse_file(t["path"])
     if t["card"]:
-        summary = {"id": t["id"], "recordCount": len(fb),
-                   "lastRecordDate": max((x["date"] for x in fb), default=""),
-                   "monthsRecorded": sorted({x["date"][:7] for x in fb})}
-        if t["kind"] != "students":
-            summary["label"] = t["label"]
-        lib.http("PATCH", base, t["card"], tok, summary, mask=list(summary.keys()))
+        c = cards.setdefault(t["card"], {"id": t["id"], "kind": t["kind"],
+                                         "label": t["label"], "dates": [], "streams": {}})
+        c["dates"] += [x["date"] for x in fb]
+        if t["stream"]:
+            c["streams"][t["stream"]] = len(fb)
+        else:
+            c["label"] = t["label"]
     return ({x["rid"] for x in fb} | set(cloud)) - {b["rid"] for b in pend_del}
+
+
+def write_cards(cards, base, tok):
+    """把累加好的卡片摘要寫回去（用 updateMask，免得蓋掉網頁上填的課名等欄位）。"""
+    for path, c in sorted(cards.items()):
+        dates = [d for d in c["dates"] if d]
+        summary = {"id": c["id"], "recordCount": len(c["dates"]),
+                   "lastRecordDate": max(dates, default=""),
+                   "monthsRecorded": sorted({d[:7] for d in dates})}
+        if c["kind"] == "students":
+            summary["streamCounts"] = c["streams"]     # 哪一種類型各幾則
+        else:
+            summary["label"] = c["label"]
+        lib.http("PATCH", base, path, tok, summary, mask=list(summary.keys()))
+
+
+def sync_roster(kit, base, tok, state, dry, notes):
+    """名冊：姓名以本機 roster.csv 為準；「哪些學生列入哪些個案型類型」兩邊都可以改。
+
+    網頁可以在某個類型下「列入／移出」學生（寫 roster/main.students[].streams），
+    所以第三欄要能回寫。用上次同步的樣子當基準判斷是誰改的：
+      · 只有網頁改 → 回寫 roster.csv 第三欄
+      · 只有本機改 → 推上去
+      · 兩邊都改   → **不覆蓋**，印出來讓老師自己決定（跟記錄的衝突規則一致）
+    """
+    rows = lib.load_roster_rows(kit)
+    baseline = (state.get("_roster") or {}).get("streams") or {}
+    cloud_doc, roster_ut = lib.get_doc(base, "roster/main", tok)
+    cloud_list = (cloud_doc or {}).get("students") or []
+    cloud = {}
+    for s in cloud_list:
+        if isinstance(s, dict) and s.get("id"):
+            cloud[s["id"]] = {"name": str(s.get("name") or ""),
+                              "streams": [str(x) for x in (s.get("streams") or [])]}
+
+    pull, conflict = {}, []
+    for sid in sorted(set(rows) | set(cloud)):
+        loc = sorted((rows.get(sid) or {}).get("streams") or [])
+        cld = sorted((cloud.get(sid) or {}).get("streams") or [])
+        base_ = sorted(baseline.get(sid) or [])
+        if loc == cld:
+            continue
+        if sid not in rows:
+            notes.append("名冊 %s：網頁上有這位學生但 data/roster.csv 沒有——"
+                         "把他加進名冊（代號,姓名,類型）才會同步他的紀錄" % sid)
+            continue
+        if sid not in baseline:
+            continue                                   # 沒有基準（第一次同步）→ 以本機為準推上去
+        if cld != base_ and loc == base_:
+            pull[sid] = cld                            # 只有網頁改
+        elif loc != base_ and cld == base_:
+            pass                                       # 只有本機改 → 下面整份推上去
+        else:
+            conflict.append(sid)
+            notes.append("衝突 名冊 %s：本機第三欄（%s）與網頁（%s）都改過，兩邊都沒動"
+                         % (sid, ";".join(loc) or "空", ";".join(cld) or "空"))
+
+    if pull and not dry:
+        for sid, streams in pull.items():
+            rows[sid]["streams"] = streams
+        lib.save_roster_rows(rows)
+        notes.append("名冊：把網頁上改過的記錄類型寫回 data/roster.csv 第三欄（%s）"
+                     % "、".join(sorted(pull)))
+    elif pull:
+        for sid in sorted(pull):
+            notes.append("（預演）把網頁上的類型寫回名冊 %s：%s" % (sid, ";".join(pull[sid]) or "空"))
+
+    # 推上去的那份：本機為主，網頁上多出來的學生原樣保留（不靜默刪掉別人加的東西）
+    merged = []
+    for sid in sorted(set(rows) | set(cloud)):
+        if sid in rows:
+            streams = pull.get(sid, (rows[sid].get("streams") or []))
+            if sid in conflict:
+                streams = (cloud.get(sid) or {}).get("streams") or []   # 衝突：雲端維持原樣
+            merged.append({"id": sid,
+                           "name": rows[sid].get("name") or (cloud.get(sid) or {}).get("name", ""),
+                           "streams": list(streams)})
+        else:
+            merged.append(dict({"id": sid}, **cloud[sid]))
+    if merged and not dry:
+        # 帶 updateMask：roster/main 上還有 protectedPhrases（§2 的形狀），
+        # 無 mask 的整份 PATCH 會把它靜默清掉。
+        # 帶 currentDocument 前置條件（紅隊 #9）：網頁的「＋ 列入學生」寫的就是這份
+        # students[].streams——我們讀完之後老師剛好在網頁上列入一位，無條件 PATCH
+        # 會把他靜默蓋掉。412 就當衝突，不重試覆寫，下次同步再對。
+        try:
+            lib.http("PATCH", base, "roster/main", tok, {"students": merged}, mask=["students"],
+                     precondition_update_time=roster_ut,
+                     precondition_exists=None if roster_ut else False,
+                     raise_errors=True)
+        except lib.Precondition:
+            notes.append("衝突 名冊：網頁在同步途中改過 roster/main——這次沒回寫，"
+                         "下次同步會重新比對（本機 data/roster.csv 沒有變動）")
+            return {sid: sorted((rows.get(sid) or {}).get("streams") or [])
+                    for sid in rows}
+    return {m["id"]: sorted(m["streams"]) for m in merged}
+
+
+def check_web_additions(tabs, base, tok, notes):
+    """網頁上臨時加的記錄類型／業務組：印一行提醒，**不自動改 config**。
+
+    config/tabs.json 是本機檔與安全規則的依據，改它是有後果的事——所以這裡只報告，
+    由老師跟 AI 說一聲，AI 再重跑安裝精靈把它正式加進去。
+    """
+    try:
+        cfg, _ = lib.get_doc(base, "meta/config", tok, raise_errors=True)
+    except Exception:
+        return
+    known_streams = {s["id"] for s in lib.student_streams(tabs)}
+    for s in ((cfg or {}).get("studentStreams") or []):
+        sid = s.get("id") if isinstance(s, dict) else str(s)
+        label = (s.get("label") if isinstance(s, dict) else "") or sid
+        if sid and sid not in known_streams:
+            notes.append("網頁上有學生記錄類型「%s」（%s）但 config/tabs.json 沒有，"
+                         "請跟 AI 說要加進去" % (label, sid))
+    if not (tabs.get("business") or {}).get("enabled", True):
+        return
+    known_groups = {g.get("id") for g in ((tabs.get("business") or {}).get("groups") or [])}
+    try:
+        for gid, fs, _ in lib.list_docs(base, "business", tok, raise_errors=True):
+            if gid not in known_groups:
+                notes.append("網頁上有業務組「%s」（%s）但 config/tabs.json 沒有，"
+                             "請跟 AI 說要加進去" % (fs.get("label") or gid, gid))
+    except Exception:
+        pass
 
 
 def main():
@@ -239,30 +380,32 @@ def main():
     state = load_state()
     tg = lib.targets(kit, tabs)
     if a.only:
-        tg = [t for t in tg if "%s/%s" % (t["kind"], t["id"]) == a.only]
+        tg = [t for t in tg
+              if t["key"] == a.only or "%s/%s" % (t["kind"], t["id"]) == a.only]
         if not tg:
             lib.die("找不到目標 %s" % a.only,
-                    "格式是 <種類>/<代號>，種類有 students、class、courses、business。"
+                    "格式是 <種類>/<代號>[/<記錄類型>]，種類有 students、class、courses、business；"
+                    "學生記錄可以只同步一種類型（例如 students/S-03/case），不寫類型＝那位學生全部。"
                     "跑 `python3 scripts/ledger.py --check --offline` 可以看到所有目標。")
 
     notes, counters = [], {"push": 0, "write": 0, "new": 0, "delete": 0, "conflict": 0, "pii": 0}
+    cards = {}
     for t in tg:
-        rids = sync_target(t, base, tok, names, state, a.dry_run, notes, counters)
+        rids = sync_target(t, base, tok, names, state, a.dry_run, notes, counters, cards)
         if not a.dry_run:
-            state["%s/%s" % (t["kind"], t["id"])] = {"rids": sorted(rids), "at": lib.now_iso()}
+            state[t["key"]] = {"rids": sorted(rids), "at": lib.now_iso()}
 
-    roster = lib.load_roster(kit)
     if not a.dry_run:
+        write_cards(cards, base, tok)
+    roster_streams = sync_roster(kit, base, tok, state, a.dry_run, notes)
+    check_web_additions(tabs, base, tok, notes)
+    if not a.dry_run:
+        state["_roster"] = {"streams": roster_streams, "at": lib.now_iso()}
         save_state(state)
-        if roster:
-            # 帶 updateMask：roster/main 上還有 protectedPhrases（§2 的形狀），
-            # 無 mask 的整份 PATCH 會把它靜默清掉。
-            lib.http("PATCH", base, "roster/main", tok,
-                     {"students": [{"id": i, "name": n} for i, n in sorted(roster.items())]},
-                     mask=["students"])
         lib.http("PATCH", base, "meta/config", tok,
-                 {"version": 3, "tabs": json.dumps(tabs, ensure_ascii=False)},
-                 mask=["version", "tabs"])
+                 {"version": lib.version(), "dataVersion": lib.DATA_VERSION,
+                  "tabs": json.dumps(tabs, ensure_ascii=False)},
+                 mask=["version", "dataVersion", "tabs"])
         lib.touch_status(base, tok, "lastSyncAt")
 
     line = ("%s同步 %d 個目標：上傳 %d、回寫 %d、從網頁新增 %d、刪除 %d、衝突 %d、真名攔截 %d"

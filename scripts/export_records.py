@@ -11,7 +11,8 @@
   python3 scripts/export_records.py                          Markdown 印到畫面
   python3 scripts/export_records.py --out ~/記錄.md          寫成一個 Markdown 檔
   python3 scripts/export_records.py --kind students          只匯出學生記錄
-  python3 scripts/export_records.py --target S-03            只匯出某一個對象
+  python3 scripts/export_records.py --stream case            只匯出某一種學生記錄類型
+  python3 scripts/export_records.py --target S-03            只匯出某一個對象（所有類型）
   python3 scripts/export_records.py --by-tag                 依標籤分組（逐題材寫評量用）
   python3 scripts/export_records.py --related                每一則後面附上它關聯到的記錄
   python3 scripts/export_records.py --json                   結構化 JSON
@@ -42,6 +43,7 @@ def collect(kit, tabs, local_only):
     roster = lib.load_roster(kit)
     tok = None if local_only else lib.token()
     base = None if local_only else lib.fb_base(kit)
+    cache = {}
     out = []
     for t in lib.targets(kit, tabs):
         if local_only:
@@ -50,21 +52,31 @@ def collect(kit, tabs, local_only):
                      "fields": b["fields"], "related": b["related"], "body": b["body"]}
                     for b in blocks]
         else:
-            recs = [rec_from_cloud(rid, fs) for rid, fs, _ in lib.list_docs(base, t["records"], tok)]
+            # 同一位學生的各種記錄類型共用一個雲端集合，抓一次就好，再依 stream 分流。
+            if t["records"] not in cache:
+                cache[t["records"]] = lib.list_docs(base, t["records"], tok)
+            recs = [rec_from_cloud(rid, fs) for rid, fs, _ in cache[t["records"]]
+                    if not t["stream"] or (fs.get("stream") or "homeroom") == t["stream"]]
         recs.sort(key=lambda r: (r.get("date") or "", r["rid"]))
         label = t["label"]
         if t["kind"] == "students" and roster.get(t["id"]):
-            label = "%s　%s" % (t["id"], roster[t["id"]])
-        out.append({"kind": t["kind"], "id": t["id"], "label": label, "records": recs})
+            label = "%s　%s%s" % (t["id"], roster[t["id"]],
+                                  ("（%s）" % t["streamLabel"]) if t.get("streamLabel") else "")
+        out.append({"kind": t["kind"], "id": t["id"], "stream": t["stream"],
+                    "streamLabel": t.get("streamLabel") or "", "label": label,
+                    "records": recs})
     return {"exportedAt": lib.now_iso(), "roster": roster, "targets": out}
 
 
 def index_records(data):
-    """`<kind>/<target>/<rid>` → (目標, 記錄)，給 --related 用。"""
+    """`<kind>/<target>/<rid>` → (目標, 記錄)，給 --related 用。
+
+    關聯語法不帶記錄類型（一位學生的紀錄 id 在各類型之間本來就不會撞），
+    所以同一個 key 先到先得；學生的各種類型都收得到。"""
     idx = {}
     for t in data["targets"]:
         for r in t["records"]:
-            idx["%s/%s/%s" % (t["kind"], t["id"], r["rid"])] = (t, r)
+            idx.setdefault("%s/%s/%s" % (t["kind"], t["id"], r["rid"]), (t, r))
     return idx
 
 
@@ -157,12 +169,13 @@ def write_split(data, base_dir):
     for t in data["targets"]:
         d = os.path.join(base_dir, t["kind"], t["id"])
         os.makedirs(d, exist_ok=True)
+        fname = ("%s.md" % t["stream"]) if t.get("stream") else "records.md"
         L = ["# %s：%s" % (KIND_LABEL[t["kind"]], t["label"]), ""]
         for r in t["records"]:
             L += lib.render_block(r["date"], lib.time_from_rid(r["date"], r["rid"]),
                                   r["tags"], r["fields"], r["related"], r["body"])
             nr += 1
-        with open(os.path.join(d, "records.md"), "w", encoding="utf-8") as f:
+        with open(os.path.join(d, fname), "w", encoding="utf-8") as f:
             f.write("\n".join(L) + "\n")
         nf += 1
     if data["roster"]:
@@ -177,6 +190,7 @@ def main():
     ap = argparse.ArgumentParser(description="把記錄整包匯出（四種記錄通用）")
     ap.add_argument("--kind", choices=list(lib.KINDS), help="只匯出某一種記錄")
     ap.add_argument("--target", help="只匯出某一個對象（代號或組 id）")
+    ap.add_argument("--stream", help="只匯出某一種學生記錄類型（homeroom、case、iep…）")
     ap.add_argument("--id", dest="target2", help="--target 的別名（舊版習慣）")
     ap.add_argument("--by-tag", action="store_true", help="依標籤分組")
     ap.add_argument("--related", action="store_true", help="每一則後面附上它關聯到的記錄")
@@ -196,6 +210,13 @@ def main():
     want = a.target or a.target2
     if a.kind:
         data["targets"] = [t for t in data["targets"] if t["kind"] == a.kind]
+    if a.stream:
+        data["targets"] = [t for t in data["targets"] if t.get("stream") == a.stream]
+        if not data["targets"]:
+            avail = sorted({s["id"] for s in lib.student_streams(tabs)})
+            lib.die("找不到記錄類型 %s" % a.stream,
+                    "可用的類型：%s（看 config/tabs.json 的 students.streams）。"
+                    % ("、".join(avail) if avail else "（一種都沒有）"))
     if want:
         data["targets"] = [t for t in data["targets"] if t["id"] == want]
         if not data["targets"]:

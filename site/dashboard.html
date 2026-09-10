@@ -111,6 +111,27 @@
   .rel-links button { background: none; border: none; color: var(--brand); cursor: pointer; font: inherit; font-size: .8rem; text-decoration: underline; padding: 0; margin-right: .7rem; }
   .rel-links .dead { color: #aaa; text-decoration: none; cursor: default; }
 
+  /* ── 記錄類型（學生分頁頂端那一排）── */
+  .stream-bar { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin-top: .9rem; }
+  .stream-chip { padding: .35rem .9rem; background: #fff; border: 1px solid var(--line); border-radius: 999px;
+                 cursor: pointer; font: inherit; font-size: .9rem; color: #555; }
+  .stream-chip.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+  .stream-chip.add { border-style: dashed; color: var(--brand); }
+  .stream-scope { font-size: .8rem; color: var(--muted); margin: .45rem 0 0; line-height: 1.7; }
+  .stream-mini { display: flex; gap: .35rem; flex-wrap: wrap; align-items: center; margin: -.3rem 0 .9rem; font-size: .84rem; }
+  .stream-mini .lbl { color: var(--muted); }
+  .stream-mini button { padding: .2rem .7rem; background: #fff; border: 1px solid var(--line); border-radius: 999px;
+                        cursor: pointer; font: inherit; font-size: .82rem; color: #555; }
+  .stream-mini button.on { background: #eef4fb; border-color: #cfe0f2; color: #1f5c96; font-weight: 600; }
+  .stream-none { background: #fff; border: 1px dashed #ccd6e0; border-radius: 10px; padding: 1.4rem 1.1rem; margin-top: 1rem;
+                 text-align: center; color: #666; line-height: 1.9; font-size: .92rem; }
+
+  /* ── 學生卡（個案型類型多一顆「移出」）── */
+  .card-wrap { position: relative; }
+  .card-rm { position: absolute; top: .45rem; right: .45rem; padding: .1rem .5rem; background: #fff;
+             border: 1px solid #e0cfcc; color: #b06a60; border-radius: 4px; cursor: pointer; font: inherit; font-size: .74rem; }
+  .card-rm:hover { border-color: var(--todo); color: var(--todo); }
+
   /* ── 分頁列 ── */
   .tab-bar { display: flex; gap: .3rem; margin-top: 1rem; border-bottom: 2px solid var(--line); flex-wrap: wrap; }
   .tab-btn { padding: .5rem 1rem; background: none; border: none; cursor: pointer; font: inherit; font-size: 1rem; color: #666; border-bottom: 2px solid transparent; margin-bottom: -2px; }
@@ -190,13 +211,34 @@
         <div class="help-body" id="help-body"></div>
       </div>
 
-      <!-- 分頁一：學生記錄 -->
+      <!-- 分頁一：學生記錄（頂端一排「記錄類型」，底下的一切都依當前類型） -->
       <div id="pane-students" hidden>
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem;margin-top:.8rem">
-          <div class="filter-row" style="margin-top:0"><label><input type="checkbox" id="filter-todo"> 只看本月還沒記的</label></div>
-          <button class="add-btn" id="open-class-obs" style="background:#5a6b8c" type="button">📋 班級整體觀察</button>
+        <div id="stream-bar" class="stream-bar"></div>
+        <p id="stream-scope" class="stream-scope"></p>
+        <div id="stream-picker-host"></div>
+
+        <div id="stream-none" class="stream-none" hidden>
+          還沒選任何學生記錄類型。<br>
+          學生記錄可以分成好幾種各記各的——導師的班級觀察、任課老師的科目觀察、個案追蹤、IEP、輔導晤談。<br>
+          先選你要用的那幾種。
+          <div style="margin-top:.9rem"><button class="add-btn" id="stream-none-add" type="button">＋ 選擇類型</button></div>
         </div>
-        <div id="student-grid" class="card-grid"><div class="empty-state">載入中…</div></div>
+
+        <div id="students-body" hidden>
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem;margin-top:.8rem">
+            <div class="filter-row" style="margin-top:0"><label><input type="checkbox" id="filter-todo"> 只看本月還沒記的</label></div>
+            <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+              <button class="add-btn" id="add-member-btn" type="button" hidden>＋ 列入學生</button>
+              <button class="add-btn" id="open-class-obs" style="background:#5a6b8c" type="button">📋 班級整體觀察</button>
+            </div>
+          </div>
+          <div id="member-form" class="new-form" hidden>
+            <p class="nc-hint" id="mb-hint">從名冊挑要列入的學生。</p>
+            <div id="member-list" class="lib-list"></div>
+            <div class="editbtns"><button id="mb-save" class="save" type="button">列入</button><button id="mb-cancel" class="cancel" type="button">取消</button><span id="mb-msg" class="msg"></span></div>
+          </div>
+          <div id="student-grid" class="card-grid"><div class="empty-state">載入中…</div></div>
+        </div>
       </div>
 
       <!-- 分頁二：課程記錄 -->
@@ -225,23 +267,9 @@
       <!-- 分頁三：業務記錄 -->
       <div id="pane-business" hidden>
         <div class="toolbar"><button class="add-btn" id="add-group-btn" type="button">＋ 新增業務組</button></div>
-        <div id="new-group-form" class="new-form" hidden>
-          <p class="nc-hint">一組業務＝一張卡。先從下面的清單勾，勾不到的就用最下面的「我的業務不在清單裡」自己開一組。</p>
-          <div id="lib-list" class="lib-list"></div>
-          <div id="custom-group" style="border-top:1px solid #eee;padding-top:.6rem">
-            <label style="font-size:.85rem;color:#555;display:flex;gap:.45rem;align-items:center;margin-bottom:.5rem">
-              <input type="checkbox" id="ng-custom-on"> 我的業務不在清單裡，我自己開一組
-            </label>
-            <div id="ng-custom-fields" hidden>
-              <input id="ng-label" type="text" placeholder="這組業務叫什麼？例如：校刊編輯">
-              <input id="ng-fields" type="text" placeholder="每次都要填的欄位，用頓號或逗號隔開（選填）例如：期別、截稿日、狀態">
-              <input id="ng-tags" type="text" placeholder="常用分類詞（選填）例如：#邀稿 #校稿 #印刷">
-              <p class="nc-hint">建好之後請回頭跟你的 AI 代理說「我在網頁上加了一組『○○』，幫我寫進 config/tabs.json」——
-                本機記錄檔與安全規則是以 config 為準，不同步的話這一組只有網頁看得到。</p>
-            </div>
-          </div>
-          <div class="editbtns"><button id="ng-save" class="save" type="button">加入</button><button id="ng-cancel" class="cancel" type="button">取消</button><span id="ng-msg" class="msg"></span></div>
-        </div>
+        <!-- 表單由「從庫勾選＋自訂一組」共用元件（makePicker）生出來，
+             與學生記錄類型的「＋ 選擇類型」是同一套，避免兩邊漂移。 -->
+        <div id="group-picker-host"></div>
         <div id="group-sections"><div class="empty-state">載入中…</div></div>
       </div>
     </div>
@@ -252,6 +280,7 @@
         <h2 id="detail-name"></h2>
         <button class="add-btn" id="add-record" type="button">＋ 新增一則記錄</button>
       </div>
+      <div id="detail-streams" class="stream-mini" hidden></div>
       <div id="add-form" class="add-form" hidden>
         <div class="add-row">
           <input id="add-date" type="date">
@@ -269,7 +298,7 @@
     </div>
   </div>
 
-  <p class="foot">教學記錄 kit v3・你的資料在你自己的帳號裡，這個網站不會把它送到別的地方。<br>
+  <p class="foot">教學記錄 kit・<span id="foot-version">版本未知</span>・你的資料在你自己的帳號裡，這個網站不會把它送到別的地方。<br>
     使用上有問題：[[待確認：支援聯絡方式]]</p>
 </div>
 
@@ -325,7 +354,9 @@ function errText(err) { return (err && err.message) || String(err); }
 
 // ── 設定 ────────────────────────────────────────────────────────────
 const DEFAULT_TABS = {
-  students: { enabled: true, categories: ['#課堂','#主課程','#學習態度','#專注意志','#人際','#情緒','#突破','#個案','#親師','#生活'],
+  // streams（記錄類型）預設是空的——「沒有預設」是規格：老師沒勾就一種都沒有，
+  // 網頁要引導他去勾，不能自作主張塞一種進去。
+  students: { enabled: true, streams: [], categories: ['#課堂','#主課程','#學習態度','#專注意志','#人際','#情緒','#突破','#個案','#親師','#生活'],
     help: { what: '一位學生一張卡，卡裡是你對他的觀察。', prepare: '一份學生名單（代號＋姓名）。', ai: '把錄音檔放進 inbox/，跟 AI 說「整理成學生記錄」。' } },
   courses: { enabled: true, categories: ['#進度','#教學內容','#學生反應','#調整','#亮點','#卡點','#規劃'],
     skeleton: ['### 課程進度','### 今天實際教了什麼','### 學生整體反應','### 下次要調整的'],
@@ -338,10 +369,28 @@ const TABS = (KIT && KIT.tabs) || DEFAULT_TABS;
 function tabCfg(t) { return Object.assign({}, DEFAULT_TABS[t], TABS[t] || {}); }
 const DEMO = !!(KIT && KIT.demo === true) || /(?:^|[?&])demo=1(?:&|$)/.test(location.search);
 const OWNER_EMAIL = (KIT && KIT.ownerEmail) || window.OWNER_EMAIL || '';
-const ID_PREFIX = (KIT && KIT.idPrefix) || 'S-';
+// 代號前綴不含後面那一槓（設定寫 "S"，代號是 S-01）。舊設定寫成 "S-" 也吃得下。
+const ID_PREFIX = String((KIT && KIT.idPrefix) || 'S').replace(/[-_\s]+$/, '');
+const sid = n => ID_PREFIX + '-' + pad2(n);
 const TAB_LABEL = { students: '學生記錄', courses: '課程記錄', business: '業務記錄' };
 const ENABLED_TABS = ['students','courses','business'].filter(t => tabCfg(t).enabled !== false);
 const DEFAULT_TAB = ENABLED_TABS[0] || 'students';
+const KIT_VERSION = (KIT && KIT.version) ? String(KIT.version) : '';
+
+// ══ 記錄類型（stream）══════════════════════════════════════════════════
+// 學生記錄再分類型：導師班級紀錄／任課老師紀錄／個案／IEP／輔導晤談…
+// 每一種有自己的欄位、分類詞，以及「哪些學生在裡面」：
+//   scope 'class' ＝名冊上每一位都在；'case' ＝只有 roster.students[].streams 列到的。
+// 老師安裝時勾的那幾種在 KIT.tabs.students.streams；在網頁上臨時加的存在
+// meta/config.studentStreams（同一個形狀），開頁時兩邊合併。
+const STREAM_LIB = (KIT && KIT.studentStreamLibrary) || [];
+let STREAMS = ((tabCfg('students').streams) || []).slice();
+function streamById(id) { return STREAMS.find(s => s.id === id) || null; }
+function streamLabel(id) { const s = streamById(id); return (s && s.label) || id; }
+// 沒有註明類型的舊紀錄（v2 留下來的）一律當成第一種 class 範圍的類型。
+function fallbackStream() { const s = STREAMS.find(x => x.scope !== 'case'); return s ? s.id : (STREAMS[0] ? STREAMS[0].id : ''); }
+function recStream(r) { return (r && r.stream) || fallbackStream(); }
+function streamTags(st) { return (st && st.tags && st.tags.length) ? st.tags : (tabCfg('students').categories || []); }
 
 // ══ Store 介面 ════════════════════════════════════════════════════════
 // roster() / listCards(kind) / setCard(kind,id,data) / listRecords(kind,target)
@@ -353,11 +402,42 @@ const DEFAULT_TAB = ENABLED_TABS[0] || 'students';
 // ── 示範資料 ────────────────────────────────────────────────────────
 const DEMO_KEY = 'trk-demo-v3';
 const DEMO_NAMES = ['林小安','陳品叡','黃庭萱','王柏睿','李思晴','張宥辰','吳沛恩','蔡宜蓁','劉承翰','鄭亦琳','許家瑋','謝彤恩'];
+
+// 示範資料的「形狀指紋」：設定裡的記錄類型或業務組換過，舊的假資料就對不上了
+// （例如類型從 case 改成 counseling，那些記錄會變成沒人看得到的孤兒）。
+// 指紋不合就重新種一次，不去修補舊的。
+function demoSig() {
+  return JSON.stringify([
+    ID_PREFIX,
+    ((tabCfg('students').streams) || []).map(x => x.id),
+    ((tabCfg('business').groups) || []).map(x => x.id),
+  ]);
+}
+
 function demoSeed() {
   const now = new Date();
   const d = n => ymd(new Date(now.getTime() - n * 86400000));
+
+  // ── 這份示範資料要用到的三種記錄類型 ──
+  // 老師實際勾的是哪幾種由設定決定，所以這裡是「找一種 class 範圍的、
+  // 找兩種 case 範圍的」，找不到就那一段不種。
+  const has = id => STREAMS.some(x => x.id === id);
+  const classStream = has('homeroom') ? 'homeroom' : ((STREAMS.filter(x => x.scope !== 'case')[0] || {}).id || '');
+  const caseStreams = STREAMS.filter(x => x.scope === 'case').map(x => x.id);
+  const caseStream = has('case') ? 'case' : (caseStreams[0] || '');
+  const iepStream = has('iep') ? 'iep' : (caseStreams.filter(x => x !== caseStream)[0] || '');
+
+  // ── 名冊：12 位。個案追蹤 3 位、IEP 2 位，其中 1 位兩邊都在 ──
   const students = [];
-  for (let i = 1; i <= 12; i++) students.push({ id: ID_PREFIX + pad2(i), name: DEMO_NAMES[i-1] || ('學生' + i) });
+  for (let i = 1; i <= 12; i++) students.push({ id: sid(i), name: DEMO_NAMES[i-1] || ('學生' + i), streams: [] });
+  const join = (n, ids) => {
+    const s = students[n-1]; if (!s) return;
+    ids.filter(Boolean).forEach(x => { if (s.streams.indexOf(x) === -1) s.streams.push(x); });
+  };
+  join(4,  [caseStream]);
+  join(7,  [caseStream, iepStream]);   // 這位兩種都在
+  join(11, [caseStream]);
+  join(2,  [iepStream]);
 
   const cards = { students: {}, courses: {}, business: {} };
   students.forEach(s => { cards.students[s.id] = { name: s.name }; });
@@ -365,16 +445,16 @@ function demoSeed() {
   cards.courses['秋-地方探究'] = { title: '地方探究', kind: 'main', season: '秋', weeks: '秋4–6', teacherName: '（我）', order: 2 };
   cards.courses['音樂'] = { title: '音樂', kind: 'subject', season: '', weeks: '', teacherName: '林老師', order: 3 };
 
+  // 業務組跟著設定走（老師勾了哪幾組就有哪幾組；一組都沒勾就是空的）
   const lib = (KIT && KIT.businessLibrary) || [];
-  const pick = id => lib.find(g => g.id === id) || null;
-  [['homeroom','導師班務'], ['guidance','輔導／個案追蹤'], ['academic','教務']].forEach(([gid, label], i) => {
-    const g = pick(gid);
-    cards.business[gid] = {
-      label: (g && g.label) || label,
-      desc: (g && g.desc) || '',
-      fields: (g && g.fields) || [{ name: '事項', type: 'text' }, { name: '期限', type: 'date' }, { name: '狀態', type: 'select', options: ['未開始','進行中','已完成'] }],
-      tags: (g && g.tags) || ['#待辦'],
-      custom: false, order: i + 1,
+  ((tabCfg('business').groups) || []).forEach((g, i) => {
+    const fromLib = lib.find(x => x.id === g.id) || {};
+    cards.business[g.id] = {
+      label: g.label || fromLib.label || g.id,
+      desc: g.desc || fromLib.desc || '',
+      fields: g.fields || fromLib.fields || [],
+      tags: g.tags || fromLib.tags || [],
+      custom: !!g.custom, order: i + 1,
     };
   });
 
@@ -383,36 +463,70 @@ function demoSeed() {
     const k = kind + '/' + target;
     (records[k] = records[k] || {})[rid] = Object.assign({ tags: [], body: '', related: [], source: 'web', editedOnWeb: false }, r);
   };
+  // 學生紀錄一定帶 stream；類型沒被勾就整段跳過
+  const putS = (stream, n, rid, r) => { if (!stream) return; put('students', sid(n), rid, Object.assign({ stream }, r)); };
+  const putB = (gid, rid, r) => { if (!cards.business[gid]) return; put('business', gid, rid, r); };
 
-  put('students', ID_PREFIX + '01', d(3), { date: d(3), tags: ['#課堂','#專注意志'],
+  // ── 導師班級學生紀錄（全班都在裡面）──
+  putS(classStream, 1, d(3), { date: d(3), tags: ['#課堂','#專注意志'],
     body: '晨圈唱歌時整個人是醒的，跟著節奏踏步沒有落拍。第三節數學課寫到第四題就開始轉筆、看窗外，我走過去他才回來。今天他自己說「我知道我又飄走了」——他開始看得見自己了。' });
-  put('students', ID_PREFIX + '01', d(10), { date: d(10), tags: ['#人際'],
-    body: '下課跟' + ID_PREFIX + '05 為了球場搶到，兩個人都很大聲。我讓他們各講一次，他先讓步，說「那我等下一輪」。',
-    related: ['students/' + ID_PREFIX + '05/' + d(10)] });
-  put('students', ID_PREFIX + '05', d(10), { date: d(10), tags: ['#人際','#情緒'],
+  putS(classStream, 1, d(10), { date: d(10), tags: ['#人際'],
+    body: '下課跟' + sid(5) + ' 為了球場搶到，兩個人都很大聲。我讓他們各講一次，他先讓步，說「那我等下一輪」。',
+    related: ['students/' + sid(5) + '/' + d(10)] });
+  putS(classStream, 5, d(10), { date: d(10), tags: ['#人際','#情緒'],
     body: '球場那件事她哭了一下，但沒有跑走，留在原地把話講完。比起上學期，她現在願意留在衝突現場。',
-    related: ['students/' + ID_PREFIX + '01/' + d(10)] });
-  put('students', ID_PREFIX + '03', d(1), { date: d(1), tags: ['#突破','#主課程'],
+    related: ['students/' + sid(1) + '/' + d(10)] });
+  putS(classStream, 3, d(1), { date: d(1), tags: ['#突破','#主課程'],
     body: '分數的分子分母，她一直卡在「為什麼下面大反而小」。今天用切蛋糕的圖，她自己畫到第三張就喊出來了。' });
-  put('students', ID_PREFIX + '03', d(20), { date: d(20), tags: ['#親師'],
+  putS(classStream, 3, d(20), { date: d(20), tags: ['#親師'],
     body: '媽媽在聯絡簿寫說她晚上寫功課會拖到十點。回覆建議先做二十分鐘就休息，一週後再看。',
     related: ['business/homeroom/' + d(20)] });
-  put('students', ID_PREFIX + '07', d(6), { date: d(6), tags: ['#個案','#情緒'],
-    body: '這週有兩天早上進教室就趴著。問他只說「沒事」。已跟輔導老師談過，先做兩週的觀察。',
-    related: ['business/guidance/' + d(6)] });
-  put('students', ID_PREFIX + '09', d(2), { date: d(2), tags: ['#學習態度'],
+  putS(classStream, 7, d(6), { date: d(6), tags: ['#情緒'],
+    body: '這週有兩天早上進教室就趴著。問他只說「沒事」。已跟輔導老師談過，先做兩週的觀察。' });
+  putS(classStream, 9, d(2), { date: d(2), tags: ['#學習態度'],
     body: '主課本抄寫變工整了，自己在頁邊畫了小圖。他說「這樣我比較想寫」。' });
-  put('students', ID_PREFIX + '12', d(35), { date: d(35), tags: ['#生活'],
+  putS(classStream, 12, d(35), { date: d(35), tags: ['#生活'],
     body: '掃地時間會主動把畚箕倒乾淨，不用人講。（這則是上個月的，卡片上就會顯示本月未記。）' });
 
-  put('class', 'main', d(4), { date: d(4), tags: ['#課堂','#主課程'],
-    body: '整班在分數這一塊的節奏比上一塊慢，早上前二十分鐘還算集中，之後就散。下週把操作的部分往前挪。' });
-  put('class', 'main', d(14), { date: d(14), tags: ['#班級經營'],
-    body: '換座位第一天，靠窗那一排明顯安靜很多。再觀察一週。' });
+  // ── 個案追蹤（只有被列入的三位）──
+  // 同一位學生同一天可以有好幾則（不同類型也算）：第二則起 rid 帶建立時間，
+  // 這正是 allocRid 在做的事——示範資料也照這個形狀，不要讓兩則互相蓋掉。
+  putS(caseStream, 7, d(6) + '-1345', { date: d(6), tags: ['#初談'],
+    fields: { '來源': '導師轉介', '主訴／議題': '早晨情緒低落、連續趴睡', '處遇／介入': '每週一次個別談，先不追問', '追蹤與下次': d(-7) },
+    body: '談了十五分鐘，多半沉默，提到弟弟時眼睛才抬起來。先把關係建立起來。' });
+  putS(caseStream, 7, d(13), { date: d(13), tags: ['#家長晤談'],
+    fields: { '來源': '家長', '主訴／議題': '家長主動來電說家裡在搬家', '處遇／介入': '請家長先維持睡眠時間', '追蹤與下次': d(-1) },
+    body: '媽媽的語氣是擔心不是責備。' });
+  putS(caseStream, 4, d(9), { date: d(9), tags: ['#個別晤談'],
+    fields: { '來源': '自行求助', '主訴／議題': '午休一直哭，說沒有人要跟他玩', '處遇／介入': '安排一位固定的伴讀夥伴', '追蹤與下次': d(-14) },
+    body: '他講得出來是哪三次被拒絕，記得很清楚。' });
+  putS(caseStream, 11, d(40), { date: d(40), tags: ['#轉介'],
+    fields: { '來源': '輔導室', '主訴／議題': '長期缺席後回校的適應', '處遇／介入': '前兩週只要求到校，不要求進度', '追蹤與下次': d(-5) },
+    body: '（這則是上個月的，卡片上就會顯示本月未記。）' });
 
+  // ── IEP 個案追蹤（兩位，其中一位與個案追蹤重疊）──
+  putS(iepStream, 7, d(11), { date: d(11), tags: ['#個案會議'],
+    fields: { '本期目標': '能在提示下完成主課本抄寫的前三行', '觀察': '需要口語提示兩次以上才起筆', '調整／支持': '抄寫格放大、行數減半', '會議決議': '下次個案會議前先做兩週紀錄' },
+    body: '會議上媽媽同意先減量、不減難度。' });
+  putS(iepStream, 2, d(5), { date: d(5), tags: ['#IEP','#資源班'],
+    fields: { '本期目標': '每天能自己收拾書包並帶齊隔天用品', '觀察': '五天裡有三天做到，忘的都是水壺', '調整／支持': '在桌角貼四格圖示清單', '會議決議': '' },
+    body: '圖示清單是他自己畫的，貼上去以後他會主動去看。' });
+  putS(iepStream, 2, d(25), { date: d(25), tags: ['#轉銜'],
+    fields: { '本期目標': '同上', '觀察': '換到靠走廊的位子之後分心變多', '調整／支持': '位子換回靠牆', '會議決議': '座位由導師決定、不再輪換' },
+    body: '' });
+
+  // ── 班級整體觀察（掛在 class 範圍的類型底下）──
+  if (classStream) {
+    put('class', 'main', d(4), { date: d(4), stream: classStream, tags: ['#課堂','#主課程'],
+      body: '整班在分數這一塊的節奏比上一塊慢，早上前二十分鐘還算集中，之後就散。下週把操作的部分往前挪。' });
+    put('class', 'main', d(14), { date: d(14), stream: classStream, tags: ['#班級經營'],
+      body: '換座位第一天，靠窗那一排明顯安靜很多。再觀察一週。' });
+  }
+
+  // ── 課程記錄 ──
   put('courses', '秋-分數', d(1), { date: d(1), tags: ['#進度','#學生反應'],
     body: '### 課程進度\n等值分數，第 5 天。\n\n### 今天實際教了什麼\n用切蛋糕的圖做 1/2 = 2/4 = 4/8。\n\n### 學生整體反應\n動手切的時候全班都在，換成算式就掉了三分之一。\n\n### 下次要調整的\n算式之前再多留十分鐘操作。',
-    related: ['students/' + ID_PREFIX + '03/' + d(1)] });
+    related: ['students/' + sid(3) + '/' + d(1)] });
   put('courses', '秋-分數', d(8), { date: d(8), tags: ['#卡點'],
     body: '### 課程進度\n分數的比較，第 2 天。\n\n### 今天實際教了什麼\n同分母比大小。\n\n### 學生整體反應\n同分母沒問題，異分母一講就全部靜下來——那是不懂的靜。\n\n### 下次要調整的\n異分母先不進算式，全部用圖。' });
   put('courses', '秋-地方探究', d(12), { date: d(12), tags: ['#規劃'],
@@ -420,35 +534,37 @@ function demoSeed() {
   put('courses', '音樂', d(5), { date: d(5), tags: ['#亮點'],
     body: '### 課程進度\n直笛，兩部合奏第一次。\n\n### 今天實際教了什麼\n低音部先單獨練四小節。\n\n### 學生整體反應\n合起來的那一刻全班自己笑出來。\n\n### 下次要調整的\n下次錄起來放給他們聽。' });
 
-  put('business', 'homeroom', d(20), { date: d(20), tags: ['#聯絡簿','#親師溝通'],
-    fields: { '學生/對象': ID_PREFIX + '03', '事件': '家長反映晚上寫功課拖到十點', '處理': '聯絡簿回覆，建議先做二十分鐘就休息', '後續': '一週後再問一次' },
+  // ── 業務記錄 ──
+  putB('homeroom', d(20), { date: d(20), tags: ['#聯絡簿','#親師溝通'],
+    fields: { '學生/對象': sid(3), '事件': '家長反映晚上寫功課拖到十點', '處理': '聯絡簿回覆，建議先做二十分鐘就休息', '後續': '一週後再問一次' },
     body: '媽媽的語氣是擔心不是責備，回覆時把重點放在「先看得到進步」。',
-    related: ['students/' + ID_PREFIX + '03/' + d(20)] });
-  put('business', 'homeroom', d(7), { date: d(7), tags: ['#班費'],
+    related: ['students/' + sid(3) + '/' + d(20)] });
+  putB('homeroom', d(7), { date: d(7), tags: ['#班費'],
     fields: { '學生/對象': '全班', '事件': '秋季校外教學班費結算', '處理': '收齊 23 人，剩餘 1,240 元', '後續': '下次班親會公告' },
     body: '收據拍照存在班務資料夾。' });
-  put('business', 'homeroom', d(2), { date: d(2), tags: ['#出缺席'],
-    fields: { '學生/對象': ID_PREFIX + '11', '事件': '連續兩天請病假', '處理': '電話問候，家長說是腸胃炎', '後續': '回來後補主課本' },
+  putB('homeroom', d(2), { date: d(2), tags: ['#出缺席'],
+    fields: { '學生/對象': sid(11), '事件': '連續兩天請病假', '處理': '電話問候，家長說是腸胃炎', '後續': '回來後補主課本' },
     body: '' });
-  put('business', 'guidance', d(6), { date: d(6), tags: ['#初談','#追蹤'],
-    fields: { '個案代號': ID_PREFIX + '07', '來源': '導師轉介', '主訴/議題': '早晨情緒低落、趴睡', '晤談摘要': '談了十五分鐘，多半沉默，提到弟弟時有反應', '評估': '家庭近期有變動的可能', '處遇/介入': '每週一次個別晤談', '追蹤與下次': d(-1) },
-    body: '先不追問，把關係建立起來再說。',
-    related: ['students/' + ID_PREFIX + '07/' + d(6)] });
-  put('business', 'guidance', d(13), { date: d(13), tags: ['#家長晤談'],
-    fields: { '個案代號': ID_PREFIX + '07', '來源': '家長', '主訴/議題': '家長主動來電', '晤談摘要': '媽媽說家裡最近在搬家', '評估': '環境變動', '處遇/介入': '請家長維持睡眠時間', '追蹤與下次': d(-7) },
+  putB('guidance', d(6), { date: d(6), tags: ['#初談','#追蹤'],
+    fields: { '個案代號': sid(7), '來源': '導師轉介', '主訴/議題': '早晨情緒低落、趴睡', '晤談摘要': '談了十五分鐘，多半沉默，提到弟弟時有反應', '評估': '家庭近期有變動的可能', '處遇/介入': '每週一次個別晤談', '追蹤與下次': d(-1) },
+    body: '先不追問，把關係建立起來再說。' });
+  putB('guidance', d(13), { date: d(13), tags: ['#家長晤談'],
+    fields: { '個案代號': sid(7), '來源': '家長', '主訴/議題': '家長主動來電', '晤談摘要': '媽媽說家裡最近在搬家', '評估': '環境變動', '處遇/介入': '請家長維持睡眠時間', '追蹤與下次': d(-7) },
     body: '' });
-  put('business', 'academic', d(9), { date: d(9), tags: ['#課程計畫'],
+  putB('academic', d(9), { date: d(9), tags: ['#課程計畫'],
     fields: { '事項': '下學期課程計畫上傳', '期限': d(-11), '狀態': '進行中', '備註': '主課程四塊已寫，科任還缺音樂' },
     body: '' });
-  put('business', 'academic', d(25), { date: d(25), tags: ['#公開授課'],
+  putB('academic', d(25), { date: d(25), tags: ['#公開授課'],
     fields: { '事項': '公開授課日期回報', '期限': d(-3), '狀態': '未開始', '備註': '想排在分數那一塊的第二週' },
     body: '',
     related: ['courses/秋-分數/' + d(8)] });
-  put('business', 'academic', d(30), { date: d(30), tags: ['#教科書'],
+  putB('academic', d(30), { date: d(30), tags: ['#教科書'],
     fields: { '事項': '教科書數量清點', '期限': d(28), '狀態': '已完成', '備註': '' },
     body: '' });
 
   return {
+    sig: demoSig(),
+    meta: { config: {} },
     roster: { students, protectedPhrases: [] },
     cards, records,
     status: { lastSyncAt: new Date(now.getTime() - 2 * 86400000).toISOString(),
@@ -462,7 +578,16 @@ function DemoStore() {
   function load() {
     try {
       const raw = localStorage.getItem(DEMO_KEY);
-      if (raw) { const p = JSON.parse(raw); if (p && p.cards && p.records) return p; }
+      if (raw) {
+        const p = JSON.parse(raw);
+        // 設定換過（記錄類型或業務組不一樣了）就重種，不要拿舊資料硬套新形狀
+        if (p && p.cards && p.records && p.sig === demoSig()) {
+          p.meta = p.meta || { config: {} };
+          p.roster = p.roster || { students: [], protectedPhrases: [] };
+          (p.roster.students || []).forEach(x => { x.streams = x.streams || []; });
+          return p;
+        }
+      }
     } catch (_) {}
     return demoSeed();
   }
@@ -474,14 +599,30 @@ function DemoStore() {
   self.init = async function () { data = load(); save(); };
   self.reset = function () { try { localStorage.removeItem(DEMO_KEY); } catch (_) {} data = demoSeed(); save(); };
   self.roster = async function () { return JSON.parse(JSON.stringify(data.roster)); };
+  self.setRoster = async function (list) {
+    data.roster = data.roster || { students: [], protectedPhrases: [] };
+    data.roster.students = JSON.parse(JSON.stringify(list || []));
+    save();
+  };
   self.status = async function () { return Object.assign({}, data.status); };
-  self.listCards = async function (kind) {
+  // meta/config：網頁上臨時加的記錄類型存這裡（config/tabs.json 才是正本）
+  self.getConfig = async function () { return Object.assign({}, (data.meta && data.meta.config) || {}); };
+  self.setConfig = async function (patch) {
+    data.meta = data.meta || {};
+    data.meta.config = Object.assign({}, data.meta.config || {}, patch);
+    save();
+  };
+  // streamId 只對學生／班級記錄有意義：同一位學生底下混著各種類型的紀錄，
+  // 「幾則、最後一則哪天」一定要按當前類型算，不然每一種都會顯示同一個數字。
+  self.listCards = async function (kind, streamId) {
     const out = [];
     Object.keys(data.cards[kind] || {}).forEach(id => {
       const c = Object.assign({ id }, data.cards[kind][id]);
-      const recs = data.records[key(kind, id)] || {};
-      const dates = Object.keys(recs).map(r => recs[r].date || '').filter(Boolean).sort();
-      c.recordCount = Object.keys(recs).length;
+      const all = data.records[key(kind, id)] || {};
+      const recs = Object.keys(all).map(r => all[r])
+        .filter(r => !streamId || recStream(r) === streamId);
+      const dates = recs.map(r => r.date || '').filter(Boolean).sort();
+      c.recordCount = recs.length;
       c.lastRecordDate = dates.length ? dates[dates.length - 1] : '';
       out.push(c);
     });
@@ -491,9 +632,10 @@ function DemoStore() {
     data.cards[kind] = data.cards[kind] || {};
     data.cards[kind][id] = Object.assign({}, data.cards[kind][id], d); save();
   };
-  self.listRecords = async function (kind, target) {
+  self.listRecords = async function (kind, target, streamId) {
     const recs = bag(kind, target);
-    return Object.keys(recs).sort().reverse().map(rid => Object.assign({ rid }, recs[rid]));
+    return Object.keys(recs).sort().reverse().map(rid => Object.assign({ rid }, recs[rid]))
+      .filter(r => !streamId || recStream(r) === streamId);
   };
   self.getRecord = async function (kind, target, rid) {
     const r = bag(kind, target)[rid];
@@ -556,11 +698,42 @@ function FirestoreStore() {
     ]);
     return { recordCount, lastRecordDate };
   }
+  // 依記錄類型算的版本。故意不用 where('stream','==',…)＋orderBy('date')——那要
+  // 一個複合索引，老師得自己去 Console 建，第一次開頁就會整片壞掉。一位學生的
+  // 紀錄本來就是幾十則的量級，抓回來在瀏覽器裡篩比較穩。
+  async function deriveByStream(col, streamId) {
+    try {
+      const snap = await fb.getDocs(fb.query(col, fb.orderBy('date', 'desc')));
+      let recordCount = 0, lastRecordDate = '';
+      snap.forEach(d => {
+        const r = d.data();
+        if (recStream(r) !== streamId) return;
+        recordCount++;
+        if (!lastRecordDate) lastRecordDate = r.date || '';
+      });
+      return { recordCount, lastRecordDate };
+    } catch (e) { console.error(e); return { recordCount: 0, lastRecordDate: '' }; }
+  }
 
   self.roster = async function () {
     const snap = await fb.getDoc(fb.doc(fb.db, 'roster', 'main'));
     const d = snap.exists() ? snap.data() : {};
-    return { students: d.students || [], protectedPhrases: d.protectedPhrases || [] };
+    const students = (d.students || []).map(x => Object.assign({}, x, { streams: x.streams || [] }));
+    return { students, protectedPhrases: d.protectedPhrases || [] };
+  };
+  // 名冊：哪些學生列入哪些個案型記錄類型（students[].streams）。整份覆寫，
+  // 因為呼叫端手上就是完整名單（網頁只改 streams 這一欄）。
+  self.setRoster = async function (list) {
+    await fb.setDoc(fb.doc(fb.db, 'roster', 'main'), { students: list || [] }, { merge: true });
+  };
+  self.getConfig = async function () {
+    try {
+      const snap = await fb.getDoc(fb.doc(fb.db, 'meta', 'config'));
+      return snap.exists() ? snap.data() : {};
+    } catch (e) { console.error(e); return {}; }
+  };
+  self.setConfig = async function (patch) {
+    await fb.setDoc(fb.doc(fb.db, 'meta', 'config'), patch, { merge: true });
   };
   self.status = async function () {
     try {
@@ -571,7 +744,7 @@ function FirestoreStore() {
       return { lastSyncAt: iso(d.lastSyncAt), lastBackupAt: iso(d.lastBackupAt) };
     } catch (e) { return { error: e }; }
   };
-  self.listCards = async function (kind) {
+  self.listCards = async function (kind, streamId) {
     const snap = await fb.getDocs(cardsCol(kind));
     const list = [];
     snap.forEach(d => list.push(Object.assign({ id: d.id }, d.data())));
@@ -580,8 +753,11 @@ function FirestoreStore() {
       const roster = await self.roster();
       const have = new Set(list.map(x => x.id));
       roster.students.forEach(s => { if (!have.has(s.id)) list.push({ id: s.id, name: s.name }); });
-      const nameById = {}; roster.students.forEach(s => { nameById[s.id] = s.name; });
-      list.forEach(x => { x.name = nameById[x.id] || x.name || x.id; });
+      const byId = {}; roster.students.forEach(s => { byId[s.id] = s; });
+      list.forEach(x => {
+        x.name = (byId[x.id] && byId[x.id].name) || x.name || x.id;
+        x.streams = (byId[x.id] && byId[x.id].streams) || x.streams || [];
+      });
     }
     if (kind === 'business') {
       // 設定檔（config/tabs.json → KIT）是業務組的正本；Firestore 上的卡片只是鏡像。
@@ -591,15 +767,19 @@ function FirestoreStore() {
       const byId = {}; cfgGroups.forEach(g => { byId[g.id] = g; });
       list.forEach(x => { if (byId[x.id]) { x.fields = x.fields || byId[x.id].fields; x.tags = x.tags || byId[x.id].tags; x.label = x.label || byId[x.id].label; } });
     }
-    const counts = await Promise.all(list.map(c => derive(recCol(kind === 'students' ? 'students' : kind, c.id))));
+    const counts = await Promise.all(list.map(c => {
+      const col = recCol(kind === 'students' ? 'students' : kind, c.id);
+      return (kind === 'students' && streamId) ? deriveByStream(col, streamId) : derive(col);
+    }));
     list.forEach((c, i) => { c.recordCount = counts[i].recordCount; c.lastRecordDate = counts[i].lastRecordDate; });
     return list;
   };
   self.setCard = async function (kind, id, d) { await fb.setDoc(cardRef(kind, id), d, { merge: true }); };
-  self.listRecords = async function (kind, target) {
+  self.listRecords = async function (kind, target, streamId) {
     const snap = await fb.getDocs(fb.query(recCol(kind, target), fb.orderBy('date', 'desc')));
     const out = []; snap.forEach(d => out.push(Object.assign({ rid: d.id }, d.data())));
-    return out;
+    // 類型過濾在這裡做，理由同 deriveByStream：不要求老師去建複合索引
+    return streamId ? out.filter(r => recStream(r) === streamId) : out;
   };
   self.getRecord = async function (kind, target, rid) {
     const snap = await fb.getDoc(recRef(kind, target, rid));
@@ -720,15 +900,76 @@ function setTab(tab) {
 }
 
 // ══ 分頁一：學生記錄 ══════════════════════════════════════════════════
+// 這一頁的一切都跟著「當前記錄類型」走：全班一覽、本月已記／未記、篩選、
+// 新增表單的欄位與分類詞。切到另一種類型＝看另一本簿子。
 function recordedThisMonth(last) { return !!last && last >= thisYearMonth() + '-01'; }
-let studentsLoaded = false;
+
+let currentStreamId = '';
+let studentsByStream = {};   // 類型 id → 該類型底下的學生卡（則數也是該類型的）
+
+function rosterOf(id) { return rosterStudents.find(x => x.id === id) || null; }
+// class 範圍：名冊上每一位都在。case 範圍：只有名冊上 streams 有列到的那幾位。
+function inStream(st, id) {
+  if (!st) return false;
+  if (st.scope !== 'case') return true;
+  const r = rosterOf(id);
+  return !!(r && (r.streams || []).indexOf(st.id) !== -1);
+}
+function streamsOfStudent(id) { return STREAMS.filter(s => inStream(s, id)); }
+function streamCountOf(st) { return st && st.scope === 'case' ? rosterStudents.filter(x => inStream(st, x.id)).length : rosterStudents.length; }
+function pickStreamFor(id) {
+  const list = streamsOfStudent(id);
+  if (list.some(s => s.id === currentStreamId)) return currentStreamId;
+  return list.length ? list[0].id : (STREAMS[0] ? STREAMS[0].id : '');
+}
+function rememberStream(id) { try { localStorage.setItem('trk-stream', id); } catch (_) {} }
+function recalledStream() { try { return localStorage.getItem('trk-stream') || ''; } catch (_) { return ''; } }
+
+// ── 頂端那一排「記錄類型」──────────────────────────────────────────
+function renderStreamBar() {
+  const bar = $('stream-bar'), none = $('stream-none'), body = $('students-body'), scopeEl = $('stream-scope');
+  bar.innerHTML = '';
+  const any = STREAMS.length > 0;
+  bar.hidden = !any; none.hidden = any; body.hidden = !any;
+  scopeEl.textContent = '';
+  if (!any) return;
+  STREAMS.forEach(st => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'stream-chip' + (st.id === currentStreamId ? ' on' : '');
+    b.textContent = st.label || st.id;
+    b.onclick = () => { location.hash = '#students/' + encodeURIComponent(st.id); };
+    bar.appendChild(b);
+  });
+  const add = document.createElement('button');
+  add.type = 'button'; add.className = 'stream-chip add'; add.textContent = '＋ 選擇類型';
+  add.onclick = () => streamPicker.open();
+  bar.appendChild(add);
+
+  const st = streamById(currentStreamId);
+  if (st) {
+    const scope = st.scope === 'case'
+      ? `只有被列入的學生會在這裡（目前 ${streamCountOf(st)} 位）。`
+      : '名冊上每一位學生都在這個類型裡。';
+    scopeEl.textContent = (st.desc ? st.desc + ' ' : '') + scope;
+    $('open-class-obs').hidden = st.scope === 'case';
+    $('add-member-btn').hidden = st.scope !== 'case';
+  }
+}
+
 async function loadStudents(force) {
-  if (studentsLoaded && !force) { renderStudents(); return; }
+  // 一種類型都還沒選：整個一覽收起來（別留一句「載入中…」在收起來的區塊裡）
+  if (!STREAMS.length) { renderStreamBar(); monthSummaryEl.innerHTML = ''; gridEl.innerHTML = ''; return; }
+  const st = streamById(currentStreamId) || STREAMS[0];
+  currentStreamId = st.id;
+  renderStreamBar();
+  closeMemberForm();
+  if (studentsByStream[st.id] && !force) { students = studentsByStream[st.id]; renderStudents(); return; }
   gridEl.innerHTML = '<div class="empty-state">載入中…</div>';
   try {
-    students = await store.listCards('students');
-    students.sort((a, b) => String(a.id).localeCompare(String(b.id)));
-    studentsLoaded = true;
+    const all = await store.listCards('students', st.id);
+    all.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    students = all.filter(x => inStream(st, x.id));
+    studentsByStream[st.id] = students;
     renderStudents();
   } catch (err) {
     console.error(err);
@@ -737,30 +978,151 @@ async function loadStudents(force) {
       : '載入失敗：' + esc(errText(err))}</div>`;
   }
 }
+
 function renderStudents() {
+  const st = streamById(currentStreamId);
+  if (!st) { renderStreamBar(); return; }
   const ym = thisYearMonth();
   const done = students.filter(s => recordedThisMonth(s.lastRecordDate)).length;
-  monthSummaryEl.innerHTML = `本月（${ym}）已記 <strong>${done}</strong> ／ ${students.length}`;
+  monthSummaryEl.innerHTML = `${esc(st.label || st.id)}・本月（${ym}）已記 <strong>${done}</strong> ／ ${students.length}`;
   const list = students.filter(s => !filterTodo.checked || !recordedThisMonth(s.lastRecordDate));
   if (!list.length) {
-    gridEl.innerHTML = '<div class="empty-state">' + (filterTodo.checked ? '本月都記過了 🎉' : '還沒有學生名單——請跟 AI 說「幫我匯入名單」。') + '</div>';
+    gridEl.innerHTML = '<div class="empty-state">' + (
+      filterTodo.checked ? '這個類型本月都記過了 🎉'
+      : st.scope === 'case' ? '這個類型還沒有列入任何學生——點上方「＋ 列入學生」把要追蹤的孩子加進來。'
+      : '還沒有學生名單——請跟 AI 說「幫我匯入名單」。') + '</div>';
     return;
   }
   gridEl.innerHTML = '';
   list.forEach(s => {
     const isDone = recordedThisMonth(s.lastRecordDate);
+    const wrap = document.createElement('div');
+    wrap.className = 'card-wrap';
     const card = document.createElement('button');
     card.type = 'button';
     card.className = 'item-card' + (isDone ? '' : ' is-todo');
     card.innerHTML = `<div><span class="sc-name">${esc(s.name || s.id)}</span><span class="sc-id">${esc(s.id)}</span></div>
       <div class="sc-meta">${s.recordCount || 0} 則 · ${s.lastRecordDate ? '最後 ' + esc(s.lastRecordDate) : '尚無記錄'}</div>
       <span class="badge ${isDone ? 'done' : 'todo'}">${isDone ? '本月已記' : '本月未記'}</span>`;
-    card.onclick = () => { location.hash = '#s/' + encodeURIComponent(s.id); };
-    gridEl.appendChild(card);
+    card.onclick = () => { location.hash = '#s/' + encodeURIComponent(s.id) + '/' + encodeURIComponent(st.id); };
+    wrap.appendChild(card);
+    if (st.scope === 'case') wrap.appendChild(removeMemberBtn(st, s));
+    gridEl.appendChild(wrap);
   });
 }
+
+// 「移出」：不跳系統對話框，第一下變成「確定移出？」，第二下才真的移。
+// 移出只是把名冊上的 streams 拿掉一個字，紀錄一則都不會刪。
+function removeMemberBtn(st, s) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'card-rm'; b.textContent = '移出';
+  let armed = false, timer = null;
+  b.onclick = async (e) => {
+    e.stopPropagation();
+    if (!armed) {
+      armed = true; b.textContent = '確定移出？';
+      timer = setTimeout(() => { armed = false; b.textContent = '移出'; }, 5000);
+      return;
+    }
+    clearTimeout(timer); b.disabled = true; b.textContent = '移出中…';
+    try {
+      const r = rosterOf(s.id);
+      if (r) r.streams = (r.streams || []).filter(x => x !== st.id);
+      await store.setRoster(rosterStudents);
+      studentsByStream[st.id] = null;
+      await loadStudents(true);
+    } catch (err) {
+      console.error(err);
+      b.disabled = false; armed = false; b.textContent = '移出';
+      alert('移出失敗：' + errText(err));
+    }
+  };
+  return b;
+}
+
+// ── 「＋ 列入學生」：從名冊挑人進這一種個案型類型 ────────────────────
+const memberForm = $('member-form'), addMemberBtn = $('add-member-btn'), mbMsg = $('mb-msg');
+function closeMemberForm() {
+  if (!memberForm) return;
+  const st = streamById(currentStreamId);
+  memberForm.hidden = true;
+  addMemberBtn.hidden = !(st && st.scope === 'case');
+  mbMsg.textContent = '';
+}
+addMemberBtn.onclick = () => {
+  const st = streamById(currentStreamId); if (!st) return;
+  const box = $('member-list');
+  const rest = rosterStudents.filter(x => !inStream(st, x.id));
+  $('mb-hint').textContent = `從名冊挑要列入「${st.label || st.id}」的學生。列入之後這個類型的一覽才會有他。`;
+  box.innerHTML = rest.length ? '' : '<div class="nc-hint">名冊上的學生都已經在這個類型裡了。</div>';
+  rest.forEach(x => {
+    const div = document.createElement('div'); div.className = 'lib-item';
+    div.innerHTML = `<label><input type="checkbox" value="${esc(x.id)}">
+      <span><strong>${esc(x.name || x.id)}</strong><span class="lib-desc">${esc(x.id)}</span></span></label>`;
+    box.appendChild(div);
+  });
+  memberForm.hidden = false; addMemberBtn.hidden = true; mbMsg.textContent = '';
+};
+$('mb-cancel').onclick = () => { memberForm.hidden = true; addMemberBtn.hidden = false; mbMsg.textContent = ''; };
+$('mb-save').onclick = async (e) => {
+  const btn = e.currentTarget, st = streamById(currentStreamId);
+  if (!st) return;
+  const picked = [...$('member-list').querySelectorAll('input[type=checkbox]:checked')].map(c => c.value);
+  if (!picked.length) { mbMsg.textContent = '請至少挑一位'; return; }
+  btn.disabled = true; mbMsg.textContent = '列入中…';
+  try {
+    picked.forEach(id => {
+      const r = rosterOf(id);
+      if (!r) return;
+      r.streams = r.streams || [];
+      if (r.streams.indexOf(st.id) === -1) r.streams.push(st.id);
+    });
+    await store.setRoster(rosterStudents);
+    memberForm.hidden = true; addMemberBtn.hidden = false; mbMsg.textContent = '';
+    studentsByStream[st.id] = null;
+    await loadStudents(true);
+  } catch (err) {
+    console.error(err);
+    mbMsg.textContent = '列入失敗：' + errText(err);
+  }
+  btn.disabled = false;
+};
+
+// ── 「＋ 選擇類型」：與「＋ 新增業務組」共用同一個元件 ────────────────
+const streamPicker = makePicker($('stream-picker-host'), {
+  intro: '一種記錄類型＝一本各記各的簿子。先從下面的清單勾，勾不到的就用最下面的「我的類型不在清單裡」自己開一種。',
+  library: () => STREAM_LIB,
+  existingIds: () => new Set(STREAMS.map(x => x.id)),
+  emptyLibHint: '設定檔裡沒有記錄類型庫，請直接用下面的自訂。',
+  customToggleLabel: '我的記錄類型不在清單裡，我自己開一種',
+  labelPlaceholder: '這種紀錄叫什麼？例如：社團觀察',
+  fieldsPlaceholder: '每次都要填的欄位，用頓號或逗號隔開（選填）例如：社團、出席、表現',
+  tagsPlaceholder: '常用分類詞（選填）例如：#出席 #合作 #作品',
+  askScope: true,
+  syncHint: '建好之後請回頭跟你的 AI 代理說「我在網頁上加了一種學生記錄類型，幫我寫進 config/tabs.json」——本機記錄檔與安全規則是以 config 為準，不同步的話這一種只有網頁看得到。',
+  // 從庫勾的也要提示：config/tabs.json 才是本機檔與規則的正本，網頁只是先讓他用起來
+  alertAlways: true,
+  doneAlert: '已加入。請回頭跟你的 AI 代理說「我在網頁上加了學生記錄類型，幫我寫進 config/tabs.json」——本機記錄檔與安全規則以 config 為準。',
+  denyHint: '加入失敗：安全規則還沒有 meta 區塊，請重新部署 firestore.rules。',
+  onSave: async (items) => {
+    const merged = STREAMS.concat(items.map(x => ({
+      id: x.id, label: x.label, desc: x.desc || '', scope: x.scope === 'case' ? 'case' : 'class',
+      fields: x.fields || [], tags: x.tags || [], custom: !!x.custom,
+    })));
+    await store.setConfig({ studentStreams: merged });
+    STREAMS = merged;
+    if (!currentStreamId) currentStreamId = STREAMS[0].id;
+    rememberStream(currentStreamId);
+    studentsByStream = {};
+    await loadStudents(true);
+  },
+});
+$('stream-none-add').onclick = () => streamPicker.open();
+
 filterTodo.onchange = renderStudents;
-$('open-class-obs').onclick = () => { location.hash = '#class'; };
+$('open-class-obs').onclick = () => {
+  location.hash = '#class' + (currentStreamId ? '/' + encodeURIComponent(currentStreamId) : '');
+};
 
 // ══ 分頁二：課程記錄 ══════════════════════════════════════════════════
 // 課程是「你想分開記的一門課或一段教學」。學季完全是選填——這個 kit 給任何
@@ -889,69 +1251,141 @@ function renderGroups() {
   });
   groupSectionsEl.appendChild(grid);
 }
-const newGroupForm = $('new-group-form'), addGroupBtn = $('add-group-btn'), ngMsg = $('ng-msg');
-addGroupBtn.onclick = () => {
-  newGroupForm.hidden = false; addGroupBtn.hidden = true; ngMsg.textContent = '';
-  const lib = (KIT && KIT.businessLibrary) || [];
-  const have = new Set(groups.map(g => g.id));
-  const box = $('lib-list');
-  box.innerHTML = lib.length ? '' : '<div class="nc-hint">設定檔裡沒有業務組庫，請直接用下面的自訂。</div>';
-  lib.forEach(g => {
-    const div = document.createElement('div'); div.className = 'lib-item';
-    const already = have.has(g.id);
-    div.innerHTML = `<label><input type="checkbox" value="${esc(g.id)}" ${already ? 'disabled' : ''}>
-      <span><strong>${esc(g.label)}</strong>${already ? '（已加入）' : ''}
-      <span class="lib-desc">${esc(g.desc || '')}</span></span></label>`;
-    box.appendChild(div);
-  });
-};
-$('ng-cancel').onclick = () => { newGroupForm.hidden = true; addGroupBtn.hidden = false; ngMsg.textContent = ''; };
-$('ng-custom-on').onchange = (e) => { $('ng-custom-fields').hidden = !e.currentTarget.checked; };
+const addGroupBtn = $('add-group-btn');
+
+// ══ 共用元件：從庫勾選＋自訂一個 ══════════════════════════════════════
+// 「＋ 新增業務組」與「＋ 選擇類型」問的事情一模一樣：從清單勾哪幾個、
+// 清單裡沒有就自己開一個（叫什麼、每次要填哪些欄位、常用分類詞）。
+// 兩邊各寫一套的話，改了一邊忘了另一邊，老師會看到兩種不一樣的問法——
+// 所以只有這一個元件，兩邊都掛它。
+function fieldsFromText(txt) {
+  return (txt || '').split(/[、,，;；]+/).map(x => x.trim()).filter(Boolean)
+    .map(name => ({ name, type: /日|期限|截止/.test(name) ? 'date' : 'text' }));
+}
 function slugFromLabel(label) {
-  const ascii = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const ascii = String(label).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   if (ascii) return ascii.slice(0, 40);
   return 'g' + Date.now().toString(36);
 }
-$('ng-save').onclick = async (e) => {
-  const btn = e.currentTarget;
-  const picked = [...$('lib-list').querySelectorAll('input[type=checkbox]:checked')].map(c => c.value);
-  const custom = $('ng-custom-on').checked;
-  if (!picked.length && !custom) { ngMsg.textContent = '請至少勾一組，或勾「我自己開一組」'; return; }
-  const lib = (KIT && KIT.businessLibrary) || [];
-  const toAdd = picked.map(id => {
-    const g = lib.find(x => x.id === id);
-    return { id, data: { label: g.label, desc: g.desc || '', fields: g.fields || [], tags: g.tags || [], custom: false, order: groups.length + 1 } };
-  });
-  let customNote = false;
-  if (custom) {
-    const label = $('ng-label').value.trim();
-    if (!label) { ngMsg.textContent = '請填這組業務的名稱'; return; }
-    const fields = $('ng-fields').value.split(/[、,，]+/).map(s => s.trim()).filter(Boolean)
-      .map(name => ({ name, type: /日|期限|截止/.test(name) ? 'date' : 'text' }));
-    const tags = normalizeTags($('ng-tags').value);
-    const id = slugFromLabel(label);
-    if (groups.some(g => g.id === id)) { ngMsg.textContent = `已經有一組「${label}」了`; return; }
-    toAdd.push({ id, data: { label, desc: '', fields, tags, custom: true, order: groups.length + 1 } });
-    customNote = true;
+
+function makePicker(host, opts) {
+  const form = document.createElement('div');
+  form.className = 'new-form';
+  form.hidden = true;
+  form.innerHTML =
+    `<p class="nc-hint">${esc(opts.intro)}</p>
+     <div class="lib-list pk-lib"></div>
+     <div class="pk-custom" style="border-top:1px solid #eee;padding-top:.6rem">
+       <label style="font-size:.85rem;color:#555;display:flex;gap:.45rem;align-items:center;margin-bottom:.5rem">
+         <input type="checkbox" class="pk-on"> ${esc(opts.customToggleLabel)}
+       </label>
+       <div class="pk-fields-box" hidden>
+         <input class="pk-label" type="text" placeholder="${esc(opts.labelPlaceholder)}">
+         ${opts.askScope ? `<select class="pk-scope">
+           <option value="class">全班每一位學生都在裡面</option>
+           <option value="case">只有我列進去的學生</option>
+         </select>` : ''}
+         <input class="pk-fields" type="text" placeholder="${esc(opts.fieldsPlaceholder)}">
+         <input class="pk-tags" type="text" placeholder="${esc(opts.tagsPlaceholder)}">
+         <p class="nc-hint">${esc(opts.syncHint)}</p>
+       </div>
+     </div>
+     <div class="editbtns"><button class="save" type="button">加入</button><button class="cancel" type="button">取消</button><span class="msg"></span></div>`;
+  host.appendChild(form);
+
+  const libBox = form.querySelector('.pk-lib'), onBox = form.querySelector('.pk-on'),
+    fieldsBox = form.querySelector('.pk-fields-box'), labelIn = form.querySelector('.pk-label'),
+    fieldsIn = form.querySelector('.pk-fields'), tagsIn = form.querySelector('.pk-tags'),
+    scopeIn = form.querySelector('.pk-scope'), msg = form.querySelector('.msg'),
+    saveBtn = form.querySelector('.save'), cancelBtn = form.querySelector('.cancel');
+
+  onBox.onchange = () => { fieldsBox.hidden = !onBox.checked; };
+
+  function reset() {
+    labelIn.value = fieldsIn.value = tagsIn.value = '';
+    if (scopeIn) scopeIn.value = 'class';
+    onBox.checked = false; fieldsBox.hidden = true; msg.textContent = '';
   }
-  btn.disabled = true; ngMsg.textContent = '加入中…';
-  try {
-    for (const item of toAdd) {
-      await store.setCard('business', item.id, item.data);
-      groups.push(Object.assign({ id: item.id }, item.data, { recordCount: 0, lastRecordDate: '' }));
+  function close() { form.hidden = true; reset(); if (opts.onClose) opts.onClose(); }
+
+  function open() {
+    reset();
+    const lib = opts.library() || [], have = opts.existingIds();
+    libBox.innerHTML = lib.length ? '' : `<div class="nc-hint">${esc(opts.emptyLibHint)}</div>`;
+    lib.forEach(g => {
+      const div = document.createElement('div');
+      div.className = 'lib-item';
+      const already = have.has(g.id);
+      const scopeNote = opts.askScope ? (g.scope === 'case' ? '（只有列入的學生）' : '（全班）') : '';
+      div.innerHTML = `<label><input type="checkbox" value="${esc(g.id)}" ${already ? 'disabled' : ''}>
+        <span><strong>${esc(g.label)}</strong>${already ? '（已加入）' : ''}${esc(scopeNote)}
+        <span class="lib-desc">${esc(g.desc || '')}</span></span></label>`;
+      libBox.appendChild(div);
+    });
+    form.hidden = false;
+  }
+
+  cancelBtn.onclick = close;
+  saveBtn.onclick = async () => {
+    const lib = opts.library() || [];
+    const picked = [...libBox.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value);
+    const custom = onBox.checked;
+    if (!picked.length && !custom) { msg.textContent = '請至少勾一個，或勾「我自己開一個」'; return; }
+    const items = picked.map(id => {
+      const g = lib.find(x => x.id === id) || { id, label: id };
+      return { id, label: g.label || id, desc: g.desc || '', scope: g.scope || 'class', fields: g.fields || [], tags: g.tags || [], custom: false };
+    });
+    let hasCustom = false;
+    if (custom) {
+      const label = labelIn.value.trim();
+      if (!label) { msg.textContent = '請填名稱'; return; }
+      const id = slugFromLabel(label);
+      const taken = opts.existingIds();
+      if (taken.has(id) || items.some(x => x.id === id)) { msg.textContent = `已經有一個「${label}」了`; return; }
+      items.push({ id, label, desc: '', scope: scopeIn ? scopeIn.value : 'class',
+        fields: fieldsFromText(fieldsIn.value), tags: normalizeTags(tagsIn.value), custom: true });
+      hasCustom = true;
+    }
+    saveBtn.disabled = true; msg.textContent = '加入中…';
+    try {
+      await opts.onSave(items);
+      close();
+      if (hasCustom && opts.doneAlert) alert(opts.doneAlert);
+      else if (opts.doneAlert && opts.alertAlways) alert(opts.doneAlert);
+    } catch (err) {
+      console.error(err);
+      msg.textContent = isDenied(err) ? opts.denyHint : '加入失敗：' + errText(err);
+    }
+    saveBtn.disabled = false;
+  };
+
+  return { open, close };
+}
+
+const groupPicker = makePicker($('group-picker-host'), {
+  intro: '一組業務＝一張卡。先從下面的清單勾，勾不到的就用最下面的「我的業務不在清單裡」自己開一組。',
+  library: () => (KIT && KIT.businessLibrary) || [],
+  existingIds: () => new Set(groups.map(g => g.id)),
+  emptyLibHint: '設定檔裡沒有業務組庫，請直接用下面的自訂。',
+  customToggleLabel: '我的業務不在清單裡，我自己開一組',
+  labelPlaceholder: '這組業務叫什麼？例如：校刊編輯',
+  fieldsPlaceholder: '每次都要填的欄位，用頓號或逗號隔開（選填）例如：期別、截稿日、狀態',
+  tagsPlaceholder: '常用分類詞（選填）例如：#邀稿 #校稿 #印刷',
+  askScope: false,
+  syncHint: '建好之後請回頭跟你的 AI 代理說「我在網頁上加了一組『○○』，幫我寫進 config/tabs.json」——本機記錄檔與安全規則是以 config 為準，不同步的話這一組只有網頁看得到。',
+  doneAlert: '已加入。請回頭跟你的 AI 代理說「我在網頁上加了一組業務，幫我寫進 config/tabs.json」——本機記錄檔與安全規則以 config 為準。',
+  denyHint: '加入失敗：安全規則還沒有 business 區塊，請重新部署 firestore.rules。',
+  onClose: () => { addGroupBtn.hidden = false; },
+  onSave: async (items) => {
+    for (const it of items) {
+      const data = { label: it.label, desc: it.desc || '', fields: it.fields || [], tags: it.tags || [], custom: !!it.custom, order: groups.length + 1 };
+      await store.setCard('business', it.id, data);
+      groups.push(Object.assign({ id: it.id }, data, { recordCount: 0, lastRecordDate: '' }));
     }
     renderGroups();
-    $('ng-label').value = $('ng-fields').value = $('ng-tags').value = '';
-    $('ng-custom-on').checked = false; $('ng-custom-fields').hidden = true;
-    newGroupForm.hidden = true; addGroupBtn.hidden = false;
-    ngMsg.textContent = '';
-    if (customNote) alert('已加入。請回頭跟你的 AI 代理說「我在網頁上加了一組業務，幫我寫進 config/tabs.json」——本機記錄檔與安全規則以 config 為準。');
-  } catch (err) {
-    console.error(err);
-    ngMsg.textContent = isDenied(err) ? '加入失敗：安全規則還沒有 business 區塊，請重新部署 firestore.rules。' : '加入失敗：' + errText(err);
-  }
-  btn.disabled = false;
-};
+  },
+});
+addGroupBtn.onclick = () => { addGroupBtn.hidden = true; groupPicker.open(); };
 
 // ══ 記錄明細 ══════════════════════════════════════════════════════════
 // 記錄 id（rid）：當天第一則就是日期本身（`2026-09-10`），之後每一則帶建立時間
@@ -1121,7 +1555,11 @@ $('add-save').onclick = async (e) => {
   try {
     const rid = await allocRid(date);
     const rec = { date, tags, body: de.text, related: pendingRelated.slice(), source: 'web', editedOnWeb: true };
-    if (activeCtx.kind === 'business') rec.fields = fields;
+    // 記錄類型：學生／班級記錄一定要帶（安全規則 create 會擋沒有 stream 的），
+    // 也是本機檔要寫進 students/<id>/<streamId>.md 哪一個檔的依據。
+    if (activeCtx.stream) rec.stream = activeCtx.stream;
+    // 欄位表單：業務組有、學生記錄類型也有（個案、IEP、輔導晤談都有自己的欄位）
+    if (Object.keys(fields).length) rec.fields = fields;
     await store.createRecord(activeCtx.kind, activeCtx.target, rid, rec);
     existingRids.add(rid);
     const empty = recordListEl.querySelector('.empty-state'); if (empty) recordListEl.innerHTML = '';
@@ -1165,8 +1603,11 @@ function recordCard(rid, r) {
   card.className = 'record-card'; card.setAttribute('data-rid', rid);
   const tags = (r.tags || []).map(t => `<span class="record-tag">${esc(t)}</span>`).join('');
   const flag = r.editedOnWeb ? '<em>（已編輯，待同步）</em>' : '';
+  // 記錄類型標籤：明細頁一次只看一種，但關聯跳過來、或本機檔回寫時仍看得出這則是哪一種
+  const stTag = (activeCtx && (activeCtx.kind === 'students' || activeCtx.kind === 'class') && r.stream)
+    ? `<span class="record-tag" style="background:#f1eefb;color:#5b4b8a">${esc(streamLabel(r.stream))}</span>` : '';
   card.innerHTML = `<div class="record-head">
-      <span><span class="rc-date">${esc((r.date || '') + ridTimeLabel(rid, r.date))}</span> ${tags} <span class="flag">${flag}</span></span>
+      <span><span class="rc-date">${esc((r.date || '') + ridTimeLabel(rid, r.date))}</span> ${stTag}${tags} <span class="flag">${flag}</span></span>
       <span class="rc-btns"><button class="rc-edit" type="button">編輯</button><button class="rc-del" type="button">刪除</button></span>
     </div>
     <div class="rc-fields">${fieldsTable(r.fields)}</div>
@@ -1254,7 +1695,7 @@ function gotoRelated(ref) {
   const p = String(ref).split('/');
   const kind = p[0], target = p[1];
   focusRid = p[2] || null;
-  if (kind === 'students') location.hash = '#s/' + encodeURIComponent(target);
+  if (kind === 'students') location.hash = '#s/' + encodeURIComponent(target) + (STREAMS.length ? '/' + encodeURIComponent(pickStreamFor(target)) : '');
   else if (kind === 'courses') location.hash = '#c/' + encodeURIComponent(target);
   else if (kind === 'business') location.hash = '#b/' + encodeURIComponent(target);
   else if (kind === 'class') location.hash = '#class';
@@ -1268,17 +1709,29 @@ async function openRecords(ctx) {
   detailNameEl.textContent = ctx.title;
   $('back').textContent = ctx.backLabel || '← 回上一層';
   addBody.placeholder = ctx.placeholder || '記錄內容（客觀描述具體事件；請用代號、勿寫真名）…';
+  renderDetailStreams(ctx);
   closeAddForm(); existingRids.clear();
+  // 學生／班級記錄一定要屬於某一種記錄類型；一種都還沒選就先不讓新增
+  if ((ctx.kind === 'students' || ctx.kind === 'class') && !ctx.stream) addBtn.hidden = true;
   recordListEl.innerHTML = '<div class="empty-state">載入中…</div>';
   try {
-    const list = await store.listRecords(ctx.kind, ctx.target);
+    const list = await store.listRecords(ctx.kind, ctx.target, ctx.stream);
     recordListEl.innerHTML = '';
     if (!list.length) recordListEl.innerHTML = '<div class="empty-state">還沒有記錄——點上方「＋ 新增一則記錄」開始。</div>';
     else list.forEach(r => { existingRids.add(r.rid); recordListEl.appendChild(recordCard(r.rid, r)); });
     if (focusRid) {
       const el = recordListEl.querySelector(`[data-rid="${CSS && CSS.escape ? CSS.escape(focusRid) : focusRid}"]`);
-      if (el) { el.classList.add('focused'); el.scrollIntoView({ block: 'center' }); }
-      focusRid = null;
+      if (el) { el.classList.add('focused'); el.scrollIntoView({ block: 'center' }); focusRid = null; }
+      else if (ctx.kind === 'students' && ctx.stream) {
+        // 關聯指到的那一則屬於別種記錄類型——換過去，不要讓人看到空白
+        let other = null;
+        try { const r = await store.getRecord('students', ctx.target, focusRid); other = r && r.stream; } catch (_) {}
+        if (other && other !== ctx.stream && streamById(other)) {
+          location.hash = '#s/' + encodeURIComponent(ctx.target) + '/' + encodeURIComponent(other);
+          return;
+        }
+        focusRid = null;
+      } else focusRid = null;
     }
   } catch (err) {
     console.error(err);
@@ -1287,50 +1740,104 @@ async function openRecords(ctx) {
       : '載入失敗：' + esc(errText(err))}</div>`;
   }
 }
-$('back').onclick = () => { location.hash = '#' + (activeCtx && activeCtx.backTab || currentTab); };
+$('back').onclick = () => {
+  const tab = (activeCtx && activeCtx.backTab) || currentTab;
+  location.hash = '#' + tab + (tab === 'students' && currentStreamId ? '/' + encodeURIComponent(currentStreamId) : '');
+};
+
+// 同一位學生的明細，頂端可以切看他在各種記錄類型底下的紀錄。
+// 只列他真的在裡面的類型（個案型的類型，沒被列入就不列）。
+function renderDetailStreams(ctx) {
+  const box = $('detail-streams');
+  if (!box) return;
+  box.innerHTML = '';
+  if (ctx.kind !== 'students' || STREAMS.length < 2) { box.hidden = true; return; }
+  const mine = streamsOfStudent(ctx.target);
+  if (mine.length < 2) { box.hidden = true; return; }
+  const lbl = document.createElement('span'); lbl.className = 'lbl'; lbl.textContent = '這位學生的記錄類型：';
+  box.appendChild(lbl);
+  mine.forEach(st => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = st.id === ctx.stream ? 'on' : '';
+    b.textContent = st.label || st.id;
+    b.onclick = () => { location.hash = '#s/' + encodeURIComponent(ctx.target) + '/' + encodeURIComponent(st.id); };
+    box.appendChild(b);
+  });
+  box.hidden = false;
+}
 
 // ══ hash 路由 ════════════════════════════════════════════════════════
-// #students #courses #business #class #s/<id> #c/<courseId> #b/<groupId>
+// #students #students/<類型> #courses #business #class #class/<類型>
+// #s/<學生>/<類型> #c/<課程> #b/<業務組>
+// 學生那一頁的網址一定帶記錄類型：從書籤或關聯連結進來時，才不會落在別種類型上。
 // 手機的系統返回鍵直接吃 hash 歷史：明細 → 返回 → 回到總覽，不會整個離站。
 function showOverview(tab) {
   detailEl.hidden = true; overviewEl.hidden = false;
   activeCtx = null;
   setTab(tab);
 }
+// 每一段各自解碼（代號或課名裡有 / 時才不會被切錯）
+function hashParts() {
+  return (location.hash || '').replace(/^#/, '').split('/')
+    .map(x => { try { return decodeURIComponent(x); } catch (_) { return x; } });
+}
+function classScopeStream(want) {
+  const ok = id => { const st = streamById(id); return st && st.scope !== 'case' ? st.id : ''; };
+  return ok(want) || ok(currentStreamId) || ((STREAMS.filter(x => x.scope !== 'case')[0] || {}).id || '');
+}
 async function route() {
-  const h = decodeURIComponent((location.hash || '').replace(/^#/, ''));
-  if (!h) { showOverview(DEFAULT_TAB); return; }
-  const slash = h.indexOf('/');
-  const head = slash === -1 ? h : h.slice(0, slash);
-  const rest = slash === -1 ? '' : h.slice(slash + 1);
+  const parts = hashParts();
+  const head = parts[0] || '';
+  if (!head) { showOverview(DEFAULT_TAB); return; }
 
-  if (head === 'students' || head === 'courses' || head === 'business') { showOverview(head); return; }
+  if (head === 'students') {
+    if (parts[1] && streamById(parts[1])) { currentStreamId = parts[1]; rememberStream(currentStreamId); }
+    showOverview('students');
+    return;
+  }
+  if (head === 'courses' || head === 'business') { showOverview(head); return; }
 
   if (head === 'class') {
+    const streamId = classScopeStream(parts[1]);
+    const st = streamById(streamId);
+    if (streamId) { currentStreamId = streamId; rememberStream(streamId); }
     detailEl.hidden = false; overviewEl.hidden = true;
     currentTab = 'students';
     await openRecords({
-      kind: 'class', target: 'main', title: '班級整體觀察', backTab: 'students', backLabel: '← 回學生記錄',
-      categories: tabCfg('students').categories,
+      kind: 'class', target: 'main', stream: streamId,
+      title: '班級整體觀察' + (st ? '（' + (st.label || st.id) + '）' : ''),
+      backTab: 'students', backLabel: '← 回學生記錄',
+      categories: streamTags(st),
       placeholder: '整班觀察（班級氛圍、節奏、群體動力、課程進行狀況；提及個別學生請用代號）…',
     });
     return;
   }
   if (head === 's') {
-    if (!studentsLoaded) { try { students = await store.listCards('students'); studentsLoaded = true; } catch (_) {} }
-    const s = students.find(x => x.id === rest) || { id: rest, name: rest };
+    const id = parts[1] || '';
+    if (!studentsByStream[currentStreamId]) {
+      // 直接開網址進來時名冊可能還沒讀，先確保有東西可以判斷他在哪些類型
+      try { if (!rosterStudents.length) rosterStudents = (await store.roster()).students || []; } catch (_) {}
+    }
+    const streamId = (parts[2] && streamById(parts[2])) ? parts[2] : pickStreamFor(id);
+    const st = streamById(streamId);
+    if (streamId && st && st.scope !== 'case') { currentStreamId = streamId; rememberStream(streamId); }
+    else if (streamId) { currentStreamId = streamId; rememberStream(streamId); }
+    const known = (students.find(x => x.id === id)) || rosterOf(id) || { id, name: id };
     currentTab = 'students';
     detailEl.hidden = false; overviewEl.hidden = true;
     await openRecords({
-      kind: 'students', target: s.id, title: `${s.name || s.id}（${s.id}）`, backTab: 'students', backLabel: '← 回學生記錄',
-      categories: tabCfg('students').categories,
+      kind: 'students', target: id, stream: streamId,
+      title: `${known.name || id}（${id}）`,
+      backTab: 'students', backLabel: '← 回學生記錄',
+      categories: streamTags(st), fields: (st && st.fields) || [],
       placeholder: '觀察內容（客觀描述具體事件：頭／心／手／社群哪個面向、他當下的發展位置；請用代號、勿寫真名）…',
     });
     return;
   }
   if (head === 'c') {
+    const cid = parts.slice(1).join('/');
     if (!coursesLoaded) { try { courses = await store.listCards('courses'); coursesLoaded = true; } catch (_) {} }
-    const c = courses.find(x => x.id === rest) || { id: rest, title: rest };
+    const c = courses.find(x => x.id === cid) || { id: cid, title: cid };
     currentTab = 'courses';
     detailEl.hidden = false; overviewEl.hidden = true;
     await openRecords({
@@ -1341,8 +1848,9 @@ async function route() {
     return;
   }
   if (head === 'b') {
+    const gid = parts.slice(1).join('/');
     if (!groupsLoaded) { try { groups = await store.listCards('business'); groupsLoaded = true; } catch (_) {} }
-    const g = groups.find(x => x.id === rest) || { id: rest, label: rest, fields: [], tags: [] };
+    const g = groups.find(x => x.id === gid) || { id: gid, label: gid, fields: [], tags: [] };
     currentTab = 'business';
     detailEl.hidden = false; overviewEl.hidden = true;
     await openRecords({
@@ -1448,14 +1956,40 @@ async function startFirebase() {
     }
     authBox.hidden = true; content.hidden = false; whoEl.textContent = email;
     try { rosterStudents = (await store.roster()).students || []; } catch (_) { rosterStudents = []; }
+    await initStreams();
     await renderStatusBar();
     await route();
   });
 }
 
 // ══ 起動 ══════════════════════════════════════════════════════════════
+function renderFooterVersion() {
+  const el = $('foot-version');
+  if (!el) return;
+  // 版本不寫死在頁面上：build_config.py／build_preview.py 會把 VERSION 檔的內容
+  // 放進 KIT.version。沒有那個鍵就老實說不知道。
+  el.textContent = KIT_VERSION ? '版本 ' + KIT_VERSION : '版本未知';
+}
+
+// 記錄類型＝設定檔勾的那幾種（正本）＋ 在網頁上臨時加的（meta/config）。
+// 兩邊同 id 以設定檔為準：config/tabs.json 才是本機檔與規則的依據。
+async function initStreams() {
+  STREAMS = ((tabCfg('students').streams) || []).slice();
+  try {
+    const cfg = (store.getConfig ? await store.getConfig() : null) || {};
+    const have = new Set(STREAMS.map(x => x.id));
+    (Array.isArray(cfg.studentStreams) ? cfg.studentStreams : []).forEach(x => {
+      if (x && x.id && !have.has(x.id)) { STREAMS.push(x); have.add(x.id); }
+    });
+  } catch (e) { console.error(e); }
+  const want = recalledStream();
+  currentStreamId = streamById(want) ? want : (STREAMS[0] ? STREAMS[0].id : '');
+  studentsByStream = {};
+}
+
 async function boot() {
   buildTabBar();
+  renderFooterVersion();
   if (DEMO) {
     $('demo-banner').hidden = false;
     $('subtitle').textContent = '這是示範模式：下面的學生、課程、業務全是假資料，你可以隨便點、隨便改。';
@@ -1463,6 +1997,7 @@ async function boot() {
     $('signout').hidden = true;
     await store.init();
     rosterStudents = (await store.roster()).students || [];
+    await initStreams();
     $('content').hidden = false;
     await renderStatusBar();
     await route();
@@ -1471,12 +2006,14 @@ async function boot() {
   if (!KIT) { $('no-config').hidden = false; return; }
   await startFirebase();
 }
-$('demo-reset').onclick = () => {
+$('demo-reset').onclick = async () => {
   if (!store.reset) return;
   store.reset();
-  studentsLoaded = coursesLoaded = groupsLoaded = false;
+  coursesLoaded = groupsLoaded = false;
+  rosterStudents = (await store.roster()).students || [];
+  await initStreams();
   location.hash = '#' + DEFAULT_TAB;
-  route();
+  await route();
   alert('示範資料已還原成一開始的樣子。');
 };
 

@@ -66,34 +66,65 @@
 
 ## 2. 資料模型
 
+### 學生記錄再分一層：記錄類型（stream）
+
+學生記錄不是一個平面。導師的日常觀察、科任老師的課堂觀察、個案追蹤、IEP、輔導晤談
+是**五種各自獨立的簿子**，各有自己的欄位、分類詞、與「哪些學生在裡面」。
+這一層叫**記錄類型（`stream`）**：
+
+- **可選清單**：`config/student-streams.library.json`（`homeroom` / `subject` / `case` /
+  `iep` / `counseling` ＋ 清單外的開放選項）。**這份庫只是選單**，
+  安裝時列出來讓老師勾，**一種都不預先勾**；改它不影響已經在跑的資料。
+- **老師勾了什麼**：`config/tabs.json` 的 `students.streams`，每一筆
+  `{id,label,desc,scope,fields,tags,custom}`。
+- **`scope`** 只有兩種：`class`＝名冊上每一位學生都在這個類型裡；
+  `case`＝只有被列入的學生才在。
+- **雲端不分集合**：同一位學生所有類型的紀錄都在 `students/<代號>/records`，
+  靠文件裡**必填的 `stream` 欄位**分流（安全規則要求 `create` 時 `stream` 是非空字串，
+  且 `update` 不准改它）。v2 留下來、沒有 `stream` 的舊紀錄一律當 `homeroom`。
+- **本機一種類型一個檔**：`data/students/<代號>/<類型id>.md`，
+  `homeroom` 例外——沿用 v2 的 `observations.md`，所以舊資料原地可用。
+- **班級整體觀察**也跟著分：每一種 `scope: class` 的類型各一個
+  `data/class/<類型id>.md`（`homeroom` 同樣是 `observations.md`）；
+  雲端仍是同一個 `class-observations` 集合，一樣靠 `stream` 分流。
+- **目標清單**由 `lib.targets()` 產：students ← 每位學生 × 他所屬的每一種類型各一個目標；
+  class ← 每一種 `class` 型類型各一個。同步、台帳、匯出共用這份清單。
+
+業務記錄的「業務組」是同一套機制的另一個實例（庫＋勾選＋兩層開放選項），
+差別只在業務組沒有 `scope`、也不牽涉名冊。
+
 ### 雲端（Firestore）
 
 ```
-roster/main                       {students:[{id,name}], protectedPhrases:[]}
+roster/main                       {students:[{id,name,streams:[類型id…]}], protectedPhrases:[]}
 students/{代號}                    每生一張卡
-students/{代號}/records/{rid}      每則觀察
-class-observations/{rid}          班級整體觀察
+students/{代號}/records/{rid}      每則紀錄，必帶 stream: "<類型id>"（規則擋著）
+class-observations/{rid}          班級整體觀察，同樣帶 stream
 courses/{課程id}                   {title,kind,season,weeks,teacherName,order}
 courses/{課程id}/records/{rid}
 business/{組id}                    {label,fields:[...],tags:[...],custom:bool}
 business/{組id}/records/{rid}
-meta/config                       設定鏡像（sync.py 寫）
+meta/config                       設定鏡像（sync.py 寫 version／dataVersion／tabs；
+                                   網頁上臨時加的記錄類型寫進 studentStreams）
 meta/status                       {lastSyncAt,lastBackupAt}（網頁頂端讀它）
 ```
 
 ### 本機（`data/`，全部 gitignored）
 
 ```
-data/roster.csv                   代號,姓名 —— 唯一有真名的檔
+data/roster.csv                   代號,姓名,類型 —— 唯一有真名的檔；第三欄＝這位學生列入
+                                  哪幾種 scope:case 的類型，分號分隔（case;iep）
 data/contacts.csv                 （選用）家長信箱
-data/students/<代號>/observations.md
-data/class/observations.md
+data/students/<代號>/observations.md    homeroom（沿用 v2 檔名）
+data/students/<代號>/<類型id>.md         其餘每一種類型各一個檔（case.md、iep.md…）
+data/class/observations.md              班級整體觀察：homeroom
+data/class/<類型id>.md                   其餘每一種 scope:class 類型各一個
 data/courses/<課程id>/records.md
 data/business/<組id>/records.md
 data/ledger.jsonl                 台帳
 data/audit.jsonl                  append_record.py 的寫入稽核＋同步刪除的稽核
 data/backups.jsonl                每次備份的 zip 路徑、md5、Drive file id
-data/.sync-state.json             上次同步時每個目標有哪些 rid
+data/.sync-state.json             上次同步時每個目標有哪些 rid（含名冊第三欄的基準）
 ```
 
 ### 一則記錄長什麼樣
@@ -103,6 +134,7 @@ data/.sync-state.json             上次同步時每個目標有哪些 rid
 ```json
 {
   "date": "2026-09-10",
+  "stream": "case",
   "tags": ["#人際", "#親師"],
   "body": "……（去識別化正文）",
   "fields": {"期限": "2026-09-20", "辦理情形": "辦理中"},
@@ -113,7 +145,10 @@ data/.sync-state.json             上次同步時每個目標有哪些 rid
 }
 ```
 
-`fields` 只有業務記錄會有。`related` 是三個分頁串起來的鍵。
+`stream` 只有 `students` 與 `class` 這兩種記錄會有，而且**必填**（規則擋著）。
+`fields` 業務記錄與有固定欄位的記錄類型（`case`、`iep`、`counseling`、`subject`）都會有。
+`related` 是三個分頁串起來的鍵；`rid` 在同一位學生底下是唯一的，
+所以關聯只寫 `students/<代號>/<rid>`，不用也不必指定類型。
 
 ### 記錄 id（`rid`）的規則
 
@@ -136,14 +171,18 @@ data/.sync-state.json             上次同步時每個目標有哪些 rid
 ```
 
 - 標題列：`## 日期 [時間] #標籤…`，當天第一則不帶時間。
-- 欄位列（只有業務檔會用）：緊接標題，每行 `鍵：值`（全形冒號）。
-  **解析器很寬鬆**——任何 `鍵：值` 行都收進 `fields`，就算那個鍵不在該組設定的欄位裡也照收。
-  這是刻意的：組的 `fields` 只是表單建議，不是 schema 閘，**改欄位名不需要 migration**。
+- 欄位列（業務檔，以及有固定欄位的記錄類型——`case`、`iep`、`counseling`、`subject`）：
+  緊接標題，每行 `鍵：值`（全形冒號）。
+  **解析器很寬鬆**——任何 `鍵：值` 行都收進 `fields`，就算那個鍵不在該組／該類型設定的欄位裡也照收。
+  這是刻意的：`fields` 只是表單建議，不是 schema 閘，**改欄位名不需要 migration**。
 - `關聯：` 行用分號分隔。
 - 空一行之後是正文。**檔案只加不刪**。
+- 每個檔的檔頭（front matter）記著它是哪一種：`kind`、`stream`，
+  所以檔案自己就說得出「我是 S-03 的個案追蹤」。
 
-範例看 `templates/observation.example.md`、`templates/course-records.example.md`、
-`templates/business-records.example.md`。
+範例看 `templates/observation.example.md`（全班型的記錄類型）、
+`templates/case-records.example.md`（個案型的記錄類型）、
+`templates/course-records.example.md`、`templates/business-records.example.md`。
 
 ---
 
@@ -209,7 +248,8 @@ v3 起安全規則允許擁有者刪除記錄（`allow delete: if isOwner();`）
 
 | 閘 | 擋什麼 | 失敗的退出碼 |
 |---|---|---|
-| 目標白名單 | `--kind` ＋ `--target` 必須是設定裡真的存在的目標 | 3 |
+| 旗標檢查 | `--kind students` 一定要帶 `--stream`（`--kind class` 只在剛好只有一種全班型類型時自動帶）；`courses`／`business` 不准帶 `--stream` | 2 |
+| 目標白名單 | `--kind` ＋ `--target` ＋ `--stream` 必須是設定裡真的存在的目標（含「這位學生有沒有被列入這個個案型類型」） | 3 |
 | 真名攔截 | 正文／欄位／標籤出現名冊真名 | 5 |
 | 只追加 | `O_APPEND` 從檔尾追加，不 seek、不重寫、不插入 | — |
 | id 不變 | 寫前後各解析一次，斷言「舊 id 一個都沒變、剛好多一則」；違反就把檔案**截回原長度**再異常退出 | 9 |
@@ -227,11 +267,36 @@ v3 起安全規則允許擁有者刪除記錄（`allow delete: if isOwner();`）
 
 | 情況 | 做法 |
 |---|---|
-| 檔案裡有、雲端沒有、而且以前沒同步過 | 推上去 |
-| 雲端那則被網頁改過（`editedOnWeb`）、本機那則自上次同步後沒動 | 寫回檔案（先備份成 `.<檔名>.prev.md`） |
+| 檔案裡有、雲端沒有、而且以前沒同步過 | 推上去（推的時候一定帶 `stream` 與 `sourceFile`） |
+| 雲端那則被網頁改過（`editedOnWeb`）、本機那則自上次同步後沒動 | 寫回檔案（先備份成 `.<檔名>.prev.md`）；寫回哪個檔看那則的 `stream` |
 | **兩邊都改** | **不覆蓋**，印出來讓老師自己決定 |
 | 雲端那則被刪掉（以前同步過、現在不見了） | 從本機檔也刪掉，寫進 `data/audit.jsonl`。但整檔不見／變空就一律不刪 |
 | 任一方向出現名冊真名 | 攔下不同步 |
+
+### 名冊第三欄是雙向的
+
+「哪些學生列入哪些個案型記錄類型」兩邊都能改：本機是 `data/roster.csv` 的第三欄，
+雲端是 `roster/main.students[].streams`（網頁上按「＋ 列入學生」／「移出」就是在改它）。
+`sync.py` 拿上次同步的狀態當基準做三方比對：
+
+| 情況 | 做法 |
+|---|---|
+| 只有本機改 | 推上雲端 |
+| 只有網頁改 | 回寫 `data/roster.csv` 第三欄，並印一行說改了誰 |
+| **兩邊都改** | **不覆蓋**，雲端維持原樣、印出來讓老師決定 |
+| 網頁上有這位學生、本機名冊沒有 | 印一行提醒，不自動加（名冊是唯一有真名的檔，不能靠同步長出人來） |
+
+姓名永遠以本機 `data/roster.csv` 為準——雲端的名字只是鏡像。
+
+### 網頁上臨時加的記錄類型／業務組：只提示，不改 config
+
+網頁的「＋ 選擇類型」與「＋ 新增業務組」只寫到雲端（`meta/config.studentStreams`、
+`business/<組id>` 卡）。`sync.py` 每次跑會比對 `config/tabs.json`，
+發現雲端有、設定沒有的，就印一行「請跟 AI 說要加進去」——**它不會自己動 `config/tabs.json`**。
+
+理由：`config/tabs.json` 是本機記錄檔與安全規則的依據，改它是有後果的事
+（會多出資料夾、會影響規則），必須由 AI 明確地做，不能當成同步的副作用。
+網頁那邊加完也會跳同樣的提示。
 
 ### 前置條件式寫回（這條特別重要）
 
@@ -321,12 +386,18 @@ python3 scripts/ledger.py --check      # 三處對帳，印三欄表
 ## 8. 設定：一個產生器，三個輸出
 
 ```
-config/kit.json          ──┐
-config/tabs.json         ──┤
-config/business-groups.  ──┼──►  build_config.py  ──►  site/js/kit-config.js
-  library.json             │                          site/js/firebase-config.js
-firestore.rules.tmpl     ──┘                          firestore.rules
+config/kit.json            ──┐
+config/tabs.json           ──┤
+config/business-groups.    ──┤
+  library.json             ──┼──►  build_config.py  ──►  site/js/kit-config.js
+config/student-streams.    ──┤                          site/js/firebase-config.js
+  library.json             ──┤                          firestore.rules
+firestore.rules.tmpl       ──┘
+VERSION                    ──┘（版本字串進 window.KIT.version）
 ```
+
+兩份 library 進的是**網頁上「＋ 選擇類型」「＋ 新增業務組」要顯示的選單**；
+老師實際勾了什麼一律看 `config/tabs.json`。
 
 - **三個輸出全部 gitignored，而且永遠由腳本產生。** AI 代理不准手寫——
   手寫規則檔一旦把信箱打錯，資料庫就變成誰都讀不到，或更糟：誰都讀得到。
@@ -350,8 +421,14 @@ firestore.rules.tmpl     ──┘                          firestore.rules
   資料是假的、只存在那個瀏覽器（localStorage），頂端有黃色橫幅講清楚。
 - `scripts/build_preview.py` 把 dashboard 加設定內聯成**單一可離線開啟的 HTML**
   → `preview/teacher-records-kit-預覽.html`。零外部相依，`file://` 點兩下就開。
+- **學生分頁頂端一排「記錄類型」切換**，只顯示設定裡勾的那幾種（加上網頁上臨時加、
+  還沒寫進 `config/tabs.json` 的；同 id 以設定檔為準）。全班一覽、本月已記／未記、
+  明細與新增表單都**依當前類型**過濾與帶欄位；一位學生的明細頁可以切看他在各類型的紀錄，
+  只列他真的在裡面的類型。`scope: case` 的類型多兩顆按鈕：「＋ 列入學生」與每張卡上的「移出」
+  （移出只改名冊，不刪任何紀錄）。
 - 分頁狀態在網址的 `#` 後面（`#students` `#courses` `#business` `#class` `#s/<代號>` …），
   所以手機的返回鍵是通的。
+- 頁尾顯示版本，來源是 `window.KIT.version`（見 §10）。
 - 規則過舊會被即時偵測：新增或刪除被舊規則擋下來時，畫面直接顯示
   「你的安全規則還是舊版，請重新部署」。
 
@@ -361,16 +438,37 @@ firestore.rules.tmpl     ──┘                          firestore.rules
 
 ## 10. 版本控制
 
-- **`VERSION`** ＝ 這份程式是哪一版（語意化版本：主版本．次版本．修訂）。
+- **`VERSION`** ＝ 這份程式是哪一版（語意化版本：主版本．次版本．修訂）。**唯一的版本來源**。
 - **`CHANGELOG.md`** ＝ 每一版改了什麼。**動過 `firestore.rules.tmpl` 的版本，
   那一段要明寫「規則有動，升級後必須重新部署規則」**——這是升級唯一容易漏掉的一步。
 - 發版：改 `VERSION` ＋ 加 `CHANGELOG.md` 一段 ＋ `git tag v<版本>`，三件一起。
 - 更新：`git pull` 或重新下載，**只覆蓋程式與範本**；
   `config/`、`data/`、`setup/progress.json` 與所有產生檔絕對不覆蓋。
   更新後必跑 `python3 scripts/build_config.py`。
-- **目前沒有自動的版本比對提醒**。Firestore 的 `meta/config.version` 存的是資料格式版本（整數 3），
-  不是程式版本，網頁也不讀它。要確認規則是不是舊的：對 `CHANGELOG.md`，
-  或直接重新部署一次（重複部署沒有害處）。
+
+### `VERSION` 流到哪三個地方
+
+| 落點 | 誰寫 | 看得到什麼 |
+|---|---|---|
+| `site/js/kit-config.js` 的 `window.KIT.version` | `build_config.py`（`build_preview.py` 也內聯它） | **網頁頁尾直接顯示「版本 <版本字串>」**；沒有那個鍵就顯示「版本未知」 |
+| `doctor.py` 的標頭 | `doctor.py` | 健檢第一行「健檢：<資料根目錄>（kit <版本>）」；`--json` 也帶 `version` |
+| Firestore `meta/config.version` | `sync.py`（連同 `dataVersion: 3` 與 `tabs` 鏡像一起寫） | 這個資料庫**最後一次是用哪一版同步／部署的** |
+
+### 版本比對是自動的
+
+`doctor.py` 連得上網的時候會抓 `meta/config.version` 下來跟本機 `VERSION` 比：
+
+- 一樣 → 「資料庫上次部署的版本與這份程式一致」過關。
+- 程式比資料庫新 → 印出「資料庫 X／這份 Y」，並告訴你重新部署規則再同步一次。
+- 資料庫上還沒有版本記錄 → 叫你跑一次 `sync.py` 把版本寫上去。
+- 沒登入、沒網路、還沒接 Firebase、或加了 `--skip-network` → **跳過這一項，不算失敗**。
+
+這一項是**選用項目**（黃色驚嘆號，不擋健檢通過）——它是提醒，不是閘。
+真正會擋下操作的是網頁端的即時偵測：新增或刪除被舊規則擋下來時，
+畫面直接顯示「你的安全規則還是舊版，請重新部署」。
+
+`meta/config` 另外存 `dataVersion`（整數 `3`，＝資料格式版本），
+那是給未來的升級腳本判斷「要不要轉資料」用的，跟程式版本是兩件事。
 
 ---
 

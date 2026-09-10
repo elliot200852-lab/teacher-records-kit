@@ -41,6 +41,30 @@ def latest_backup():
     return last
 
 
+def backup_key(name):
+    """備份 zip 裡的一個檔名 → 目標的唯一鍵（要跟 lib.targets 的 key 對得上）。
+
+      data/students/S-01/observations.md → students/S-01/homeroom
+      data/students/S-01/case.md         → students/S-01/case
+      data/class/subject.md              → class/main/subject
+      data/courses/main-block/records.md → courses/main-block
+      data/business/paperwork/records.md → business/paperwork
+    """
+    parts = name.split("/")
+    if len(parts) < 3 or parts[0] != "data":
+        return None
+    kind = parts[1]
+    fname = parts[-1]
+    if kind == "students" and len(parts) == 4:
+        return "students/%s/%s" % (parts[2], "homeroom" if fname == "observations.md"
+                                   else fname[:-3])
+    if kind == "class" and len(parts) == 3:
+        return "class/main/%s" % ("homeroom" if fname == "observations.md" else fname[:-3])
+    if kind in ("courses", "business") and len(parts) == 4:
+        return "%s/%s" % (kind, parts[2])
+    return None
+
+
 def rids_in_backup(entry):
     """打開最近一次備份的 zip，看裡面實際有哪些紀錄（不是猜的）。"""
     if not entry:
@@ -53,17 +77,12 @@ def rids_in_backup(entry):
     try:
         with zipfile.ZipFile(path) as z:
             for name in z.namelist():
-                if not name.endswith(".md") or not name.startswith("data/"):
+                if not name.endswith(".md"):
                     continue
-                parts = name.split("/")
-                if len(parts) < 3:
+                key = backup_key(name)
+                if not key:
                     continue
-                kind = parts[1]
-                ident = parts[2] if len(parts) > 3 else "main"
-                if kind == "class":
-                    ident = "main"
                 text = z.read(name).decode("utf-8", "replace")
-                key = "%s/%s" % (kind, ident)
                 bucket = found.setdefault(key, set())
                 for line in text.split("\n"):
                     m = lib.DATE_RE.match(line)
@@ -75,28 +94,36 @@ def rids_in_backup(entry):
 
 
 def scan_local(kit, tabs):
-    """本機四種檔 → {kind/target: {rid: block}}。"""
+    """本機四種檔 → {目標鍵: {rid: block}}。學生／班級的鍵帶記錄類型。"""
     out = {}
     for t in lib.targets(kit, tabs):
         _, blocks = lib.parse_file(t["path"])
-        out["%s/%s" % (t["kind"], t["id"])] = {b["rid"]: b for b in blocks}
+        out[t["key"]] = {b["rid"]: b for b in blocks}
     return out
+
+
+def target_meta(kit, tabs):
+    """{目標鍵: 目標}，給台帳補 kind／target／stream 三個欄位。"""
+    return {t["key"]: t for t in lib.targets(kit, tabs)}
 
 
 def rebuild(kit, tabs, quiet=False):
     local = scan_local(kit, tabs)
+    meta = target_meta(kit, tabs)
     bk = latest_backup()
     in_backup, why = rids_in_backup(bk)
     rows = []
     for key, blocks in local.items():
-        kind, target = key.split("/", 1)
+        t = meta.get(key) or {}
+        kind, target, stream = t.get("kind", key.split("/")[0]), t.get("id", ""), t.get("stream")
         for rid, b in sorted(blocks.items()):
             backup = None
             if in_backup is not None and rid in (in_backup.get(key) or set()):
                 backup = {"zip": bk.get("zip"), "md5": bk.get("md5"),
                           "driveFileId": ((bk.get("drive") or {}).get("fileId")
                                           or (bk.get("drive") or {}).get("path"))}
-            rows.append({"kind": kind, "target": target, "rid": rid, "date": b["date"],
+            rows.append({"kind": kind, "target": target, "stream": stream,
+                         "rid": rid, "date": b["date"],
                          "tags": b["tags"], "hash": b["hash"],
                          "source": "file", "related": b["related"],
                          "local": True, "cloud": None, "backup": backup})
@@ -125,11 +152,16 @@ def check(kit, tabs, offline, as_json):
             cloud_err = "gcloud 沒登入，這次沒比對網站（跑 `gcloud auth login`，或加 --offline）"
         else:
             base = lib.fb_base(kit)
+            cache = {}
             for t in lib.targets(kit, tabs):
-                key = "%s/%s" % (t["kind"], t["id"])
                 try:
-                    cloud[key] = {rid: fs for rid, fs, _ in
-                                  lib.list_docs(base, t["records"], tok, raise_errors=True)}
+                    if t["records"] not in cache:
+                        # 一位學生的各種記錄類型共用一個集合，抓一次就好
+                        cache[t["records"]] = lib.list_docs(base, t["records"], tok,
+                                                            raise_errors=True)
+                    cloud[t["key"]] = {
+                        rid: fs for rid, fs, _ in cache[t["records"]]
+                        if not t["stream"] or (fs.get("stream") or "homeroom") == t["stream"]}
                 except Exception as e:
                     cloud_err = "讀 Firestore 失敗：%s" % e
                     cloud = {}

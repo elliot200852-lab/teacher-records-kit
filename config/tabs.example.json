@@ -1,14 +1,15 @@
 {
   "_註解_這個檔是什麼": "三個分頁（學生記錄／課程記錄／業務記錄）各自要記什麼。安裝精靈 scripts/setup.py 會依你的回答產生 config/tabs.json；scripts/build_config.py 再把它變成網頁讀得到的 site/js/kit-config.js。要改分類詞或欄位，改這個檔再跑一次 build_config.py 就好，不必動程式。",
+  "_註解_沒有預設": "這個檔只是「形狀範本」——students.streams 與 business.groups 都是空陣列，因為記錄類型與業務組一律由老師自己勾（David 2026-09-10「全部勾選、沒有預設」原則）。可選清單在 config/student-streams.library.json 與 config/business-groups.library.json。",
   "version": 3,
 
   "students": {
     "enabled": true,
-    "_註解_categories": "新增紀錄時的標籤快速鍵。可以隨你的班級狀況增減。",
-    "categories": ["#課堂", "#主課程", "#學習態度", "#專注意志", "#人際", "#情緒", "#突破", "#個案", "#親師", "#生活"],
+    "_註解_streams": "學生記錄類型：導師班級學生紀錄、任課老師學生紀錄、個案追蹤、IEP、輔導晤談…混在一起就分不清楚，所以一種類型一組欄位與分類詞、一個本機檔。每一筆長成 {\"id\",\"label\",\"desc\",\"scope\",\"fields\",\"tags\",\"custom\"}；scope＝class（名冊每一位都在）或 case（只有 data/roster.csv 第三欄列入的學生）。",
+    "streams": [],
     "help": {
       "what": "這頁記什麼：單一學生的具體觀察。客觀描述當下發生的事——頭（思考）、心（情感）、手（意志）、社群哪一個面向，以及他現在的發展位置。",
-      "prepare": "新增前你要準備什麼：學生代號（真名只在本機名冊，紀錄裡一律寫代號）、日期、一件具體發生的事。寫事實不寫評語。",
+      "prepare": "新增前你要準備什麼：這一則屬於哪一種記錄類型、學生代號（真名只在本機名冊，紀錄裡一律寫代號）、日期、一件具體發生的事。寫事實不寫評語。",
       "ai": "AI 可以幫你做什麼：把錄音檔丟進 inbox/ 跟 AI 說「整理成學生記錄」；期末說「把某某的紀錄整理成評量草稿」。"
     }
   },
@@ -27,44 +28,8 @@
 
   "business": {
     "enabled": true,
-    "_註解_groups": "你勾選啟用的業務組。完整可選清單在 config/business-groups.library.json；這裡預設先勾三組示範。每組的 fields 只是表單建議，不是規格——你在 markdown 檔裡多寫一行「某某：值」也一樣收得進去，不需要改設定。",
-    "groups": [
-      {
-        "id": "homeroom",
-        "label": "導師班務",
-        "fields": [
-          {"name": "學生/對象", "type": "text"},
-          {"name": "事件", "type": "text"},
-          {"name": "處理", "type": "text"},
-          {"name": "後續", "type": "text"}
-        ],
-        "tags": ["#親師溝通", "#聯絡簿", "#家庭訪問", "#班親會", "#班級經營", "#出缺席", "#獎懲", "#班費", "#營養午餐"],
-        "custom": false
-      },
-      {
-        "id": "meetings",
-        "label": "會議紀錄",
-        "fields": [
-          {"name": "會議名稱", "type": "text"},
-          {"name": "出席", "type": "text"},
-          {"name": "決議", "type": "text"},
-          {"name": "待辦", "type": "text"}
-        ],
-        "tags": ["#校務會議", "#教師晨會", "#年段會議", "#課發會", "#個案會議", "#IEP會議"],
-        "custom": false
-      },
-      {
-        "id": "personal",
-        "label": "個人待辦／雜項",
-        "fields": [
-          {"name": "事項", "type": "text"},
-          {"name": "期限", "type": "date"},
-          {"name": "狀態", "type": "select", "options": ["未開始", "進行中", "已完成", "已取消"]}
-        ],
-        "tags": ["#待辦", "#請假", "#報帳", "#備忘"],
-        "custom": false
-      }
-    ],
+    "_註解_groups": "你勾選啟用的業務組（預設一組都沒有）。完整可選清單在 config/business-groups.library.json。每組的 fields 只是表單建議，不是規格——你在 markdown 檔裡多寫一行「某某：值」也一樣收得進去，不需要改設定。",
+    "groups": [],
     "help": {
       "what": "這頁記什麼：教學以外、但你每天在處理的事——班務、會議、公文、輔導個案、研習。一組業務一個面版，各自有自己的欄位與分類詞。",
       "prepare": "新增前你要準備什麼：這件事屬於哪一組、日期，以及那一組固定要記的欄位（例如公文的字號與期限）。跟某位學生有關就在「關聯」欄填 students/S-03/…。",

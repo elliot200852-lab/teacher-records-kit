@@ -23,13 +23,19 @@ def main():
         lib.die("config/kit.json 的 owner_email 還沒填。", "重跑 `python3 scripts/setup.py`。")
     names = lib.load_roster(kit)
     if not names:
-        lib.die("名冊是空的（data/roster.csv）。", "用試算表填「編號,姓名」兩欄再存成 CSV。")
+        lib.die("名冊是空的（data/roster.csv）。", "用試算表填「代號,姓名,類型」三欄再存成 CSV。")
     ym = a.month or ("%04d-%02d" % (date.today().year, date.today().month))
-    paths = {t["id"]: t["path"] for t in lib.targets(kit, tabs) if t["kind"] == "students"}
+    # 一位學生有好幾種記錄類型（導師班級、個案、IEP…），任何一種記過就算記過。
+    paths = {}
+    for t in lib.targets(kit, tabs):
+        if t["kind"] == "students":
+            paths.setdefault(t["id"], []).append(t["path"])
 
     def months(sid):
-        p = paths.get(sid)
-        return {r["date"][:7] for r in lib.parse_file(p)[1]} if p else set()
+        out = set()
+        for p in paths.get(sid) or []:
+            out |= {r["date"][:7] for r in lib.parse_file(p)[1]}
+        return out
 
     missing = [(i, n) for i, n in sorted(names.items()) if ym not in months(i)]
     done = len(names) - len(missing)

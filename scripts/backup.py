@@ -77,13 +77,18 @@ def collect_export(kit, tabs):
     try:
         roster, _ = lib.get_doc(base, "roster/main", tok, raise_errors=True)
         out["roster"] = roster or {}
+        cache, cards = {}, {}
         for t in lib.targets(kit, tabs):
-            recs = lib.list_docs(base, t["records"], tok, raise_errors=True)
-            card = None
-            if t["card"]:
-                card, _ = lib.get_doc(base, t["card"], tok, raise_errors=True)
-            out["targets"]["%s/%s" % (t["kind"], t["id"])] = {
-                "card": card, "records": {rid: fs for rid, fs, _ in recs}}
+            # 一位學生的各種記錄類型共用一個集合與一張卡，抓一次就好，再依 stream 分流。
+            if t["records"] not in cache:
+                cache[t["records"]] = lib.list_docs(base, t["records"], tok, raise_errors=True)
+            if t["card"] and t["card"] not in cards:
+                cards[t["card"]], _ = lib.get_doc(base, t["card"], tok, raise_errors=True)
+            out["targets"][t["key"]] = {
+                "card": cards.get(t["card"]), "stream": t["stream"],
+                "sourceFile": t["sourceFile"],
+                "records": {rid: fs for rid, fs, _ in cache[t["records"]]
+                            if not t["stream"] or (fs.get("stream") or "homeroom") == t["stream"]}}
         for doc in ("meta/config", "meta/status"):
             fs, _ = lib.get_doc(base, doc, tok, raise_errors=True)
             out.setdefault("meta", {})[doc.split("/")[1]] = fs or {}

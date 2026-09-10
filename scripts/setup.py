@@ -12,10 +12,14 @@
   python3 scripts/setup.py --resume                          讀 setup/progress.json 續裝
   python3 scripts/setup.py --upgrade                         把 v2 的 config.yaml 轉成 v3 設定
   python3 scripts/setup.py --root /tmp/trk-test              裝到別的資料夾（測試用）
+  python3 scripts/setup.py --mark-step 4 --note "已部署"     把第 N 步標成完成（AI 部署完用）
+
+問法的原則（David 2026-09-10）：**全部勾選、沒有預設**——三個分頁都問「要不要」，
+學生記錄類型與業務組都把清單列出來讓老師勾，一個都不預設打勾。
 
 它會寫出：
   config/kit.json、config/tabs.json      你的設定（gitignored）
-  data/…                                  空的資料骨架（名冊、每生一檔、課程、業務組）
+  data/…                                  空的資料骨架（名冊、每位學生每種記錄類型一檔、課程、業務組）
   site/js/kit-config.js、site/js/firebase-config.js、firestore.rules  （呼叫 build_config.py）
   setup/progress.json                     安裝進度，AI 代理接手前先讀它
 
@@ -39,8 +43,8 @@ STEP_TITLES = [
     "判斷新裝／升級／續裝",
     "裝工具（install_tools.sh ＋ doctor.py）",
     "Google 帳號與 Firebase 專案",
-    "分頁與向度（學生／課程／業務）",
-    "產生設定與安全規則（build_config.py ＋ firebase deploy）",
+    "分頁與向度（學生記錄類型／課程／業務組，全部勾選）",
+    "產生設定與安全規則（build_config.py ＋ firebase deploy；部署完 --mark-step 4）",
     "上線（firebase deploy --only hosting）",
     "學生名單與既有資料匯入",
     "Google Drive 備份夾",
@@ -155,6 +159,44 @@ def valid_id(s):
     return bool(re.match(r"^[A-Za-z0-9_-]+$", s or ""))
 
 
+def split_list(text):
+    return [x.strip() for x in re.split(r"[,，、;；]", str(text or "")) if x.strip()]
+
+
+# ── 兩層開放選項（業務組與學生記錄類型共用同一套問法）────────────────────
+def ask_one_field(ask, indent):
+    """問一個自訂欄位（名稱＋型別＋select 的選項）。名稱空白＝不再加了。"""
+    name = ask.text(indent + "欄位名稱", default="")
+    if not name:
+        return None
+    ti = ask.pick(indent + "這個欄位是", ["文字", "日期（YYYY-MM-DD）", "從幾個選項挑一個"], 0)
+    f = {"name": name, "type": ["text", "date", "select"][ti]}
+    if f["type"] == "select":
+        f["options"] = split_list(ask.text(indent + "可選的值（用逗號分隔）", allow_empty=False))
+    return f
+
+
+def ask_extra_fields(ask, indent, label, fields):
+    """第一層開放選項：這一組／這一種還要不要加自己的欄位。"""
+    cur = "、".join(f["name"] for f in fields) or "（原本沒有固定欄位）"
+    ask.say("%s［%s］目前的欄位：%s" % (indent, label, cur))
+    while ask.yes(indent + "還有沒有你自己要記的欄位", False):
+        f = ask_one_field(ask, indent + "  ")
+        if f:
+            fields.append(f)
+    return fields
+
+
+def ask_extra_tags(ask, indent, label, tags):
+    """第一層開放選項：這一組／這一種還要不要加自己的分類詞。"""
+    ask.say("%s［%s］目前的分類詞：%s" % (indent, label, "、".join(tags) or "（沒有）"))
+    if ask.yes(indent + "還要加你自己的分類詞嗎", False):
+        for t in split_list(ask.text(indent + "  分類詞（逗號分隔）", default="")):
+            if t not in tags:
+                tags.append(t)
+    return tags
+
+
 # ── v2 config.yaml → v3 kit.json ────────────────────────────────────────
 def read_legacy_yaml(path):
     """極簡 YAML 讀取，只為了把 v2 的 config.yaml 轉成 JSON——之後不再用 YAML。"""
@@ -182,12 +224,18 @@ def read_legacy_yaml(path):
 
 # ── 問答 → 設定 ─────────────────────────────────────────────────────────
 def gather(ask, answers, existing_kit):
-    """回傳 (kit, tabs, students_n, student_ids)。"""
+    """回傳 (kit, tabs, student_ids, members)。
+
+    members＝{記錄類型 id: [學生代號…]}，也就是「哪些學生列入哪些個案型類型」，
+    等一下由 build_data 寫進 data/roster.csv 第三欄。
+    """
     a = answers or {}
     kit_ex = lib._load_json(lib.pkg_path("config", "kit.example.json"), "kit 範本", "")
     tabs_ex = lib._load_json(lib.pkg_path("config", "tabs.example.json"), "tabs 範本", "")
     library = lib.load_library()
     lib_groups = [g for g in library.get("groups", []) if not g.get("open")]
+    stream_library = lib.load_stream_library()
+    lib_streams = [s for s in stream_library.get("streams", []) if not s.get("open")]
 
     ask.say("\n── 第 2 步：你的 Google 帳號與 Firebase 專案 ──")
     ask.say("這套系統整個裝在你自己的 Firebase 專案裡：資料是你的、帳單是你的（一般用量在免費額度內），")
@@ -218,9 +266,10 @@ def gather(ask, answers, existing_kit):
         fb["auth_domain"] = "%s.firebaseapp.com" % fb["project_id"]
 
     ask.say("\n── 第 3 步：三個分頁要記什麼 ──")
+    ask.say("三個分頁、每一種記錄類型、每一組業務都由你自己勾——一個都不預設幫你打勾。")
     prefix = ask.text("③ 學生代號前綴（紀錄裡一律寫代號，真名只留在你電腦上的名冊）",
                       default=a.get("id_prefix") or existing_kit.get("id_prefix") or "S",
-                      where="想用班級當前綴也可以，例如 5A → 代號長成 5A-01。")
+                      where="想用班級當前綴也可以，例如 6B → 代號長成 6B-01。")
     st_a = a.get("students") or {}
     if st_a.get("ids"):
         student_ids = list(st_a["ids"])
@@ -233,12 +282,96 @@ def gather(ask, answers, existing_kit):
         n = int(n or 0)
         student_ids = ["%s-%02d" % (prefix.rstrip('-'), i) for i in range(1, n + 1)]
 
+    # 學生記錄：先問要不要，再勾記錄類型（導師班級／任課／個案／IEP／輔導晤談…）
+    students_on = st_a.get("enabled", True)
+    if ask.interactive:
+        ask.say("\n⑤ 學生記錄＝一位學生一個檔，一則一則累積下來的觀察。")
+        students_on = ask.yes("   要不要「學生記錄」分頁", True)
+    streams, members = [], {}
+    if students_on:
+        chosen_sids = list(st_a.get("streams") or [])
+        if ask.interactive:
+            ask.say("   學生記錄不能混在一起——導師的班級紀錄、任課老師的觀察、個案追蹤、")
+            ask.say("   IEP、輔導晤談各是一種「記錄類型」，各有自己的欄位與分類詞。")
+            idx = ask.multi("   勾選你要的記錄類型（可複選；一種都不勾也可以）",
+                            ["%s〔%s〕 — %s" % (s["label"],
+                                                "全班每一位" if s.get("scope") == "class" else "只有列入的學生",
+                                                s.get("desc", ""))
+                             for s in lib_streams])
+            chosen_sids = [lib_streams[i]["id"] for i in idx]
+        by_sid = {s["id"]: s for s in lib_streams}
+        ex_f = (st_a.get("extra_fields") or {})
+        ex_t = (st_a.get("extra_tags") or {})
+        ans_members = (st_a.get("members") or {})
+        for sid in chosen_sids:
+            s = by_sid.get(sid)
+            if not s:
+                lib.warn("記錄類型庫裡沒有 %s，跳過。" % sid)
+                continue
+            fields = [dict(f) for f in (s.get("fields") or [])]
+            tags = list(s.get("tags") or [])
+            fields += [dict(f) for f in (ex_f.get(sid) or [])]
+            tags += [t for t in (ex_t.get(sid) or []) if t not in tags]
+            if ask.interactive:
+                ask_extra_fields(ask, "   ", s["label"], fields)
+                ask_extra_tags(ask, "   ", s["label"], tags)
+            streams.append({"id": sid, "label": s["label"], "desc": s.get("desc", ""),
+                            "scope": s.get("scope", "class"), "fields": fields,
+                            "tags": lib.norm_tags(tags), "custom": False})
+            members[sid] = list(ans_members.get(sid) or [])
+
+        # 第二層開放選項：清單外的記錄類型（AI 問四件事）
+        custom_streams = list(st_a.get("custom_streams") or [])
+        if ask.interactive:
+            while ask.yes("   還有清單裡沒有的學生記錄類型嗎", False):
+                label = ask.text("     這個類型叫什麼", allow_empty=False)
+                cid = ask.text("     英文短名（會變成檔名 data/students/<代號>/<短名>.md）",
+                               default=slug(label, "stream-%d" % (len(custom_streams) + 1)),
+                               check=lambda s_: None if valid_id(s_) else "只能用英數與 - _。")
+                fields = []
+                ask.say("     每次要記哪些固定欄位？一行一個，直接 Enter 結束。")
+                while True:
+                    f = ask_one_field(ask, "       ")
+                    if not f:
+                        break
+                    fields.append(f)
+                tags = ask.text("     常用的分類詞（逗號分隔，可留白）", default="")
+                si = ask.pick("     這個類型涵蓋誰",
+                              ["名冊上每一位學生（像導師班級紀錄）",
+                               "只有我列入的學生（像個案追蹤）"], 0)
+                custom_streams.append({"id": cid, "label": label,
+                                       "fields": fields, "tags": split_list(tags),
+                                       "scope": ["class", "case"][si]})
+        for c in custom_streams:
+            cid = c.get("id")
+            if not cid:
+                continue
+            streams.append({"id": cid, "label": c.get("label") or cid,
+                            "desc": c.get("desc", ""),
+                            "scope": c.get("scope") or "class",
+                            "fields": [dict(f) for f in (c.get("fields") or [])],
+                            "tags": lib.norm_tags(c.get("tags") or []),
+                            "custom": True})
+            members[cid] = list(ans_members.get(cid) or [])
+
+        # 個案型類型：哪些學生列入（寫進 data/roster.csv 第三欄，之後隨時可以改）
+        for s in streams:
+            if s["scope"] != "case":
+                members.pop(s["id"], None)
+                continue
+            if ask.interactive:
+                got = ask.text("   ［%s］哪些學生列入？（代號，逗號分隔；可先空著，之後改 "
+                               "data/roster.csv 第三欄或在網頁上列入）" % s["label"], default="")
+                if got:
+                    members[s["id"]] = split_list(got)
+        members = {k: v for k, v in members.items() if v}
+
     # 課程
     c_a = a.get("courses") or {}
     courses = list(c_a.get("list") or [])
     courses_on = c_a.get("enabled", True)
     if ask.interactive:
-        courses_on = ask.yes("⑤ 要不要「課程記錄」分頁（每堂課記進度、學生反應、下次調整）", True)
+        courses_on = ask.yes("⑥ 要不要「課程記錄」分頁（每堂課記進度、學生反應、下次調整）", True)
         if courses_on:
             ask.say("   先建幾門課？一行一門，直接 Enter 結束（之後在網頁上也能加）。")
             while True:
@@ -258,12 +391,12 @@ def gather(ask, answers, existing_kit):
     business_on = b_a.get("enabled", True)
     groups = []
     if ask.interactive:
-        ask.say("\n⑥ 業務記錄＝教學以外、但你每天在處理的事（班務、公文、會議、輔導個案…）。")
+        ask.say("\n⑦ 業務記錄＝教學以外、但你每天在處理的事（班務、公文、會議、輔導個案…）。")
         business_on = ask.yes("   要不要「業務記錄」分頁", True)
     if business_on:
         chosen_ids = list(b_a.get("groups") or [])
         if ask.interactive:
-            idx = ask.multi("   勾選你要的業務組",
+            idx = ask.multi("   勾選你要的業務組（可複選；一組都不勾也可以）",
                             ["%s — %s" % (g["label"], g.get("desc", "")) for g in lib_groups])
             chosen_ids = [lib_groups[i]["id"] for i in idx]
         by_id = {g["id"]: g for g in lib_groups}
@@ -280,16 +413,8 @@ def gather(ask, answers, existing_kit):
                 fields.append(dict(f))
             tags += [t for t in (extra_t.get(gid) or []) if t not in tags]
             if ask.interactive:
-                cur = "、".join(f["name"] for f in fields) or "（這一組原本沒有固定欄位）"
-                ask.say("   ［%s］目前的欄位：%s" % (g["label"], cur))
-                while ask.yes("   這一組還有沒有你自己要記的欄位", False):
-                    name = ask.text("     欄位名稱", allow_empty=False)
-                    ti = ask.pick("     這個欄位是", ["文字", "日期（YYYY-MM-DD）", "從幾個選項挑一個"], 0)
-                    f = {"name": name, "type": ["text", "date", "select"][ti]}
-                    if f["type"] == "select":
-                        opts = ask.text("     可選的值（用逗號分隔）", allow_empty=False)
-                        f["options"] = [x.strip() for x in re.split(r"[,，、]", opts) if x.strip()]
-                    fields.append(f)
+                ask_extra_fields(ask, "   ", g["label"], fields)
+                ask_extra_tags(ask, "   ", g["label"], tags)
             groups.append({"id": gid, "label": g["label"], "fields": fields,
                            "tags": lib.norm_tags(tags), "custom": False})
 
@@ -302,20 +427,14 @@ def gather(ask, answers, existing_kit):
                 fields = []
                 ask.say("     每次要記哪些固定欄位？一行一個，直接 Enter 結束。")
                 while True:
-                    name = ask.text("       欄位名稱", default="")
-                    if not name:
+                    f = ask_one_field(ask, "       ")
+                    if not f:
                         break
-                    ti = ask.pick("       這個欄位是", ["文字", "日期", "從幾個選項挑一個"], 0)
-                    f = {"name": name, "type": ["text", "date", "select"][ti]}
-                    if f["type"] == "select":
-                        opts = ask.text("       可選的值（逗號分隔）", allow_empty=False)
-                        f["options"] = [x.strip() for x in re.split(r"[,，、]", opts) if x.strip()]
                     fields.append(f)
                 tags = ask.text("     常用的分類詞（逗號分隔，可留白）", default="")
                 rel = ask.yes("     這項業務會不會跟某位學生或某門課有關（要不要「關聯」欄）", True)
                 customs.append({"id": cid, "label": label, "fields": fields,
-                                "tags": [x.strip() for x in re.split(r"[,，、]", tags) if x.strip()],
-                                "relate_students": rel})
+                                "tags": split_list(tags), "relate_students": rel})
         for c in customs:
             groups.append({"id": c["id"], "label": c.get("label") or c["id"],
                            "desc": c.get("desc", ""),
@@ -329,7 +448,7 @@ def gather(ask, answers, existing_kit):
     d_a = a.get("drive") or {}
     mode = d_a.get("mode") or "desktop"
     if ask.interactive:
-        mi = ask.pick("⑦ 備份怎麼上雲端硬碟",
+        mi = ask.pick("⑧ 備份怎麼上雲端硬碟",
                       ["把 zip 複製進「Google 雲端硬碟」桌面程式的同步資料夾（推薦，零設定）",
                        "用 googleworkspace-cli 直接上傳（進階，要自己備 OAuth 憑證）"], 0)
         mode = ["desktop", "gws"][mi]
@@ -359,38 +478,69 @@ def gather(ask, answers, existing_kit):
 
     tabs = json.loads(json.dumps(lib._strip_comments(tabs_ex)))
     tabs["version"] = 3
-    tabs["students"]["enabled"] = bool((a.get("students") or {}).get("enabled", True))
+    tabs["students"]["enabled"] = bool(students_on)
+    tabs["students"]["streams"] = streams
     tabs["courses"]["enabled"] = bool(courses_on)
     tabs["courses"]["list"] = courses
     tabs["business"]["enabled"] = bool(business_on)
     tabs["business"]["groups"] = groups
-    return kit, tabs, student_ids
+    return kit, tabs, student_ids, members
 
 
 # ── 資料骨架 ────────────────────────────────────────────────────────────
-def build_data(kit, tabs, student_ids):
-    """建 data/ 骨架。已存在的檔案一律不覆蓋（重跑安裝不會弄丟任何紀錄）。"""
+def build_data(kit, tabs, student_ids, members=None):
+    """建 data/ 骨架。已存在的檔案一律不覆蓋（重跑安裝不會弄丟任何紀錄）。
+
+    members＝{記錄類型 id: [學生代號…]}：個案型類型「哪些學生列入」，寫進 roster.csv
+    第三欄。名冊本來就有的姓名一個字都不會動——只補代號列與第三欄。
+    """
     made = []
+    members = members or {}
     d = lib.data_dir()
     os.makedirs(d, exist_ok=True)
-    roster = lib.roster_path()
-    if not os.path.exists(roster):
-        with open(roster, "w", encoding="utf-8") as f:
-            f.write("編號,姓名\n")
-        made.append(roster)
+
+    # ── 名冊（唯一有真名的檔）：代號,姓名,類型 ──
+    rows = lib.load_roster_rows(kit, d)
+    before = json.dumps(rows, ensure_ascii=False, sort_keys=True)
     for sid in student_ids:
-        p = os.path.join(d, "students", sid, "observations.md")
+        rows.setdefault(sid, {"name": "", "streams": []})
+    for stream_id, ids in members.items():
+        for sid in ids:
+            r = rows.setdefault(sid, {"name": "", "streams": []})
+            if stream_id not in r["streams"]:
+                r["streams"] = r["streams"] + [stream_id]
+    roster = lib.roster_path(d)
+    if rows and (json.dumps(rows, ensure_ascii=False, sort_keys=True) != before
+                 or not os.path.exists(roster)):
+        lib.save_roster_rows(rows, d)
+        made.append(roster)
+    elif not os.path.exists(roster):
+        with open(roster, "w", encoding="utf-8") as f:
+            f.write(lib.ROSTER_HEADER + "\n")
+        made.append(roster)
+
+    # ── 每位學生 × 每一種他所屬的記錄類型一個檔；班級整體觀察每一種 class 類型一個檔 ──
+    all_ids = sorted(set(student_ids) | set(rows))
+    for s in lib.student_streams(tabs) if (tabs.get("students") or {}).get("enabled", True) else []:
+        name = lib.stream_file(s["id"])
+        kind = "case" if s.get("scope") == "case" else "students"
+        ids = (all_ids if s.get("scope") != "case"
+               else sorted({sid for sid in all_ids if s["id"] in (rows.get(sid, {}).get("streams") or [])}))
+        for sid in ids:
+            p = os.path.join(d, "students", sid, name)
+            if not os.path.exists(p):
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, "w", encoding="utf-8") as f:
+                    f.write(lib.file_header(kind, sid, sid, s.get("label") or s["id"]))
+                made.append(p)
+        if s.get("scope", "class") != "class":
+            continue
+        p = os.path.join(d, "class", name)
         if not os.path.exists(p):
             os.makedirs(os.path.dirname(p), exist_ok=True)
             with open(p, "w", encoding="utf-8") as f:
-                f.write(lib.file_header("students", sid, sid))
+                f.write(lib.file_header("class", "main", "班級整體觀察", s.get("label") or s["id"]))
             made.append(p)
-    p = os.path.join(d, "class", "observations.md")
-    if not os.path.exists(p):
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w", encoding="utf-8") as f:
-            f.write(lib.file_header("class", "main", "班級整體觀察"))
-        made.append(p)
     for c in ((tabs.get("courses") or {}).get("list") or []):
         p = os.path.join(d, "courses", c["id"], "records.md")
         if not os.path.exists(p):
@@ -460,12 +610,25 @@ def main():
     ap.add_argument("--answers", metavar="檔案", help="免互動：照這個 JSON 檔的答案安裝")
     ap.add_argument("--upgrade", action="store_true", help="把 v2 的 config.yaml 轉成 v3 的 config/kit.json")
     ap.add_argument("--resume", action="store_true", help="讀 setup/progress.json，接著上次沒做完的地方")
+    ap.add_argument("--mark-step", type=int, metavar="N",
+                    help="把第 N 步標成完成（AI 代理做完部署、上線這類腳本管不到的事之後用），"
+                         "可搭 --note 寫一行備註；只動 setup/progress.json，不碰其他任何檔案")
+    ap.add_argument("--note", default="", metavar="文字", help="--mark-step 要寫的備註")
     ap.add_argument("--skip-network", action="store_true", help="健檢時跳過要連網的項目（--answers 時預設就跳過）")
     ap.add_argument("--skip-doctor", action="store_true", help="裝完不跑健檢")
     lib.add_root_arg(ap)
     a = ap.parse_args()
     lib.apply_root(a)
     os.makedirs(lib.rpath("config"), exist_ok=True)
+
+    if a.mark_step is not None:
+        if not (0 <= a.mark_step < len(STEP_TITLES)):
+            lib.die("步驟編號要在 0 到 %d 之間（收到 %d）。" % (len(STEP_TITLES) - 1, a.mark_step),
+                    "步驟清單見 AGENTS.md，或打開 setup/progress.json 看 title。")
+        p = write_progress({a.mark_step}, notes={a.mark_step: a.note} if a.note else None)
+        lib.ok("第 %d 步標成完成：%s" % (a.mark_step, STEP_TITLES[a.mark_step]))
+        print("  %s" % p)
+        return
 
     answers = None
     if a.answers:
@@ -497,12 +660,16 @@ def main():
             "id_prefix": old.get("id_prefix", "S"),
             "firebase": old.get("firebase", {}),
             "email": old.get("email", {}),
-            "students": {"enabled": True, "count": 0},
+            # v2 的學生觀察檔就是 data/students/<代號>/observations.md，
+            # 也就是 v3 的「導師班級學生紀錄」這一種類型——先勾它，舊資料才看得見。
+            "students": {"enabled": True, "count": 0, "streams": ["homeroom"]},
             "courses": {"enabled": True, "list": []},
             "business": {"enabled": False, "groups": []},
             "drive": {"mode": "desktop"},
         }
         print("讀到 v2 設定：%s（owner_email、firebase、email 會照搬）" % old_path)
+        print("學生記錄先勾「導師班級學生紀錄」一種（＝v2 的 observations.md）；")
+        print("要個案追蹤、IEP、輔導晤談這些類型，之後跟 AI 說一聲重跑一次安裝就好。")
         print("業務記錄分頁預設先關著——之後跟 AI 說「我要開業務記錄」再重跑一次安裝就好。")
 
     ask = Asker(answers)
@@ -511,7 +678,7 @@ def main():
         print("一次問一題，不確定就先按 Enter 用預設值，之後改 config/kit.json 再跑")
         print("`python3 scripts/build_config.py` 就會生效。\n")
 
-    kit, tabs, student_ids = gather(ask, answers, existing_kit)
+    kit, tabs, student_ids, members = gather(ask, answers, existing_kit)
 
     kit_path = lib.rpath(lib.KIT_JSON)
     tabs_path = lib.rpath(lib.TABS_JSON)
@@ -524,11 +691,21 @@ def main():
     lib.ok("寫好 %s" % os.path.relpath(kit_path, lib.root()))
     lib.ok("寫好 %s" % os.path.relpath(tabs_path, lib.root()))
 
-    made = build_data(kit, tabs, student_ids)
+    made = build_data(kit, tabs, student_ids, members)
     lib.ok("資料骨架：新建 %d 個檔（已存在的一個都沒動）" % len(made))
+    streams = (tabs.get("students") or {}).get("streams") or []
+    if streams:
+        print("  學生記錄類型 %d 種：%s" % (
+            len(streams),
+            "、".join("%s〔%s〕" % (s["label"], "全班" if s["scope"] == "class" else
+                                    "列入 %d 位" % len(members.get(s["id"]) or []))
+                      for s in streams)))
+    elif (tabs.get("students") or {}).get("enabled"):
+        lib.warn("學生記錄一種類型都沒勾——學生分頁不會有任何紀錄。"
+                 "要補就重跑一次安裝，在「勾選你要的記錄類型」那題勾起來。")
     if student_ids:
-        print("  學生 %d 位（%s…）；姓名等你填進 data/roster.csv（那是唯一有真名的檔）"
-              % (len(student_ids), student_ids[0]))
+        print("  學生 %d 位（%s…）；姓名等你填進 data/roster.csv（那是唯一有真名的檔，"
+              "第三欄是個案型類型列入誰）" % (len(student_ids), student_ids[0]))
 
     rc = run("build_config.py")
     if rc != 0:
@@ -542,16 +719,19 @@ def main():
         print("\n── 健檢 ──")
         doctor_rc = run("doctor.py", *args)
 
-    done = {0, 2, 3, 4}
+    # 第 4 步＝「產生設定與規則」，包含 firebase deploy——那一半不是這支腳本做的，
+    # 所以這裡不標 done，只記一行備註。部署完由 AI 代理跑 `setup.py --mark-step 4`。
+    done = {0, 2, 3}
     if student_ids:
         done.add(6)
-    write_progress(done)
+    write_progress(done, notes={4: "設定已產生，規則尚未部署"})
 
     print("\n%s安裝精靈跑完了。%s接下來：" % (lib.GREEN, lib.RESET))
     pid = (kit.get("firebase") or {}).get("project_id") or "<你的專案id>"
     print("  1. 部署安全規則：firebase deploy --only firestore:rules --project %s" % pid)
+    print("     部署成功後標記進度：python3 scripts/setup.py --mark-step 4")
     print("  2. 上線：firebase deploy --only hosting --project %s" % pid)
-    print("  3. 填名單：data/roster.csv（編號,姓名），然後 `python3 scripts/sync.py --dry-run` 看一次")
+    print("  3. 填名單：data/roster.csv（代號,姓名,類型），然後 `python3 scripts/sync.py --dry-run` 看一次")
     print("  4. 備份夾對不對：`python3 scripts/doctor.py`")
     if doctor_rc:
         print("\n%s健檢有項目沒過（上面 ✗ 的部分）——照每一項的「→」修完再往下。%s" % (lib.YELLOW, lib.RESET))

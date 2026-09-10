@@ -100,6 +100,22 @@ def warn(msg):
     print("%s! %s%s" % (YELLOW, msg, RESET))
 
 
+# ── 版本 ────────────────────────────────────────────────────────────────
+def version():
+    """這份 kit 的版本字串（讀 VERSION 檔）。網頁、doctor、meta/config 都用同一個來源。"""
+    p = pkg_path("VERSION")
+    try:
+        with open(p, encoding="utf-8") as f:
+            return f.read().strip() or "3"
+    except OSError:
+        return "3"
+
+
+# 資料格式版本（規則與 markdown 區塊的形狀）。程式版本往上跳不代表資料要搬家，
+# 所以 meta/config 同時記 version（程式版本字串）與 dataVersion（這個整數）。
+DATA_VERSION = 3
+
+
 # ── 設定 ────────────────────────────────────────────────────────────────
 KIT_JSON = "config/kit.json"
 TABS_JSON = "config/tabs.json"
@@ -152,6 +168,13 @@ def load_library():
     """業務組庫（勾選清單）。"""
     return _load_json(pkg_path("config", "business-groups.library.json"),
                       "業務組庫 config/business-groups.library.json",
+                      "這個檔跟著程式碼走，重新下載一份 kit 就有了。")
+
+
+def load_stream_library():
+    """學生記錄類型庫（勾選清單）。"""
+    return _load_json(pkg_path("config", "student-streams.library.json"),
+                      "學生記錄類型庫 config/student-streams.library.json",
                       "這個檔跟著程式碼走，重新下載一份 kit 就有了。")
 
 
@@ -335,10 +358,15 @@ def parse_file(path):
     return lines, blocks
 
 
-def file_header(kind, ident, label=""):
-    """新建一個記錄檔時的檔頭（取 templates/ 的範本，砍掉範例區塊）。"""
+def file_header(kind, ident, label="", stream_label=""):
+    """新建一個記錄檔時的檔頭（取 templates/ 的範本，砍掉範例區塊）。
+
+    學生／班級的檔頭依記錄類型的範圍換範本：`scope:case` 的類型（個案追蹤、IEP、輔導晤談）
+    用 case-records.example.md（有欄位列說明），其餘用 observation.example.md。
+    """
     tpl = {"students": "observation.example.md",
            "class": "observation.example.md",
+           "case": "case-records.example.md",
            "courses": "course-records.example.md",
            "business": "business-records.example.md"}[kind]
     path = pkg_path("templates", tpl)
@@ -348,38 +376,114 @@ def file_header(kind, ident, label=""):
             text = f.read().split("<!-- 以下是範例紀錄")[0]
     if not text.strip():
         text = "---\nid: {{ID}}\nkind: %s\n---\n\n# {{LABEL}}\n" % kind
-    text = text.replace("{{ID}}", ident).replace("{{LABEL}}", label or ident)
+    text = (text.replace("{{ID}}", ident)
+                .replace("{{LABEL}}", label or ident)
+                .replace("{{STREAM}}", stream_label or ""))
     return text.rstrip("\n") + "\n\n"
 
 
-# ── 四種目標 ────────────────────────────────────────────────────────────
+# ── 學生記錄類型（stream）────────────────────────────────────────────────
+# 學生分頁再分「記錄類型」：導師班級學生紀錄、任課老師學生紀錄、個案追蹤、IEP、輔導晤談…
+# 每一種各有自己的欄位、分類詞與「哪些學生在裡面」（scope）。安裝時全部由老師勾選，沒有預設。
+SCOPES = ("class", "case")
+LEGACY_STREAM = {"id": "homeroom", "label": "導師班級學生紀錄", "scope": "class",
+                 "fields": [], "tags": [], "custom": False}
+
+
+def stream_file(stream_id):
+    """本機檔名：每位學生、每種類型一檔。`homeroom` 沿用 v2 的 observations.md。"""
+    return "observations.md" if stream_id == "homeroom" else "%s.md" % stream_id
+
+
+def student_streams(tabs):
+    """這位老師勾了哪些學生記錄類型。
+
+    · `students.streams` 是空陣列 → 一種都沒勾（零預設，學生分頁不會有任何目標）。
+    · 整個 `streams` 鍵不存在 → v2 舊設定，當成只有「導師班級學生紀錄」一種
+      （它的檔名正好就是 v2 的 observations.md，所以舊資料原地可用）。
+    """
+    st = (tabs or {}).get("students") or {}
+    if "streams" not in st:
+        return [dict(LEGACY_STREAM)]
+    out = []
+    for s in (st.get("streams") or []):
+        if isinstance(s, str):
+            s = {"id": s}
+        if s.get("id"):
+            out.append(dict(s, scope=(s.get("scope") or "class")))
+    return out
+
+
+def find_stream(tabs, stream_id):
+    for s in student_streams(tabs):
+        if s["id"] == stream_id:
+            return s
+    return None
+
+
+# ── 記錄目標 ────────────────────────────────────────────────────────────
 def targets(kit, tabs, data_root=None):
     """回傳這位老師的所有記錄目標，四種混在一起、順序固定（同步、台帳、匯出共用）。
 
-    每一項：{kind, id, label, path（本機 md）, records（Firestore 集合）, card（卡片文件或 None）}
-      · students  ← data/roster.csv 的代號（＋ data/students/ 底下已存在的資料夾）
-      · class     ← 固定一個 main
+    每一項：
+      {kind, id, stream（students／class 才有）, scope, label, path（本機 md）,
+       sourceFile（path 相對 data/）, records（Firestore 集合）, card（卡片文件或 None）,
+       key（唯一鍵：students/S-01/case、class/main/homeroom、courses/x、business/y）}
+
+      · students  ← 每位學生 × 他所屬的每一種記錄類型各一個目標
+                    （scope:class 的類型＝名冊全部學生；scope:case 的類型＝
+                     roster.csv 第三欄列入的學生，加上已經有那個檔的學生）
+      · class     ← 每一種 scope:class 的類型各一個（班級整體觀察）
       · courses   ← data/courses/*/ 的資料夾（＋ tabs.courses.list 設定的課）
       · business  ← tabs.business.groups 勾選的組
+
+    同一位學生的所有類型共用 Firestore 集合 `students/<id>/records`，靠文件裡的
+    `stream` 欄位分流；本機則是一種類型一個檔。
     """
     d = data_root or data_dir()
     out = []
     tabs = tabs or {}
 
+    def add(kind, ident, label, path, records, card, stream=None, scope="class",
+            stream_label=""):
+        out.append({"kind": kind, "id": ident, "stream": stream, "scope": scope,
+                    "streamLabel": stream_label, "label": label, "path": path,
+                    "sourceFile": os.path.relpath(path, d),
+                    "records": records, "card": card,
+                    "key": "%s/%s%s" % (kind, ident, ("/" + stream) if stream else "")})
+
     if (tabs.get("students") or {}).get("enabled", True):
-        ids = set(load_roster(kit, d).keys())
+        streams = student_streams(tabs)
+        rows = load_roster_rows(kit, d)
+        ids = set(rows)
         sdir = os.path.join(d, "students")
         if os.path.isdir(sdir):
             ids |= {x for x in os.listdir(sdir)
                     if os.path.isdir(os.path.join(sdir, x)) and re.match(r".+-\d+$", x)}
-        for sid in sorted(ids):
-            out.append({"kind": "students", "id": sid, "label": sid,
-                        "path": os.path.join(d, "students", sid, "observations.md"),
-                        "records": "students/%s/records" % sid,
-                        "card": "students/%s" % sid})
-        out.append({"kind": "class", "id": "main", "label": "班級整體觀察",
-                    "path": os.path.join(d, "class", "observations.md"),
-                    "records": "class-observations", "card": None})
+        for s in streams:
+            sname = stream_file(s["id"])
+            if s.get("scope") == "case":
+                # 個案型：名冊第三欄列入的，加上「檔案已經在了」的（免得改名冊時紀錄憑空消失）
+                members = sorted(i for i in ids
+                                 if s["id"] in (rows.get(i, {}).get("streams") or [])
+                                 or os.path.exists(os.path.join(sdir, i, sname)))
+            else:
+                members = sorted(ids)
+            for sid in members:
+                add("students", sid,
+                    "%s（%s）" % (sid, s.get("label") or s["id"]),
+                    os.path.join(d, "students", sid, sname),
+                    "students/%s/records" % sid, "students/%s" % sid,
+                    stream=s["id"], scope=s.get("scope", "class"),
+                    stream_label=s.get("label") or s["id"])
+        for s in streams:
+            if s.get("scope", "class") != "class":
+                continue                      # 班級整體觀察只掛在 class 範圍的類型下
+            add("class", "main",
+                "班級整體觀察（%s）" % (s.get("label") or s["id"]),
+                os.path.join(d, "class", stream_file(s["id"])),
+                "class-observations", None, stream=s["id"], scope="class",
+                stream_label=s.get("label") or s["id"])
 
     if (tabs.get("courses") or {}).get("enabled", True):
         cids = {c.get("id") for c in ((tabs.get("courses") or {}).get("list") or []) if c.get("id")}
@@ -388,31 +492,33 @@ def targets(kit, tabs, data_root=None):
             cids |= {x for x in os.listdir(cdir) if os.path.isdir(os.path.join(cdir, x))}
         titles = {c.get("id"): c.get("title", "") for c in ((tabs.get("courses") or {}).get("list") or [])}
         for cid in sorted(x for x in cids if x):
-            out.append({"kind": "courses", "id": cid, "label": titles.get(cid) or cid,
-                        "path": os.path.join(d, "courses", cid, "records.md"),
-                        "records": "courses/%s/records" % cid,
-                        "card": "courses/%s" % cid})
+            add("courses", cid, titles.get(cid) or cid,
+                os.path.join(d, "courses", cid, "records.md"),
+                "courses/%s/records" % cid, "courses/%s" % cid)
 
     if (tabs.get("business") or {}).get("enabled", True):
         for g in ((tabs.get("business") or {}).get("groups") or []):
             gid = g.get("id")
             if not gid:
                 continue
-            out.append({"kind": "business", "id": gid, "label": g.get("label") or gid,
-                        "path": os.path.join(d, "business", gid, "records.md"),
-                        "records": "business/%s/records" % gid,
-                        "card": "business/%s" % gid})
+            add("business", gid, g.get("label") or gid,
+                os.path.join(d, "business", gid, "records.md"),
+                "business/%s/records" % gid, "business/%s" % gid)
     return out
 
 
-def find_target(kit, tabs, kind, ident, data_root=None):
-    """指定 kind＋id 拿一個目標（append_record、ledger 用）。找不到回 None。"""
+def find_target(kit, tabs, kind, ident, stream=None, data_root=None):
+    """指定 kind＋id（＋記錄類型）拿一個目標。找不到回 None。
+
+    students／class 沒給 stream 時：只有一種類型就用那一種，有多種就回 None
+    （呼叫端要叫使用者指定 `--stream`——這正是「分不清楚」要防的事）。
+    """
     if kind == "class":
         ident = ident or "main"
-    for t in targets(kit, tabs, data_root):
-        if t["kind"] == kind and t["id"] == ident:
-            return t
-    return None
+    hits = [t for t in targets(kit, tabs, data_root) if t["kind"] == kind and t["id"] == ident]
+    if stream:
+        hits = [t for t in hits if t["stream"] == stream]
+    return hits[0] if len(hits) == 1 else None
 
 
 # ── 名冊 ────────────────────────────────────────────────────────────────
@@ -420,10 +526,15 @@ def roster_path(data_root=None):
     return os.path.join(data_root or data_dir(), "roster.csv")
 
 
-def load_roster(kit=None, data_root=None):
-    """data/roster.csv（第一欄編號或代號、第二欄姓名）→ {代號: 姓名}。
+ROSTER_HEADER = "代號,姓名,類型"
 
-    真名只住在這個檔——它是 PII gate 的鑰匙，也是網頁顯示姓名的來源。
+
+def load_roster_rows(kit=None, data_root=None):
+    """data/roster.csv（代號,姓名,類型）→ {代號: {"name": 姓名, "streams": [類型 id…]}}。
+
+    第三欄是「這位學生列入哪些個案型記錄類型」，分號分隔（例如 `case;iep`），可以空著；
+    `scope:class` 的類型（導師班級、任課老師）不必列，它們自動包含名冊全部學生。
+    姓名還沒填也照樣收——名冊常常先有代號、名字慢慢補。
     """
     path = roster_path(data_root)
     prefix = id_prefix(kit or {})
@@ -437,8 +548,6 @@ def load_roster(kit=None, data_root=None):
             first = row[0].strip()
             if i == 0 and not re.search(r"\d", first):
                 continue                                   # 標頭列
-            if len(row) < 2 or not row[1].strip():
-                continue
             if re.match(r"^\D+-\d+$", first):
                 sid = first
             else:
@@ -446,8 +555,32 @@ def load_roster(kit=None, data_root=None):
                 if not num:
                     continue
                 sid = "%s-%s" % (prefix, num.zfill(2))
-            out[sid] = row[1].strip()
+            name = row[1].strip() if len(row) > 1 else ""
+            streams = [s.strip() for s in re.split(r"[;；,，]", row[2]) if s.strip()] \
+                if len(row) > 2 else []
+            out[sid] = {"name": name, "streams": streams}
     return out
+
+
+def load_roster(kit=None, data_root=None):
+    """名冊裡有名字的那些 → {代號: 姓名}。
+
+    真名只住在這個檔——它是 PII gate 的鑰匙，也是網頁顯示姓名的來源。
+    """
+    return {sid: r["name"] for sid, r in load_roster_rows(kit, data_root).items() if r["name"]}
+
+
+def save_roster_rows(rows, data_root=None):
+    """把 {代號: {name, streams}} 寫回 data/roster.csv（三欄、代號排序、含表頭）。"""
+    path = roster_path(data_root)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(ROSTER_HEADER.split(","))
+        for sid in sorted(rows):
+            r = rows[sid] or {}
+            w.writerow([sid, r.get("name", ""), ";".join(r.get("streams") or [])])
+    return path
 
 
 def real_names(kit=None, data_root=None):

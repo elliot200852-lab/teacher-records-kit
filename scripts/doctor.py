@@ -74,6 +74,45 @@ class Report:
                     print("  → %s" % i["fix"])
 
 
+def check_version(r, kit, skip_network):
+    """這份 kit 是哪一版，以及資料庫最後一次是用哪一版部署規則的。
+
+    `meta/config.version` 由 sync.py 寫。網頁版本比它新＝規則可能過舊，要重新部署；
+    連不上（沒登入、沒網路、還沒接 Firebase）就跳過，不算失敗。
+    """
+    ver = lib.version()
+    r.add("version", "kit 版本", True, ver)
+    if skip_network:
+        r.add("cloud_version", "資料庫上次部署的版本（meta/config.version）", False,
+              "--skip-network", required=False, skipped=True)
+        return
+    pid = (kit.get("firebase") or {}).get("project_id", "")
+    tok = lib.token(quiet=True) if pid and not pid.startswith("your-") else None
+    if not tok:
+        r.add("cloud_version", "資料庫上次部署的版本（meta/config.version）", False,
+              "還沒接上 Firebase 或 gcloud 沒登入", required=False, skipped=True)
+        return
+    try:
+        fs, _ = lib.get_doc(lib.fb_base(kit), "meta/config", tok, raise_errors=True)
+    except Exception as e:
+        r.add("cloud_version", "資料庫上次部署的版本（meta/config.version）", False,
+              str(e)[:120], required=False, skipped=True)
+        return
+    cloud_ver = str((fs or {}).get("version") or "")
+    if not cloud_ver:
+        r.add("cloud_version", "資料庫上次部署的版本（meta/config.version）", False,
+              "資料庫上還沒有版本記錄",
+              "跑一次 `python3 scripts/sync.py`，它會把版本寫上去。", required=False)
+    else:
+        same = cloud_ver == ver
+        r.add("cloud_version", "資料庫上次部署的版本與這份程式一致", same,
+              "資料庫 %s／這份 %s" % (cloud_ver, ver),
+              "程式比資料庫新——重新部署安全規則再同步一次："
+              "`python3 scripts/build_config.py` → "
+              "`firebase deploy --only firestore:rules` → `python3 scripts/sync.py`。",
+              required=False)
+
+
 def check_tools(r, kit, skip_network):
     v = sys.version_info
     r.add("python", "Python 3.8 以上", v >= (3, 8), "目前 %d.%d.%d" % v[:3],
@@ -172,10 +211,18 @@ def check_config(r, kit, tabs, skip_network):
               ("缺 %d 個：%s" % (len(missing), "、".join(missing[:6]))) if missing else "%d 個目標" % len(lib.targets(kit, tabs)),
               "重跑 `python3 scripts/setup.py`（不會覆蓋已經有的檔），或手動建那個資料夾與 records.md。",
               required=False)
+        streams = lib.student_streams(tabs) if (tabs.get("students") or {}).get("enabled", True) else []
+        r.add("streams", "學生記錄類型", bool(streams),
+              "、".join("%s（%s）" % (s.get("label") or s["id"], s["id"]) for s in streams)
+              if streams else "一種都沒勾——學生分頁不會有紀錄",
+              "重跑 `python3 scripts/setup.py`，在「勾選你要的記錄類型」那題勾起來"
+              "（導師班級學生紀錄、任課老師學生紀錄、個案追蹤、IEP、輔導晤談）。",
+              required=False)
         roster = lib.load_roster(kit)
         r.add("roster", "名冊 data/roster.csv", bool(roster),
               "%d 位學生" % len(roster) if roster else "還是空的（只有表頭）",
-              "用試算表打開 data/roster.csv，填「編號,姓名」兩欄再存成 CSV。真名只會留在你電腦上。",
+              "用試算表打開 data/roster.csv，填「代號,姓名,類型」三欄再存成 CSV"
+              "（第三欄＝這位學生列入哪些個案型記錄類型，分號分隔，可以空著）。真名只會留在你電腦上。",
               required=False)
 
 
@@ -232,17 +279,18 @@ def main():
     kit = lib.load_kit(required=False)
     tabs = lib.load_tabs(required=False) or {}
     r = Report()
+    check_version(r, kit, a.skip_network)
     check_tools(r, kit, a.skip_network)
     check_config(r, kit, tabs, a.skip_network)
     check_drive(r, kit, a.skip_network)
 
     if a.as_json:
-        print(json.dumps({"root": lib.root(), "ok": not r.failed,
+        print(json.dumps({"root": lib.root(), "version": lib.version(), "ok": not r.failed,
                           "failed": len(r.failed), "warned": len(r.warned),
                           "items": r.items}, ensure_ascii=False, indent=2))
         sys.exit(1 if r.failed else 0)
 
-    print("健檢：%s\n" % lib.root())
+    print("健檢：%s（kit %s）\n" % (lib.root(), lib.version()))
     r.render()
     print()
     if r.failed:

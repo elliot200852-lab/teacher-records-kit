@@ -93,14 +93,51 @@ def validate(kit, tabs, problems, notes):
             problems.append(("業務組 id 重複：%s" % gid, "兩組不能同名，改掉其中一個。"))
         seen.add(gid)
 
+    # 學生記錄類型（stream）：id 會變成本機檔名與雲端文件的 stream 欄位，錯了就分不了流。
+    st = tabs.get("students") or {}
+    if "streams" in st and not isinstance(st.get("streams"), list):
+        problems.append(("config/tabs.json 的 students.streams 要是一個陣列",
+                         "形狀是 [{\"id\":\"homeroom\",\"label\":…,\"scope\":\"class\"}]；"
+                         "一種都沒勾就寫 []。"))
+    else:
+        seen_s = set()
+        for s in (st.get("streams") or []):
+            if not isinstance(s, dict):
+                problems.append(("學生記錄類型要是物件（現在是 %r）" % (s,),
+                                 "每一種長成 {\"id\":…,\"label\":…,\"scope\":\"class\"|\"case\"}。"))
+                continue
+            sid = (s.get("id") or "").strip()
+            if not sid:
+                problems.append(("學生記錄類型少了 id",
+                                 "每一種都要有英數 id（會變成本機檔名 data/students/<代號>/<id>.md）。"))
+                continue
+            if not re.match(r"^[A-Za-z0-9_-]+$", sid):
+                problems.append(("學生記錄類型 id 只能用英數與 - _（現在是 %r）" % sid,
+                                 "中文請寫在 label，id 另外取一個英文短名。"))
+            elif sid in seen_s:
+                problems.append(("學生記錄類型 id 重複：%s" % sid,
+                                 "兩種類型不能同名，改掉其中一個（同名會寫進同一個本機檔）。"))
+            seen_s.add(sid)
+            scope = s.get("scope") or "class"
+            if scope not in lib.SCOPES:
+                problems.append(("學生記錄類型 %s 的 scope 只能是 class 或 case（現在是 %r）"
+                                 % (sid or "?", scope),
+                                 "class＝名冊每一位學生都在裡面；case＝只有 data/roster.csv "
+                                 "第三欄列入的學生。"))
 
-def build_kit_js(kit, tabs, library):
+
+def build_kit_js(kit, tabs, library, stream_library):
     payload = {
         "demo": False,
+        "version": lib.version(),
         "ownerEmail": kit.get("owner_email", ""),
-        "idPrefix": lib.id_prefix(kit) + "-",
+        "idPrefix": lib.id_prefix(kit),
         "tabs": {k: tabs.get(k, {}) for k in ("students", "courses", "business")},
         "businessLibrary": [g for g in (library.get("groups") or []) if not g.get("open")],
+        # 網頁「＋ 新增記錄類型」的可選清單。open:true 的那筆是安裝時的開放選項
+        # （「我的類型不在清單裡」），不是真的類型，不給網頁。
+        "studentStreamLibrary": [s for s in (stream_library.get("streams") or [])
+                                 if not s.get("open")],
     }
     return ("/* 由 scripts/build_config.py 產生——不要手改，改 config/kit.json 或\n"
             "   config/tabs.json 之後重跑 `python3 scripts/build_config.py`。\n"
@@ -160,6 +197,7 @@ def main():
     kit_path, kit = _load_or_example("kit")
     tabs_path, tabs = _load_or_example("tabs")
     library = lib.load_library()
+    stream_library = lib.load_stream_library()
 
     problems, notes = [], []
     validate(kit, tabs, problems, notes)
@@ -171,19 +209,34 @@ def main():
 
     if a.check:
         if not a.quiet:
-            lib.ok("設定檢查通過（%s、%s）" % (os.path.relpath(kit_path, lib.root()),
-                                              os.path.relpath(tabs_path, lib.root())))
-            print("  分頁：學生 %s／課程 %s／業務 %s（%d 組）" % (
+            lib.ok("設定檢查通過（版本 %s；%s、%s）"
+                   % (lib.version(), os.path.relpath(kit_path, lib.root()),
+                      os.path.relpath(tabs_path, lib.root())))
+            streams = (tabs.get("students") or {}).get("streams")
+            groups = (tabs.get("business") or {}).get("groups") or []
+            print("  分頁：學生 %s／課程 %s／業務 %s" % (
                 "開" if tabs.get("students", {}).get("enabled") else "關",
                 "開" if tabs.get("courses", {}).get("enabled") else "關",
-                "開" if tabs.get("business", {}).get("enabled") else "關",
-                len((tabs.get("business") or {}).get("groups") or [])))
+                "開" if tabs.get("business", {}).get("enabled") else "關"))
+            if streams is None:
+                print("  學生記錄類型：（舊版設定沒有 streams，當成只有「導師班級學生紀錄」一種）")
+            else:
+                print("  學生記錄類型（勾了 %d 種）：%s" % (
+                    len(streams),
+                    "、".join("%s／%s〔%s〕" % (s.get("id"), s.get("label") or s.get("id"),
+                                                s.get("scope") or "class")
+                              for s in streams) or "（一種都沒勾，學生分頁不會有紀錄）"))
+            print("  業務組（勾了 %d 組）：%s" % (
+                len(groups),
+                "、".join("%s／%s" % (g.get("id"), g.get("label") or g.get("id"))
+                          for g in groups) or "（一組都沒勾）"))
             for n in notes:
                 lib.warn(n)
         return
 
     outs = [
-        write(lib.rpath("site", "js", "kit-config.js"), build_kit_js(kit, tabs, library)),
+        write(lib.rpath("site", "js", "kit-config.js"),
+              build_kit_js(kit, tabs, library, stream_library)),
         write(lib.rpath("site", "js", "firebase-config.js"), build_firebase_js(kit)),
         write(lib.rpath("firestore.rules"), build_rules(kit)),
     ]

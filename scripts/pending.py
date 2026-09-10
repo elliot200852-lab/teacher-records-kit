@@ -63,9 +63,12 @@ def main():
         _, blocks = lib.parse_file(t["path"])
         for r in blocks:
             if (t["id"], r["date"]) not in handled:
-                pending.append((t["id"], names.get(t["id"], t["id"]), r["date"], " ".join(r["tags"])))
+                pending.append((t["id"], names.get(t["id"], t["id"]), r["date"],
+                                " ".join(r["tags"] + (["〔%s〕" % t["streamLabel"]]
+                                                      if t.get("streamLabel") else []))))
     if not pending:
         return
+    pending.sort()          # 目標是「一種記錄類型一批」出來的，這裡按代號與日期排回去
     print("［提醒｜以下觀察還沒決定要不要寄家長］")
     for sid, name, date, tags in pending:
         print(("  · %s %s：%s %s" % (sid, name, date, tags)).rstrip())

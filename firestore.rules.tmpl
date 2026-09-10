@@ -33,10 +33,21 @@ service cloud.firestore {
       allow read, write: if isOwner();
 
       // 每則觀察一份文件；文件 id ＝ 日期，或日期-建立時間（見 validRid）
+      //
+      // ── 記錄類型 stream（v3 加）──
+      // 學生記錄再分類型（導師班級紀錄／任課老師紀錄／個案／IEP／輔導晤談…），
+      // 每一則一定要說自己是哪一種：沒有 stream 的紀錄會在網頁上無家可歸，
+      // 本機檔也不知道要寫進 students/<id>/<streamId>.md 的哪一個檔。
+      // 建立時必填、之後不准改——改了等於把一則紀錄從一種類型搬到另一種，
+      // 兩邊的本機檔會同時分岔。要換類型請刪掉重寫。
+      // （get(k, 預設值) 讓 v2 留下來、還沒補上 stream 的舊紀錄仍然可以編輯。）
       match /records/{recordId} {
         allow read:   if isOwner();
-        allow create: if isOwner() && validRid(recordId, request.resource.data.date);
-        allow update: if isOwner() && request.resource.data.date == resource.data.date;
+        allow create: if isOwner() && validRid(recordId, request.resource.data.date)
+                      && request.resource.data.stream is string
+                      && request.resource.data.stream.size() > 0;
+        allow update: if isOwner() && request.resource.data.date == resource.data.date
+                      && request.resource.data.get('stream', '') == resource.data.get('stream', '');
         // v3：擁有者可以刪除。未成年人的紀錄必須能應家長要求刪除；
         // 網頁端有二次確認，sync.py 會把刪除傳播到本機檔並記進 data/audit.jsonl。
         allow delete: if isOwner();

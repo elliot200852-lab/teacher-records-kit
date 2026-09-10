@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -29,6 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DASHBOARD = ROOT / "site" / "dashboard.html"
 CONFIG_EXAMPLE = ROOT / "site" / "js" / "kit-config.example.js"
+VERSION_FILE = ROOT / "VERSION"
 OUT = ROOT / "preview" / "teacher-records-kit-預覽.html"
 
 # <script src="js/kit-config.js"></script>（允許屬性順序不同、單雙引號、有無空白）
@@ -46,24 +48,40 @@ BANNER = """<!-- ═════════════════════
 """
 
 
-def inline_config(config_path: Path) -> str:
+def read_version() -> str:
+    """VERSION 檔的內容（一行版本字串）。沒有這個檔就回空字串——
+    網頁頁尾會自己顯示「版本未知」，不寫死任何版本號。"""
+    try:
+        return VERSION_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def inline_config(config_path: Path, version: str = "") -> str:
     """把設定檔內容包成一段 inline script，並強制進入示範模式。"""
     js = config_path.read_text(encoding="utf-8")
     # </script> 出現在 JS 字串裡會提早結束標籤——先拆開它。
     js = js.replace("</script>", "<\\/script>")
+    # 版本字串走 json.dumps，引號與非 ASCII 都會被跳脫成安全的 JS 字面值。
+    ver_line = (
+        "/* ── 版本（取自 VERSION 檔，頁尾直接顯示它）── */\n"
+        "window.KIT.version = %s;\n" % json.dumps(version, ensure_ascii=False)
+    ) if version else "/* ── VERSION 檔不存在，頁尾會顯示「版本未知」── */\n"
     return (
         "<script>\n"
         "/* ── 內聯自 %s（由 build_preview.py 貼進來）── */\n"
         "%s\n"
+        "%s"
         "/* ── 預覽檔固定示範模式：不連 Firebase、資料只存在這個瀏覽器 ── */\n"
         "window.KIT.demo = true;\n"
-        "</script>\n" % (config_path.name, js.rstrip())
+        "</script>\n" % (config_path.name, js.rstrip(), ver_line)
     )
 
 
 def build(dashboard: Path, config_path: Path, out: Path) -> tuple[str, list[str]]:
     html = dashboard.read_text(encoding="utf-8")
-    inlined = inline_config(config_path)
+    version = read_version()
+    inlined = inline_config(config_path, version)
     dropped: list[str] = []
     used = {"config": False}
 
@@ -115,6 +133,8 @@ def main(argv: list[str]) -> int:
     size_kb = out.stat().st_size / 1024
     print("✓ 已產生 %s（%.0f KB）" % (out, size_kb))
     print("  內聯設定：%s" % config_path.name)
+    ver = read_version()
+    print("  版本：%s" % (ver or "（找不到 VERSION 檔，頁尾會顯示「版本未知」）"))
     for d in dropped:
         print("  移除外部相依：%s" % d)
     print("  示範模式：強制開啟（資料只存在打開它的瀏覽器）")

@@ -6,15 +6,19 @@
 前面」或整檔重寫。那會讓既有紀錄的 id 重新編號，下一次同步就把它們當成「舊的刪了、
 新的加了」——雲端那邊的紀錄會被誤刪。所以寫入收斂成這一支，四道閘全部在動檔案之前跑完：
 
-  ① 目標白名單　kind＋target 必須是 config 裡真的存在的目標（不是隨便一個資料夾）
+  ① 目標白名單　kind＋target（＋學生記錄的 --stream）必須是 config 裡真的存在的目標
   ② 真名攔截　　正文／欄位／標籤出現名冊真名就拒寫（代號制的最後一道防線）
   ③ 只追加　　　O_APPEND 從檔尾追加，不 seek、不重寫、不插入
   ④ id 不變　　 寫前後各解析一次，斷言「舊的 id 一個都沒變、剛好多一則」，
                  違反就把檔案截回原長度並異常退出（寧可什麼都沒寫，也不留半截）
 
 用法：
-  python3 scripts/append_record.py --kind students --target S-03 \\
+  python3 scripts/append_record.py --kind students --target S-03 --stream homeroom \\
       --tags "#課堂 #人際" --content-file 草稿.md
+
+  學生記錄一定要指定 `--stream`（記錄類型）：導師的班級紀錄、任課老師的觀察、個案追蹤、
+  IEP、輔導晤談各寫各的檔，混在一起就分不清楚。可用的類型看 config/tabs.json 的
+  students.streams（漏給或給錯，這支會拒寫並把可用的列出來）。
 
   python3 scripts/append_record.py --kind business --target paperwork \\
       --date 2026-09-10 --fields-json '{"期限":"2026-09-20","辦理情形":"處理中"}' \\
@@ -67,6 +71,8 @@ def main():
         epilog="AI 代理請一律用這支寫入，不要自己編輯 data/ 底下的 md 檔。")
     ap.add_argument("--kind", required=True, choices=list(lib.KINDS), help="記錄種類")
     ap.add_argument("--target", default="", help="對象代號（class 固定 main；students 用 S-03 這種代號）")
+    ap.add_argument("--stream", default="",
+                    help="學生記錄類型（--kind students 必填；--kind class 也吃，限 scope:class 的類型）")
     ap.add_argument("--date", default="", help="日期 YYYY-MM-DD（預設今天）")
     ap.add_argument("--time", default="", dest="time_", help="時間 HH:MM（不給就在同日撞號時自動帶現在時間）")
     ap.add_argument("--tags", default="", help='標籤，例如 "#課堂 #人際"')
@@ -86,15 +92,45 @@ def main():
     kit = lib.load_kit()
     tabs = lib.load_tabs()
 
-    # ── 閘①：目標白名單 ──
+    # ── 閘①：目標白名單（含記錄類型）──
     target_id = a.target or ("main" if a.kind == "class" else "")
     if not target_id:
         bail(EXIT_ARGS, "--target 沒給。", "students 用代號（S-03）、courses／business 用設定裡的 id。")
-    t = lib.find_target(kit, tabs, a.kind, target_id)
+
+    stream = a.stream.strip()
+    if a.kind in ("students", "class"):
+        want_scope = "class" if a.kind == "class" else None
+        avail_streams = [s for s in lib.student_streams(tabs)
+                         if want_scope is None or s.get("scope", "class") == want_scope]
+        names = "、".join("%s（%s）" % (s["id"], s.get("label") or s["id"]) for s in avail_streams)
+        if not avail_streams:
+            bail(EXIT_TARGET, "設定裡一種學生記錄類型都沒有，沒有地方可以寫。",
+                 "重跑 `python3 scripts/setup.py`，在「勾選你要的記錄類型」那題勾起來"
+                 "（導師班級學生紀錄、個案追蹤、IEP、輔導晤談…）。")
+        if not stream:
+            if a.kind == "class" and len(avail_streams) == 1:
+                stream = avail_streams[0]["id"]          # 只有一種就不必逼使用者打
+            else:
+                bail(EXIT_ARGS, "--kind %s 一定要指定 --stream（記錄類型）。" % a.kind,
+                     "可用的類型：%s。例如 `--stream %s`。導師的班級紀錄、個案追蹤、IEP、"
+                     "輔導晤談要分開寫，混在一起就分不清楚。" % (names, avail_streams[0]["id"]))
+        if stream not in [s["id"] for s in avail_streams]:
+            bail(EXIT_TARGET, "設定裡沒有這種學生記錄類型：%s" % stream,
+                 "可用的類型：%s。%s要新增就重跑 `python3 scripts/setup.py`。"
+                 % (names, "（--kind class 只能用涵蓋全班的類型。）" if a.kind == "class" else ""))
+    elif stream:
+        bail(EXIT_ARGS, "--stream 只有 --kind students／class 才用得上（收到 --kind %s）。" % a.kind,
+             "課程與業務記錄沒有記錄類型這一層，把 --stream 拿掉。")
+
+    t = lib.find_target(kit, tabs, a.kind, target_id, stream or None)
     if not t:
-        avail = [x["id"] for x in lib.targets(kit, tabs) if x["kind"] == a.kind]
-        bail(EXIT_TARGET, "設定裡沒有這個 %s 目標：%s" % (a.kind, target_id),
-             "目前有的是：%s。要新增就重跑 `python3 scripts/setup.py`（學生請先填 data/roster.csv）。"
+        avail = sorted({x["id"] for x in lib.targets(kit, tabs)
+                        if x["kind"] == a.kind
+                        and (not stream or x.get("stream") == stream)})
+        bail(EXIT_TARGET, "設定裡沒有這個 %s 目標：%s%s"
+             % (a.kind, target_id, ("（類型 %s）" % stream) if stream else ""),
+             "目前有的是：%s。要新增就重跑 `python3 scripts/setup.py`"
+             "（學生請先填 data/roster.csv；個案型類型要在第三欄列入那位學生）。"
              % ("、".join(avail) if avail else "（一個都沒有）"))
     if not os.path.exists(t["path"]):
         bail(EXIT_MISSING, "找不到記錄檔：%s" % t["path"],
@@ -171,25 +207,27 @@ def main():
              % (len(before_rids), len(after_rids)),
              "多半是那個檔案裡有格式怪怪的 `## 日期` 標題列。打開 %s 看一下最後幾行。" % t["path"])
 
-    lib.audit({"op": "append", "kind": a.kind, "target": target_id, "rid": rid,
-               "date": date, "tags": tags, "fields": sorted(fields.keys()),
+    lib.audit({"op": "append", "kind": a.kind, "target": target_id, "stream": t["stream"],
+               "rid": rid, "date": date, "tags": tags, "fields": sorted(fields.keys()),
                "related": related, "source": a.source, "taskId": a.task_id or None,
                "chars": len(body), "hash": lib.content_hash(tags, fields, related, body),
                "allowNames": bool(hits and a.allow_names)})
 
-    result = {"ok": True, "kind": a.kind, "target": target_id, "rid": rid,
-              "path": t["path"], "chars": len(body)}
+    result = {"ok": True, "kind": a.kind, "target": target_id, "stream": t["stream"],
+              "rid": rid, "path": t["path"], "chars": len(body)}
     if a.as_json:
         print(json.dumps(result, ensure_ascii=False))
     else:
-        lib.ok("寫入 %s／%s　紀錄 id：%s（%d 字）" % (a.kind, target_id, rid, len(body)))
+        lib.ok("寫入 %s／%s%s　紀錄 id：%s（%d 字）"
+               % (a.kind, target_id, ("／%s" % t["stream"]) if t["stream"] else "",
+                  rid, len(body)))
         print("  檔案：%s" % t["path"])
         print("  稽核：%s" % os.path.join(lib.data_dir(), "audit.jsonl"))
 
     if a.sync:
         sys.stdout.flush()
         rc = subprocess.run([sys.executable, os.path.join(lib.PKG, "scripts", "sync.py"),
-                             "--root", lib.root(), "--only", "%s/%s" % (a.kind, target_id)]).returncode
+                             "--root", lib.root(), "--only", t["key"]]).returncode
         if rc != 0:
             lib.warn("同步沒跑成功——紀錄已經安全寫進本機檔案了，稍後再跑 `python3 scripts/sync.py`。")
 
