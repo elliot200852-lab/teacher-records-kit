@@ -228,7 +228,16 @@ def project_id(kit):
     return pid
 
 
+def emulator_host():
+    """Firestore 模擬器（測試與 CI 用）。設了標準環境變數 FIRESTORE_EMULATOR_HOST 就走本機模擬器；
+    正式使用永遠不設它。"""
+    return (os.environ.get("FIRESTORE_EMULATOR_HOST") or "").strip()
+
+
 def fb_base(kit):
+    host = emulator_host()
+    if host:
+        return "http://%s/v1/projects/%s/databases/(default)/documents" % (host, project_id(kit))
     return ("https://firestore.googleapis.com/v1/projects/%s/databases/(default)/documents"
             % project_id(kit))
 
@@ -745,7 +754,9 @@ class FirestoreError(Exception):
 
 
 def token(quiet=False):
-    """gcloud 的存取權杖。拿不到就 die（除非 quiet=True，那就回 None）。"""
+    """gcloud 的存取權杖。拿不到就 die（除非 quiet=True，那就回 None）。模擬器模式回固定的 owner 權杖。"""
+    if emulator_host():
+        return "owner"
     rc, out, _err = hostos.run(["gcloud", "auth", "print-access-token"], timeout=60, split=True)
     tok = out.strip().splitlines()[0].strip() if rc == 0 and out.strip() else ""    # 只看 stdout：stderr 常有「有更新可用」的提醒
     if tok:
@@ -820,8 +831,24 @@ def http(method, base, path, tok, body=None, mask=None,
         q.append(("currentDocument.updateTime", precondition_update_time))
     elif precondition_exists is not None:
         q.append(("currentDocument.exists", "true" if precondition_exists else "false"))
-    url = base + "/" + path + (("?" + urllib.parse.urlencode(q)) if q else "")
-    data = json.dumps(fs_doc(body)).encode() if body is not None else None
+    has_precond = bool(precondition_update_time) or precondition_exists is not None
+    if method == "PATCH" and has_precond:
+        # 帶前置條件的 PATCH 一律改走 documents:commit，前置條件放在 body 的 Write 裡——
+        # 這是 REST 文件寫明的做法；query 參數版的 currentDocument.updateTime 在 Firestore
+        # 模擬器上會被當成 0（2026-09-11 在模擬器上抓到），commit 在正式環境與模擬器都一致。
+        write = {"update": {"name": base.split("/v1/", 1)[1] + "/" + path,
+                            "fields": fs_doc(body)["fields"]}}
+        if mask:
+            write["updateMask"] = {"fieldPaths": list(mask)}
+        if precondition_update_time:
+            write["currentDocument"] = {"updateTime": precondition_update_time}
+        else:
+            write["currentDocument"] = {"exists": bool(precondition_exists)}
+        url, method = base + ":commit", "POST"
+        data = json.dumps({"writes": [write]}).encode()
+    else:
+        url = base + "/" + path + (("?" + urllib.parse.urlencode(q)) if q else "")
+        data = json.dumps(fs_doc(body)).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method,
                                  headers={"Authorization": "Bearer " + tok,
                                           "Content-Type": "application/json"})
@@ -832,7 +859,9 @@ def http(method, base, path, tok, body=None, mask=None,
         detail = e.read().decode("utf-8", "ignore")[:300]
         if method == "GET" and e.code == 404:
             return {}
-        if e.code == 412 and (precondition_update_time or precondition_exists is not None):
+        # 前置條件不成立：Firestore 回 400 FAILED_PRECONDITION（updateTime 過期）或
+        # 409 ALREADY_EXISTS（要求不存在但已存在）；412 是舊文件寫的，一起認。
+        if has_precond and (e.code in (409, 412) or (e.code == 400 and "FAILED_PRECONDITION" in detail)):
             raise Precondition(path)
         if raise_errors:
             raise FirestoreError(e.code, detail)

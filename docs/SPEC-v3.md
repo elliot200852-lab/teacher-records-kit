@@ -185,6 +185,11 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 - 支援等級：macOS 與 Windows 10／11 正式支援、Linux 盡力、**WSL 直接拒跑**。
 - CI（`.github/workflows/ci.yml`）三平台跑單元測試，另有 windows-latest 真機 smoke：
   安裝腳本、工作排程器掛上／拆掉、免互動安裝、Edge 印 PDF。
+- **連網路徑的驗證＝Firestore 模擬器**（`scripts/tests/emulator_smoke.py`，CI 的 `emulator` job）：
+  sync 的推、回寫、衝突、網頁新增／刪除，backup、ledger、doctor 讀雲端版本，以及安全規則本身
+  （擁有者可讀寫、陌生人 403、少 stream 建不進去）。腳本認標準環境變數 `FIRESTORE_EMULATOR_HOST`。
+  帶前置條件的寫入一律走 `documents:commit`，前置條件失敗認 400 FAILED_PRECONDITION／409／412。
+  仍未對真的雲端專案跑過（作者帳號 GCP 專案配額已滿）。
 - **Windows 尚未有真人老師實測過**；第一位 Windows 使用者的怪狀先當是我們的問題。
 - 所有文字寫入一律 LF（`newline="\n"`，有測試守著），`.gitattributes` 鎖 LF。
 
@@ -226,7 +231,7 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 | `build_config.py` | 產生三個 gitignored 輸出 | 見 §4；`--check` 只驗不寫 |
 | `doctor.py` | 健檢 | 逐項 ✓／✗：工具在不在、config 齊不齊、gcloud／firebase／gws 登入了沒、Drive 夾 ID 存在且 `trashed=false`、whisper 模型在不在；每個 ✗ 附「怎麼修」與連結；`--json` 給 AI 讀 |
 | `install_tools.py` | 裝依賴 | 三個平台同一支：macOS 走 Homebrew、Windows 走 winget（失敗退可攜版）、Linux 走 apt／官方說明，裝的都是 `node`、`firebase-tools`、`google-cloud-sdk`、`whisper-cpp`、`ffmpeg`（`gws` 選用，一律 `npm i -g @googleworkspace/cli`）；每步先印「要裝什麼、為什麼」，不重試、不留半裝狀態；`--dry-run`、`--with-gws`、`--json`、`--remove-portable`。每個平台的細節見 `docs/PLATFORMS.md` |
-| `sync.py` | 本機 ↔ Firestore 雙向 | 通用化到四種目標；衝突不覆蓋；回寫前備 `.prev.md`；`--dry-run`；結束寫 `.sync-last-status` 與 Firestore `meta/status.lastSyncAt`。**每個 PATCH 必帶 `currentDocument.updateTime` 前置條件**（紅隊 #9：v2 的無條件回寫會在老師同時編輯時靜默蓋掉他的字）；412 就當衝突處理、不重試覆寫 |
+| `sync.py` | 本機 ↔ Firestore 雙向 | 通用化到四種目標；衝突不覆蓋；回寫前備 `.prev.md`；`--dry-run`；結束寫 `.sync-last-status` 與 Firestore `meta/status.lastSyncAt`。**每個 PATCH 必帶 `currentDocument.updateTime` 前置條件**（紅隊 #9：v2 的無條件回寫會在老師同時編輯時靜默蓋掉他的字）；前置條件不成立（400 FAILED_PRECONDITION／409／412）就當衝突處理、不重試覆寫；帶前置條件的寫入走 `documents:commit` |
 | `append_record.py` | **唯一寫入通道** | `--kind students|class|courses|business --target ID --date --tags --content-file --fields-json --related --source voice|file --task-id`；O_APPEND；寫前後 rid 斷言；名冊真名攔下；審計 `data/audit.jsonl`；`--sync` 順手跑 sync |
 | `transcribe.py` | 錄音 → 逐字稿 | 單檔或 `--inbox`（掃 `inbox/*.m4a|mp3|wav|mp4`）；ffmpeg 轉 16k wav → `whisper-cli -m ~/.cache/whisper-cpp/ggml-large-v3-turbo.bin -l zh`（模型缺就從 Hugging Face 下載並印進度）；輸出 `inbox/transcripts/<檔名>.md`，處理完原檔移到 `inbox/done/`；結尾印「接下來請 AI 讀逐字稿、改寫成○○記錄、再用 append_record.py 寫入」；逐字稿永不出本機。**AI 改寫不在腳本裡**（見 AGENTS.md §錄音） |
 | `backup.py` | 本機＋Drive 備份 | zip `data/`＋`export.json`（Firestore 全量）→ `backups/`；**兩種 Drive 模式**（紅隊 #4）：`desktop`（預設）＝把 zip 複製進「Google 雲端硬碟」桌面程式的同步夾 `drive.desktop_dir`（零 OAuth、Windows 也行）；`gws`（進階）＝`gws drive files create --json '{"name":..,"parents":[id]}' --upload <cwd 相對路徑>`（先 `gws drive files get --params '{"fileId":..,"fields":"id,name,trashed"}'` 驗存在且 `trashed=false`，找不到就停、**不自建夾**；上傳後比 md5Checksum）。兩種都寫 `data/backups.jsonl` 與 Firestore `meta/status.lastBackupAt`；保留最近 N 份 |

@@ -3,6 +3,8 @@
 #   windows-smoke 在真 Windows 上：健檢、安裝腳本（會真的下載 whisper 預編譯檔）、排程真掛上再拆掉、
 #                 免互動安裝到暫存目錄、用 Edge 印 PDF
 #   linux-smoke   在 Ubuntu 上：安裝腳本（whisper 預編譯檔）、排程 crontab 真寫入再拆掉
+#   emulator      在 Firestore 模擬器（真的 Firestore 引擎）上跑 scripts/tests/emulator_smoke.py：
+#                 sync／backup／ledger／doctor 的連網路徑＋安全規則本身
 #   urls          每週檢查 hostos.DOWNLOADS 裡的下載網址還活著（釘死的 tag／URL 會過期，這裡先知道）
 name: ci
 
@@ -97,6 +99,24 @@ jobs:
           crontab -l
           python3 scripts/schedule.py --uninstall
           ! (crontab -l 2>/dev/null | grep -q teacher-records-kit)
+
+  emulator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: npm i -g firebase-tools
+      - name: networked path + security rules on the Firestore emulator
+        run: python3 scripts/tests/emulator_smoke.py
 
   urls:
     runs-on: ubuntu-latest

@@ -163,6 +163,8 @@ def check_tools(r, kit, skip_network):
 
     if skip_network:
         r.add("gcloud_auth", "gcloud 已登入", False, "--skip-network", required=True, skipped=True)
+    elif lib.emulator_host():
+        r.add("gcloud_auth", "gcloud 已登入", True, "模擬器模式（FIRESTORE_EMULATOR_HOST=%s），不需要" % lib.emulator_host())
     elif hostos.exe("gcloud"):
         rc, out = hostos.run(["gcloud", "auth", "print-access-token"], timeout=60)
         r.add("gcloud_auth", "gcloud 已登入（拿得到存取權杖）", rc == 0,
