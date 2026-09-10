@@ -153,7 +153,8 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
   - **Word**＝瀏覽器直接組出 `.doc`（Word 相容 HTML，`application/msword`）並下載，不載任何外部函式庫；檔名 `<對象>-<類型>-<日期>.doc`。
   - **PDF**＝開一個乾淨的列印版面（只有標題、記錄、欄位表；有 `@media print` 樣式）並呼叫 `window.print()`，老師在列印對話框選「儲存為 PDF」；手機上同樣可行。
   - 排版共用同一個 `renderExportHtml(kind, target, opts)`，Word 與 PDF 只差外殼。
-- **腳本端（正式版、給期末或大量用）**：`scripts/export_docs.py --kind students|courses|business --target <id>|all [--stream X] [--from --to] --docx [--pdf]`：`.docx` 用標準庫 `zipfile` 直接寫最小 OOXML（零相依）；`.pdf` 若機器上有 Chrome／Chromium 就 `--headless --print-to-pdf`，沒有就印「請開 HTML 用瀏覽器儲存為 PDF」。輸出到 `exports/`（gitignored）。
+- 班級整體觀察明細頁同樣有「匯出 ▾」；彈出視窗被擋時改成同頁列印覆蓋層。
+- **腳本端（正式版、給期末或大量用）**：`scripts/export_docs.py --kind students|class|courses|business --target <id>|all [--stream X] [--from --to] [--with-class] --docx [--pdf] [--html]`：`.docx` 用標準庫 `zipfile` 直接寫最小 OOXML（零相依）；`.pdf` 若機器上有 Chrome／Chromium（或環境變數 `TRK_CHROME` 指定）就 `--headless=new --print-to-pdf`，沒有就把 HTML 留在 `exports/` 並印「用瀏覽器開這個檔→列印→儲存為 PDF」。輸出到 `exports/`（gitignored）。網頁端版面正本是 `buildExport()`（`renderExportHtml` 為薄包裝、`renderExportUI` 生選單）。
 - 匯出內容一律去識別化正文＋名冊姓名（因為是老師自己用），檔案落地在老師機器；文件與 README 要提醒「匯出檔含真名，別放到公開的地方」。
 
 ## 4. 設定檔（單一產生器、三個輸出）

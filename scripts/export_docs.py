@@ -61,8 +61,8 @@ def xe(text):
 
 
 def safe_name(text):
-    """檔名用：只留英數與連字號（代號、課程 id 本來就長這樣）。"""
-    return re.sub(r"[^0-9A-Za-z_-]+", "-", str(text or "")).strip("-") or "export"
+    """檔名用：只換掉檔案系統不吃的字元（保留中文，與網頁端 safeFileName 一致）。"""
+    return re.sub(r'[\\/:*?"<>|\x00-\x1f\s]+', "-", str(text or "")).strip("-.") or "export"
 
 
 # ── 取資料（沿用 export_records 的載入函式，不另寫一套）──────────────────
@@ -425,7 +425,8 @@ def html_to_pdf(html_path, pdf_path):
     chrome = find_chrome()
     if not chrome:
         return False
-    profile = os.path.join(os.path.dirname(os.path.abspath(pdf_path)), ".chrome-profile")
+    import tempfile
+    profile = tempfile.mkdtemp(prefix="trk-chrome-")
     cmd = [chrome, "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
            "--user-data-dir=" + profile, "--no-pdf-header-footer",
            "--print-to-pdf=" + os.path.abspath(pdf_path), file_url(html_path)]

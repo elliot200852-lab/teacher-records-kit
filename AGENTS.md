@@ -936,12 +936,12 @@ python3 scripts/sync.py
 
 ### AI 要問的話（逐字可念）
 
-> 「都裝好了，我們一起驗收七件事，大概五分鐘。這幾件都是要你自己動手點一下的，
+> 「都裝好了，我們一起驗收八件事，大概五分鐘。這幾件都是要你自己動手點一下的，
 > 因為我在這邊看『程式沒報錯』不代表你那邊真的能用。」
 
 ### 老師去哪裡拿
 
-不用拿東西，但**第 1、2、3、5 項要他自己動手**——他的手機、他的瀏覽器、他的雲端硬碟
+不用拿東西，但**第 1、2、3、5、8 項要他自己動手**——他的手機、他的瀏覽器、他的雲端硬碟
 （https://drive.google.com ）。你在這邊看「程式沒報錯」不算驗過。
 
 ### AI 要做的事＋怎麼驗證
@@ -957,6 +957,7 @@ python3 scripts/sync.py
 | 5 | 備份真的有上去 | 老師 | `python3 scripts/backup.py` 跑完，請他打開 https://drive.google.com 看到那個 zip |
 | 6 | 個資沒帶進 git | 你 | `git status` 沒看到 `data/`、`config/kit.json`、`setup/progress.json`、`site/js/*-config.js`、`firestore.rules`、`inbox/`、`backups/`、任何 `*-key.json` |
 | 7 | 健檢全綠 | 你 | `python3 scripts/doctor.py` 必要項目全過（黃色驚嘆號的選用項目可以留著） |
+| 8 | 匯出打得開 | 老師 | 隨便挑一位學生，明細頁按「匯出 ▾ → Word」，下載的 `.doc` 用 Word 或 Google 文件打得開，裡面看得到那位學生的記錄 |
 
 `ledger.py` 其他旗標：`--offline`（不連網，只比本機與備份）、`--json`（給你讀）、`--quiet`。
 
@@ -1033,7 +1034,7 @@ python3 scripts/sync.py
 
 ## 日常使用（裝完之後當面講一次給老師聽）
 
-**五件事，講完就好，不要念文件：**
+**六件事，講完就好，不要念文件：**
 
 1. **平常就打開網頁記。** 手機、電腦都行。學生分頁最上面有一排**記錄類型**的切換
    （只會出現他勾的那幾種），先切到要記的那一種，再點進一位學生「＋新增」；
@@ -1068,6 +1069,45 @@ python3 scripts/sync.py
    python3 scripts/export_records.py --local                  # 不連網，只讀本機檔
    ```
    還有 `--json`、`--id`（`--target` 的舊別名）。匯出是唯讀的，不會動到雲端資料。
+
+6. **一鍵匯出 Word／PDF。** 期末、家長會、個案會議要交一份能印出來的東西時，不用重打。
+
+   **在網頁上按就好（手機也行）**——三個落點：
+   - **學生明細頁**右上角的「**匯出 ▾**」：Word 與 PDF 各兩項——
+     「只匯出目前這一種記錄類型」或「這位學生全部類型」。
+   - **課程明細頁、業務組明細頁**是同一顆「**匯出 ▾**」，兩項：
+     「匯出 Word（.doc）」「匯出 PDF（列印）」（班級整體觀察那一頁也有同一顆）。
+   - **學生分頁一覽**最上面的「**匯出所有學生 ▾**」：勾要哪幾種記錄類型、
+     填日期範圍（兩格都留空＝全部日期），可以再勾「含班級整體觀察（放在文件最前面）」；
+     出來是一份文件、每位學生一節（姓名＋代號），沒有記錄的學生也會列一行「（無記錄）」。
+
+   **Word ＝直接下載一個 `.doc`**（Word、Google 文件、Pages 都打得開）；
+   **PDF ＝開一個乾淨的列印版面**，在列印視窗裡選「儲存為 PDF」——手機的列印／分享選單裡一樣有。
+   （瀏覽器擋掉彈出視窗時，它會改成在同一頁蓋一層列印版面，照樣按列印。）
+
+   **要正式的 `.docx`，或一次出很多份，用腳本**：
+
+   ```bash
+   # 一位學生、他全部的記錄類型，Word ＋ PDF
+   python3 scripts/export_docs.py --kind students --target S-03 --docx --pdf
+
+   # 所有學生一份文件（每人一節），最前面附上班級整體觀察
+   python3 scripts/export_docs.py --kind students --target all --with-class --docx
+
+   # 某一個業務組（--target 填 config/tabs.json 裡的組代號；課程換成 --kind courses）
+   python3 scripts/export_docs.py --kind business --target paperwork --docx --pdf
+   ```
+
+   其他旗標：`--stream <類型>`（只出某一種學生記錄類型，可以重複給）、
+   `--from`／`--to`（日期範圍）、`--html`（連排版好的 HTML 一起留著自己列印）、
+   `--no-docx`（只要 PDF／HTML 的時候用）、`--out <目錄>`（預設 `exports/`）、
+   `--local`（只讀本機 markdown、絕不連網）、`--root <目錄>`（多帳號或測試才要指定）。
+   `--docx` 不給也會產生 Word，寫出來只是為了讀得懂。
+   `--pdf` 要機器上有 Chrome／Chromium；沒有的話它不會失敗，會留下排版好的 HTML
+   並印一行「用瀏覽器開這個檔 → 列印 → 儲存為 PDF」。
+
+   **匯出檔裡是名冊真名**（那是給老師自己看的），只留在他自己的電腦或他自己的雲端硬碟，
+   別放到任何公開的地方。輸出目錄 `exports/` 已經在 `.gitignore` 裡，不會進版本控制。
 
 順帶一提兩支選用的腳本：`python3 scripts/pending.py` 列出「有觀察但還沒決定要不要寄家長」的記錄
 （`--all` 連已處理的也列、`--mark <代號> <日期> skip` 標記不用再提醒）；
@@ -1144,6 +1184,7 @@ firebase deploy --only firestore:rules --project <他的專案ID>
 | `scripts/backup.py` | 本機 zip ＋ 上他自己的 Google 雲端硬碟 |
 | `scripts/ledger.py` | 台帳：本機／網站／備份三處對帳 |
 | `scripts/export_records.py` | 整包匯出（期末取材、換系統） |
+| `scripts/export_docs.py` | 一鍵匯出 Word（`.docx`）與 PDF：學生／班級／課程／業務組 |
 | `scripts/schedule.sh` | （選用）每日同步、每週備份的排程 |
 | `scripts/monthly_reminder.py` | （選用）本月未記名單寄給老師自己 |
 | `scripts/parent_email.py` | （選用）把一則改寫稿寄給家長 |

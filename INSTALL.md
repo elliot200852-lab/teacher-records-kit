@@ -252,6 +252,9 @@ python3 scripts/export_records.py --out ~/記錄.md          # 期末取材
 python3 scripts/export_records.py --stream case            # 只要某一種學生記錄類型
 python3 scripts/export_records.py --by-tag                # 依標籤分組
 python3 scripts/export_records.py --split ~/備份           # 每個對象一個資料夾
+python3 scripts/export_docs.py --kind students --target S-03 --docx --pdf        # 一位學生匯出 Word＋PDF
+python3 scripts/export_docs.py --kind students --target all --with-class --docx  # 所有學生一份 Word
+python3 scripts/export_docs.py --kind business --target paperwork --docx         # 某一組業務
 python3 scripts/pending.py                                # 還沒決定要不要寄家長的
 python3 scripts/parent_email.py --id S-01 --subject "…" --body-file msg.txt --dry-run
 python3 scripts/build_preview.py                          # 產生單檔離線示範
