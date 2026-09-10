@@ -30,6 +30,7 @@ import subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
+import hostos
 
 
 def md5(path):
@@ -45,7 +46,7 @@ def strip_keyring(txt):
 
 
 def gws_json(args, cwd=None, upload=None, body=None, params=None):
-    cmd = ["gws", *args]
+    cmd = [hostos.exe("gws") or "gws", *args]
     if body is not None:
         cmd += ["--json", json.dumps(body, ensure_ascii=False)]
     if upload is not None:
@@ -53,10 +54,14 @@ def gws_json(args, cwd=None, upload=None, body=None, params=None):
     cmd += ["--format", "json"]
     if params:
         cmd += ["--params", json.dumps(params, ensure_ascii=False)]
-    r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
+    try:
+        r = subprocess.run(cmd, capture_output=True, cwd=cwd)
+    except FileNotFoundError:
+        return None, "找不到 gws 指令"
+    out, err = hostos.decode_output(r.stdout), hostos.decode_output(r.stderr)
     if r.returncode != 0:
-        return None, strip_keyring(r.stderr) + strip_keyring(r.stdout)
-    txt = strip_keyring(r.stdout).strip()
+        return None, strip_keyring(err) + strip_keyring(out)
+    txt = strip_keyring(out).strip()
     try:
         return (json.loads(txt) if txt else {}), ""
     except json.JSONDecodeError:
@@ -131,8 +136,8 @@ def to_gws(kit, zip_path):
     fid = ((kit.get("drive") or {}).get("backup_folder_id") or "").strip()
     if not fid:
         return None, "config/kit.json 的 drive.backup_folder_id 沒填"
-    if not shutil.which("gws"):
-        return None, "找不到 gws 指令（brew install googleworkspace-cli；formula 不是叫 gws）"
+    if not hostos.exe("gws"):
+        return None, "找不到 gws 指令（%s）" % hostos.install_hint("gws")
     info, err = gws_json(["drive", "files", "get"],
                          params={"fileId": fid, "fields": "id,name,trashed"})
     if info is None or not info.get("id"):

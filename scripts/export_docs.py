@@ -39,6 +39,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
+import hostos
 import export_records
 
 KIND_LABEL = export_records.KIND_LABEL
@@ -399,22 +400,14 @@ def render_html(title, sub, sections):
 
 
 # ── PDF（借 Chrome 印）───────────────────────────────────────────────────
-CHROME_MAC = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-
-
 def find_chrome():
-    """找一個能用的 Chrome／Chromium。環境變數 TRK_CHROME 可以指定路徑（也給測試用：
-    指到不存在的路徑就等於「這台機器沒有 Chrome」）。"""
+    """找一個能用的 Chrome／Chromium／Edge（各平台的候選路徑在 hostos.chrome_candidates()）。
+    環境變數 TRK_CHROME 可以指定路徑（也給測試用：指到不存在的路徑就等於「這台機器沒有 Chrome」）。"""
     envp = os.environ.get("TRK_CHROME")
     if envp is not None:
         return envp if (envp and os.path.isfile(envp) and os.access(envp, os.X_OK)) else None
-    if os.path.isfile(CHROME_MAC) and os.access(CHROME_MAC, os.X_OK):
-        return CHROME_MAC
-    for name in ("chromium", "google-chrome", "chromium-browser", "google-chrome-stable"):
-        p = shutil.which(name)
-        if p:
-            return p
-    return None
+    cands = hostos.chrome_candidates()
+    return cands[0] if cands else None
 
 
 def file_url(path):
@@ -543,7 +536,7 @@ def main():
 
     html_path = os.path.join(outdir, stem + ".html")
     if a.pdf or a.html:
-        with open(html_path, "w", encoding="utf-8") as f:
+        with open(html_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(render_html(title, sub, sections))
     if a.pdf:
         pdf_path = os.path.join(outdir, stem + ".pdf")

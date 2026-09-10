@@ -236,7 +236,7 @@ def main():
         text = to_md(data, a.related, rel_idx)
     if a.out:
         out = os.path.expanduser(a.out)
-        with open(out, "w", encoding="utf-8") as f:
+        with open(out, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
         lib.ok("已寫出 %s（%d 字）" % (out, len(text)))
     else:

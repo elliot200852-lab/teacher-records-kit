@@ -96,9 +96,9 @@
 
 | 項目 | 說明 |
 |---|---|
-| 電腦 | **macOS**（`[[待確認：Windows 支援]]`） |
+| 電腦 | **macOS 或 Windows 10／11**（Linux 盡力支援；WSL 不行）——細節見 `docs/PLATFORMS.md` |
 | Google 帳號 | 一個能自己開 Firebase 專案的帳號。學校配發的帳號常被管理員鎖住，判斷方法與替代做法寫在 `AGENTS.md` 的前置條件那一節 |
-| AI 代理 | Claude Code 或同級的 AI 代理。完全沒用過的話先讀 `docs/GUIDE.md` |
+| AI 代理 | Claude Code、OpenAI Codex CLI（ChatGPT）或 Gemini CLI 其中一個（見下面「支援的 AI 代理」）。完全沒用過的話先讀 `docs/GUIDE.md` |
 | 你要準備的資料 | 你最像上面哪一種方案、學生名單（座號＋姓名就夠）、你要記哪幾種學生記錄類型、想先建的課名、你手上在跑的業務線。走 IEP 的先把該生的目標找出來，走 SOAP 的先想好個案概念化五格。清單在 `docs/DATA-CHECKLIST.md` |
 
 ---
@@ -111,6 +111,22 @@
 
 不想用 AI，想自己動手：`INSTALL.md` 是同一套流程的純指令版。
 沒用過 AI 代理、不知道終端機是什麼：先讀 `docs/GUIDE.md`，它從零開始教。
+
+---
+
+## 支援的 AI 代理
+
+三個擇一就好，你手上有哪一家的訂閱就用哪一家：
+
+| 代理 | 你要有的訂閱 | 啟動指令 |
+|---|---|---|
+| Claude Code | Claude | `claude` |
+| OpenAI Codex CLI | ChatGPT | `codex` |
+| Gemini CLI | Google | `gemini` |
+
+安裝腦只有一份：`AGENTS.md`（Codex CLI 直接讀它）。`CLAUDE.md`、`GEMINI.md`（＋`.gemini/settings.json`）、
+`.github/copilot-instructions.md`、`.cursor/rules/` 都只是指回 `AGENTS.md` 的小紙條。
+三個代理的第一句話都一樣：**「讀 AGENTS.md，幫我裝起來。」**
 
 ---
 
@@ -167,6 +183,7 @@
 | `docs/DATA-CHECKLIST.md` | 你。安裝前要準備哪些資料 |
 | `docs/BUSINESS-GROUPS.md` | 你。業務組庫十一組各記什麼，以及它跟學生記錄類型是同一套勾選機制 |
 | `docs/ARCHITECTURE.md` | 想弄懂它怎麼運作的人 |
+| `docs/PLATFORMS.md` | macOS／Windows／Linux 的支援等級、指令對照、每個平台的坑 |
 | `INSTALL.md` | 不用 AI、自己動手的人 |
 | `embed/EMBED-AND-SECURITY.md` | 已經有自己網站、想把它嵌進去的人 |
 | `CHANGELOG.md` | 每一版改了什麼 |

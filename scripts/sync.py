@@ -195,7 +195,7 @@ def sync_target(t, base, tok, names, state, dry, notes, counters, cards):
             lines.append("")
             lines += lib.render_block(date, lib.time_from_rid(date, rid), rec["tags"],
                                       rec["fields"], rec["related"], rec["body"])
-        with open(t["path"], "w", encoding="utf-8") as f:
+        with open(t["path"], "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(lines).rstrip("\n") + "\n")
 
         # 寫回去之後，把「檔案現在長的樣子」推回雲端並清掉 editedOnWeb 旗標

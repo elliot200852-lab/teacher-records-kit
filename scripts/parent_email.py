@@ -13,6 +13,7 @@ from datetime import datetime
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
+import hostos
 
 HANDLED = lib.rpath(".parent-emails-handled.tsv")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -59,14 +60,16 @@ def main():
         print("（DRY-RUN，未寄。body %d 字。）" % len(body)); return
 
     if a.draft and (cfg.get("email") or {}).get("method") == "gws":
-        import subprocess
-        subprocess.run(["gws", "gmail", "+send", "--to", ",".join(emails), "--subject", a.subject,
-                        "--body", body, "--draft"], check=True, stdout=subprocess.DEVNULL)
+        rc, out = hostos.run(["gws", "gmail", "+send", "--to", ",".join(emails), "--subject", a.subject,
+                              "--body", body, "--draft"], timeout=120)
+        if rc != 0:
+            lib.die("gws 建草稿失敗（回傳 %s）：%s" % (rc, out.strip()[-200:]),
+                    "126＝內容含 Windows 命令列特殊字元，請改 email.method=smtp；127＝沒裝 gws。")
         print("\033[32m✓ 已存草稿（gws）\033[0m"); return
 
     lib.send_email(cfg, emails, a.subject, body)
     if a.date:
-        with open(HANDLED, "a", encoding="utf-8") as f:
+        with open(HANDLED, "a", encoding="utf-8", newline="\n") as f:
             f.write("%s\t%s\tsent\t%s\n" % (a.id, a.date, datetime.now().isoformat(timespec="seconds")))
     print("\033[32m✓ 已寄給 %d 位家長（代號 %s）\033[0m" % (len(emails), a.id))
 

@@ -10,6 +10,33 @@
 `sync.py` 把它寫進 Firestore `meta/config.version`（＝這個資料庫最後一次是哪一版同步／部署的），
 `doctor.py` 連得上網時會拿兩邊比對，程式比資料庫新就提醒重新部署規則。
 
+## v3.0.0-alpha.2 — 2026-09-10（尚未發行）
+
+- **跨平台**：macOS 與 Windows 10／11（x64）都是正式支援，Linux 盡力支援，**WSL 直接拒跑**
+  （備份夾與工作排程器都在 Windows 那一邊，WSL 看不到）。支援等級、指令對照、每個平台的坑
+  一律寫在新增的 `docs/PLATFORMS.md`。
+- **移除 `scripts/install_tools.sh` 與 `scripts/schedule.sh`**，改成三個平台同一支的 Python：
+  - `python3 scripts/install_tools.py`：`--dry-run`、`--with-gws`、`--json`、`--remove-portable`
+  - `python3 scripts/schedule.py`：`--dry-run`、`--status`、`--print-cron`、`--uninstall`、
+    `--sync-time HH:MM`、`--backup-day 0-6`、`--backup-time HH:MM`（`--status` 是新的）
+- **新模組 `scripts/hostos.py`**：平台差異只寫在這一支（工具怎麼裝、執行檔怎麼找、路徑、排程），
+  其他腳本一律經它。
+- **Windows 細節**：`.cmd`／`.bat` 的參數含 `& | < > ^ % !` 時直接拒跑（避免被 cmd.exe 重新解析）、
+  主控台強制 UTF-8、排程用工作排程器的 XML 定義檔註冊（避開 `/TR` 261 字上限、錯過會補跑）、
+  沒有 Chrome 時自動改用 Microsoft Edge 印 PDF、Drive 桌面同步夾自動偵測
+  （`My Drive` 與「我的雲端硬碟」兩種根目錄名都找，`doctor.py` 找不到會列出候選）。
+- **gws 改走 npm**：三個平台都是 `npm i -g @googleworkspace/cli`（不再用 Homebrew formula）。
+- **所有文字寫入鎖 LF**（`newline="\n"`，有測試守著），`.gitattributes` 一起鎖；
+  不然同一則記錄在兩台機器上的雜湊對不起來。
+- **多 AI 入口檔**：安裝腦仍然只有 `AGENTS.md`（OpenAI Codex CLI 原生讀它），
+  `CLAUDE.md`、`GEMINI.md`＋`.gemini/settings.json`、`.github/copilot-instructions.md`、
+  `.cursor/rules/` 都只是指回 `AGENTS.md` 的小紙條。
+- **CI**：`.github/workflows/ci.yml` 在 ubuntu／macos／windows 三個平台跑單元測試，
+  另有 windows-latest 真機 smoke（安裝腳本、工作排程器掛上／拆掉、免互動安裝、Edge 印 PDF），
+  以及每週檢查釘死的下載網址還活著。
+- **規則沒有動，不需要重新部署規則。**
+- **Windows 尚未經真人老師實測**——第一位 Windows 使用者就是第一次實測，遇到怪狀先當是我們的問題。
+
 ## v3.0.0-alpha.1 — 2026-09-10（尚未發行；只有 David 驗收用）
 
 - repo 轉為私有、邀請制、收費（授權條款 placeholder，見 `LICENSE`）。

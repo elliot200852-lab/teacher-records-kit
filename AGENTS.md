@@ -2,7 +2,8 @@
 
 ## 你是誰在讀這份檔
 
-讀這份檔的是一個**最高等級的 AI 代理**（Claude Code、或同級能讀檔案、能跑指令的代理）。
+讀這份檔的是一個**最高等級的 AI 代理**（Claude Code、OpenAI Codex CLI（ChatGPT）、Gemini CLI，
+或同級能讀檔案、能跑指令的代理）。
 你的對面坐著一位**老師**。他可能這輩子沒開過終端機、沒聽過「repo」「部署」「金鑰」，
 他只做了一件事：把這個資料夾交給你，說「幫我裝起來」。
 
@@ -44,9 +45,9 @@
 
 | 項目 | 要求 | 不符合怎麼辦 |
 |---|---|---|
-| 電腦 | **macOS**。腳本的安裝與排程都只寫了 macOS 這條路。 | `[[待確認：Windows 支援]]`——目前 `scripts/install_tools.sh` 在非 macOS 只會印說明、不會安裝。遇到 Windows 使用者，停下來，告訴他這一版還沒支援，別硬裝。 |
+| 電腦 | **macOS 或 Windows 10／11**（Linux 盡力支援；**WSL 不行**，要用 Windows 原生 PowerShell） | 支援等級表在 `docs/PLATFORMS.md`，照那份判斷這台機器算哪一級；WSL 的話腳本會直接拒跑，請他改開 Windows Terminal 或 PowerShell |
 | Google 帳號 | 一個**能自己開 Firebase 專案**的 Google 帳號 | 見下面「學校帳號被鎖住怎麼判斷」 |
-| Homebrew | macOS 的套件管理程式，`install_tools.sh` 靠它 | 沒裝的話，`install_tools.sh` 會停下來並印出安裝指令；照它印的做，官方安裝說明在 https://brew.sh |
+| 套件管理程式 | macOS＝Homebrew，Windows＝winget（Windows 10／11 內建），`install_tools.py` 靠它裝工具 | macOS 沒裝 Homebrew 的話，`install_tools.py` 會停下來並印出安裝指令；照它印的做，官方安裝說明在 https://brew.sh 。Windows 的 winget 被學校鎖住的話，照腳本印出來的官方安裝檔網址手動裝 |
 | AI 代理 | 就是你 | — |
 
 ### 學校帳號被鎖住怎麼判斷
@@ -69,6 +70,23 @@
 
 他選好之後，**整套安裝從頭到尾都用那一個信箱**：登入 Firebase、設定裡的 `owner_email`、
 之後打開網站登入——三處必須是同一個帳號，不然他會看到「無權檢視」。
+
+---
+
+## 平台對照（Windows 的 AI 先讀這段）
+
+先跑一次 `python3 scripts/doctor.py`（Windows 用 `py -3 scripts\doctor.py`）——它第一行就會印出
+這台電腦該用哪個 Python 指令、現在是哪個平台。之後全程照那一行寫的叫法。
+
+| 這份檔裡寫的 | Windows 上換成 |
+|---|---|
+| `python3 scripts/x.py` | `py -3 scripts\x.py`（或 `python scripts\x.py`） |
+| `/tmp/answers.json` | `$env:TEMP\answers.json` |
+| `bash …` | 沒有 bash；這套 kit 的腳本全部是 `.py` |
+| 裝完任何工具 | 重開一個新的終端機視窗，PATH 才會更新 |
+
+Windows 上裝工具的時候會跳出「使用者帳戶控制」對話框——**先跟老師講一聲**，請他按「是」。
+完整對照表與每一個坑寫在 `docs/PLATFORMS.md`，不要在這份檔裡另外查。
 
 ---
 
@@ -134,27 +152,29 @@ ls config/kit.json config.yaml 2>/dev/null
 
 ### 老師去哪裡拿
 
-不用拿東西。如果 Homebrew 沒裝，腳本會停下來告訴他缺什麼——那時候引導他去 https://brew.sh
+不用拿東西。macOS 上如果 Homebrew 沒裝，腳本會停下來告訴他缺什麼——那時候引導他去 https://brew.sh
 複製首頁那一行安裝指令，貼進終端機執行（他不會用終端機的話，你直接幫他跑）。
+Windows 用的是系統內建的 winget，正常情況不用他準備任何東西；winget 被學校電腦鎖住的話，
+腳本會印出那個工具的官方安裝檔網址，帶他下載、點兩下裝。
 
 ### AI 要做的事
 
 先空跑一次讓他看清楚會裝什麼（這一步沒有副作用）：
 
 ```bash
-bash scripts/install_tools.sh --dry-run
+python3 scripts/install_tools.py --dry-run
 ```
 
 確認之後真的裝：
 
 ```bash
-bash scripts/install_tools.sh
+python3 scripts/install_tools.py
 ```
 
 備份如果要走進階模式（`gws`，見步驟 7），才加 `--with-gws`：
 
 ```bash
-bash scripts/install_tools.sh --with-gws
+python3 scripts/install_tools.py --with-gws
 ```
 
 裝完健檢：
@@ -164,12 +184,15 @@ python3 scripts/doctor.py
 ```
 
 你要讀機器格式的話用 `python3 scripts/doctor.py --json`；沒網路或在測試就加 `--skip-network`。
+`install_tools.py` 也吃 `--json`，以及 `--remove-portable`（清掉自動下載的可攜工具重裝）。
 
 ### 怎麼驗證＋失敗時怎麼辦
 
 - **驗證**：`doctor.py` 印出來的工具那幾項全部是 ✓。此時「設定檔」「產生檔」那幾項還是 ✗ 很正常
   ——那些要到步驟 4 才會有。
 - 黃色驚嘆號＝選用項目沒裝，不算失敗，可以往下走。
+- **Windows 上剛裝完的工具要重開終端機才找得到**——健檢說「找不到」而你剛剛才裝成功，
+  先請他關掉終端機再開一個新的，重跑 `doctor.py`。
 - **失敗**：`doctor.py` 每一個 ✗ 底下都有一行「→ 怎麼修」。照那一行做，做完再跑一次 `doctor.py`。
 - **同一個修法試兩次還是不過**，不要繼續猜：把那一項的完整訊息念給老師聽，
   說「這一項卡住了，我先記下來，它只影響○○功能，我們先往下走／或是我們先解決它」，
@@ -572,6 +595,7 @@ python3 scripts/doctor.py
   ```
   答案檔的每一個欄位在 `templates/answers.example.json` 裡都有註解。
   **裝完把 /tmp/answers.json 刪掉**（裡面有他的信箱與專案 ID）。
+  （Windows：`$env:TEMP\answers.json`，一樣裝完要刪。）
 
 其他旗標：`--resume`（讀進度續裝）、`--upgrade`（從 v2 轉設定）、
 `--skip-network`（健檢時跳過要連網的項目）、`--skip-doctor`（裝完不跑健檢）、`--root`（裝到別的資料夾，測試用）。
@@ -794,7 +818,7 @@ python3 scripts/append_record.py --kind students --target S-03 --stream homeroom
 > 這樣就算電腦壞掉、或哪天資料庫出事，你的東西都還在。
 >
 > 有兩種做法。我建議第一種，因為完全不用設定：
-> **①你電腦上裝『Google 雲端硬碟』那個程式**（就是會在 Finder 側邊欄多出一個雲端硬碟的那個），
+> **①你電腦上裝『Google 雲端硬碟』那個程式**（就是會在 Finder／檔案總管側邊欄多出一個雲端硬碟的那個），
 > 然後在雲端硬碟裡開一個資料夾叫『教學紀錄備份』，我把備份丟進去，剩下它自己會上傳。
 > ②進階做法是讓程式直接上傳，但那要你自己去申請一組授權，比較麻煩。
 >
@@ -807,12 +831,18 @@ python3 scripts/append_record.py --kind students --target S-03 --stream homeroom
 1. 下載並安裝「Google 雲端硬碟」桌面程式：https://www.google.com/drive/download/
 2. 用**同一個** Google 帳號登入它。
 3. 打開 https://drive.google.com ，在「我的雲端硬碟」建一個資料夾，例如「教學紀錄備份」。
-4. **怎麼確認他做對了**：打開 Finder，側邊欄應該出現「Google Drive」；
-   點進去 → My Drive → 看得到剛剛建的那個資料夾。那個資料夾在他電腦上的完整路徑
-   通常長這樣：`~/Library/CloudStorage/GoogleDrive-<他的信箱>/My Drive/教學紀錄備份`
+4. **怎麼確認他做對了**：macOS 打開 Finder、Windows 打開檔案總管，側邊欄應該出現「Google Drive」；
+   點進去 → 「My Drive」或「我的雲端硬碟」（兩種名字都可能）→ 看得到剛剛建的那個資料夾。
+   那個資料夾在他電腦上的完整路徑通常長這樣：
+   - macOS：`~/Library/CloudStorage/GoogleDrive-<他的信箱>/My Drive/教學紀錄備份`
+   - Windows：`G:\My Drive\教學紀錄備份`（磁碟機代號因人而異；根目錄也可能叫 `我的雲端硬碟`，
+     或整個掛在 `C:\Users\<名字>` 底下）——細節見 `docs/PLATFORMS.md`
+5. **路徑不用他自己找**：`setup.py` 會自動偵測這台電腦上的同步夾候選，把找到的那個當預設值；
+   之後 `doctor.py` 如果發現設定裡的路徑不存在，也會把它找到的候選列出來給你挑。
 
-**進階（gws 模式）**：需要 `googleworkspace-cli`（`bash scripts/install_tools.sh --with-gws`）
-與他自己申請的 OAuth 憑證。資料夾 ID 的拿法：在瀏覽器打開那個 Drive 資料夾，
+**進階（gws 模式）**：需要 `@googleworkspace/cli`（`python3 scripts/install_tools.py --with-gws`，
+三個平台都是走 `npm i -g @googleworkspace/cli`）與他自己申請的 OAuth 憑證。
+資料夾 ID 的拿法：在瀏覽器打開那個 Drive 資料夾，
 網址是 `https://drive.google.com/drive/folders/XXXXXXXX`，`XXXXXXXX` 那一段就是資料夾 ID。
 
 ### AI 要做的事
@@ -822,7 +852,7 @@ python3 scripts/append_record.py --kind students --target S-03 --stream homeroom
 ```jsonc
 "drive": {
   "mode": "desktop",                                    // 或 "gws"
-  "desktop_dir": "~/Library/CloudStorage/GoogleDrive-他的信箱/My Drive/教學紀錄備份",
+  "desktop_dir": "~/Library/CloudStorage/GoogleDrive-他的信箱/My Drive/教學紀錄備份",  // Windows 例：G:\\My Drive\\教學紀錄備份
   "backup_folder_id": "",                               // gws 模式才要填
   "keep_backups": 12                                    // 本機只留最近 12 份
 }
@@ -874,17 +904,22 @@ python3 scripts/backup.py
 先空跑看清楚會裝什麼：
 
 ```bash
-bash scripts/schedule.sh --dry-run
+python3 scripts/schedule.py --dry-run
 ```
 
 真的裝（每天 07:00 同步、每週日 08:00 備份）：
 
 ```bash
-bash scripts/schedule.sh
+python3 scripts/schedule.py
 ```
 
-不想用 macOS 排程、想自己用 cron：`bash scripts/schedule.sh --print-cron`（只印兩行，不寫任何檔）。
-之後要移除：`bash scripts/schedule.sh --uninstall`。
+要換時間：`--sync-time HH:MM`、`--backup-day 0-6`（0＝週日）、`--backup-time HH:MM`。
+掛上去之後看現況：`python3 scripts/schedule.py --status`。
+只想看等效的 crontab 兩行、不寫任何檔：`python3 scripts/schedule.py --print-cron`。
+之後要移除：`python3 scripts/schedule.py --uninstall`。
+
+三個平台各自用什麼排程機制（launchd／工作排程器／crontab）見 `docs/PLATFORMS.md`。
+Windows 排程跑的時候會閃一下黑色視窗，那是正常的，先跟老師講一聲免得他嚇到。
 
 ### 怎麼驗證＋失敗時怎麼辦
 
@@ -927,7 +962,8 @@ bash scripts/schedule.sh
 ### 老師去哪裡拿
 
 一支手機。錄音 App 隨便哪一個都行（iPhone 內建的「語音備忘錄」最方便），
-錄完用 AirDrop／隔空投送傳到電腦，拖進 `inbox/`。
+錄完傳到電腦，拖進 `inbox/`：macOS 用 AirDrop／隔空投送；
+Windows 用「手機連結」、LINE 傳給自己再下載、或 USB 線（其他做法見 `docs/PLATFORMS.md`）。
 支援的格式：m4a、mp3、wav、mp4、mov、aac、flac、ogg、m4v、caf。
 
 ### AI 要做的事
@@ -1385,7 +1421,7 @@ firebase deploy --only firestore:rules --project <他的專案ID>
 | `scripts/setup.py` | 安裝精靈：問完→寫設定→建資料骨架→產生網頁設定與規則→健檢 |
 | `scripts/build_config.py` | 唯一的設定產生器：兩份 JSON 進，三個檔出 |
 | `scripts/doctor.py` | 健檢：逐項告訴你什麼好了、沒好的怎麼修 |
-| `scripts/install_tools.sh` | 在 macOS 上裝齊外部工具 |
+| `scripts/install_tools.py` | 裝齊外部工具，三個平台同一支 |
 | `scripts/append_record.py` | **唯一被允許寫入記錄檔的通道** |
 | `scripts/sync.py` | 本機 markdown ⇄ 資料庫雙向同步（衝突不覆蓋） |
 | `scripts/transcribe.py` | 錄音 → 本機逐字稿（不出本機） |
@@ -1394,14 +1430,16 @@ firebase deploy --only firestore:rules --project <他的專案ID>
 | `scripts/export_records.py` | 整包匯出（期末取材、換系統） |
 | `scripts/export_docs.py` | 一鍵匯出 Word（`.docx`）與 PDF：學生／班級／課程／業務組 |
 | `scripts/report_pack.py` | 期末素材包＋草稿指令：依報告格式分組，**不寫評語、不呼叫 AI** |
-| `scripts/schedule.sh` | （選用）每日同步、每週備份的排程 |
+| `scripts/schedule.py` | （選用）每日同步、每週備份的排程，三個平台同一支 |
 | `scripts/monthly_reminder.py` | （選用）本月未記名單寄給老師自己 |
 | `scripts/parent_email.py` | （選用）把一則改寫稿寄給家長 |
 | `scripts/pending.py` | （選用）列出還沒決定要不要寄家長的記錄 |
 | `scripts/build_preview.py` | 產生單檔離線預覽（給人看示範用） |
+| `scripts/hostos.py` | 平台差異只寫在這一支：工具怎麼裝、路徑在哪、排程怎麼掛 |
 | `scripts/lib.py` | 共用底層，不單獨執行 |
 
 系統怎麼運作、資料長什麼樣、安全怎麼設計 → `docs/ARCHITECTURE.md`。
 每個分頁要準備什麼資料 → `docs/DATA-CHECKLIST.md`。
 業務組庫的完整內容 → `docs/BUSINESS-GROUPS.md`。
 老師自己要讀的入門 → `docs/GUIDE.md`。
+Windows／Linux 的指令對照、每個平台的坑與排程機制 → `docs/PLATFORMS.md`。

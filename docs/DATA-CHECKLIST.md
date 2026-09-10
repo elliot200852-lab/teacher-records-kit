@@ -35,7 +35,7 @@
 |---|---|---|---|---|
 | 你的 Google 信箱 | **必填** | 電子郵件 | `someone@gmail.com` | 就是你平常登入 Google 的那個。學校帳號常被鎖住，判斷方法見 `AGENTS.md` 前置條件 |
 | Firebase 六個設定值 | **必填** | 一段文字 | `apiKey`、`authDomain`、`projectId`、`storageBucket`、`messagingSenderId`、`appId` | https://console.firebase.google.com → 專案設定（左上齒輪）→ 一般 → 你的應用程式 → 網頁應用程式 → SDK 設定與配置 → Config |
-| 備份資料夾 | 選填（強烈建議） | 電腦上的路徑，或 Drive 資料夾 ID | `~/Library/CloudStorage/GoogleDrive-你的信箱/My Drive/教學紀錄備份` | 裝「Google 雲端硬碟」桌面程式（https://www.google.com/drive/download/ ）→ 在雲端硬碟裡建一個資料夾 |
+| 備份資料夾 | 選填（強烈建議） | 電腦上的路徑，或 Drive 資料夾 ID | macOS：`~/Library/CloudStorage/GoogleDrive-你的信箱/My Drive/教學紀錄備份`；Windows：`G:\My Drive\教學紀錄備份`（根目錄也可能叫 `我的雲端硬碟`） | 裝「Google 雲端硬碟」桌面程式（https://www.google.com/drive/download/ ）→ 在雲端硬碟裡建一個資料夾。路徑不用自己找，安裝精靈會自動偵測候選 |
 
 **沒有的話怎麼辦**：Firebase 那六個值一定要有，AI 會全程帶你去申請。
 備份資料夾可以之後再設，跟 AI 說「幫我設定備份」就好。

@@ -1,0 +1,118 @@
+# CI：三個平台真的跑一遍。沒有 Windows 機器也能驗 Windows——這條線就是為此存在的。
+#   test          三平台 × 兩個 Python 版本跑 unittest
+#   windows-smoke 在真 Windows 上：健檢、安裝腳本（會真的下載 whisper 預編譯檔）、排程真掛上再拆掉、
+#                 免互動安裝到暫存目錄、用 Edge 印 PDF
+#   linux-smoke   在 Ubuntu 上：安裝腳本（whisper 預編譯檔）、排程 crontab 真寫入再拆掉
+#   urls          每週檢查 hostos.DOWNLOADS 裡的下載網址還活著（釘死的 tag／URL 會過期，這裡先知道）
+name: ci
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1"      # 每週一 UTC 03:17：只為了 urls 這個 job
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: unit tests
+        run: python -m unittest discover scripts/tests -v
+
+  windows-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: platform summary
+        run: python scripts/hostos.py
+      - name: install_tools (dry-run)
+        run: python scripts/install_tools.py --dry-run
+      - name: install_tools (real; downloads whisper.cpp prebuilt, node/gcloud/ffmpeg already on runner)
+        run: python scripts/install_tools.py --json
+      - name: whisper-cli must be runnable after install
+        shell: python
+        run: |
+          import sys, os
+          sys.path.insert(0, "scripts")
+          import hostos
+          p = hostos.exe("whisper-cli"); print("whisper-cli =", p); assert p, "whisper-cli not found after install"
+          rc, out = hostos.run(["whisper-cli", "-h"], timeout=60); print("rc =", rc); print(out[:400])
+          assert rc in (0, 1), "whisper-cli did not run (missing DLL?)"
+          for t in ("node", "firebase", "gcloud", "ffmpeg", "ffprobe"):
+              print(t, "=", hostos.exe(t))
+      - name: schedule (dry-run, install, status, uninstall)
+        run: |
+          python scripts/schedule.py --dry-run
+          python scripts/schedule.py
+          python scripts/schedule.py --status
+          schtasks /Query /TN "TeacherRecordsKit\Sync" /FO LIST /V
+          python scripts/schedule.py --uninstall
+      - name: non-interactive setup into a temp root + doctor
+        run: |
+          python scripts/setup.py --answers templates/answers.example.json --skip-network --root "$env:RUNNER_TEMP\trk"
+          python scripts/build_config.py --root "$env:RUNNER_TEMP\trk"
+          python scripts/doctor.py --skip-network --root "$env:RUNNER_TEMP\trk"; if ($LASTEXITCODE -ne 0) { Write-Host "doctor reported missing items (expected without network)"; exit 0 }
+      - name: export Word + PDF with Edge/Chrome on Windows
+        run: |
+          python scripts/export_docs.py --kind students --target all --with-class --docx --pdf --local --root "$env:RUNNER_TEMP\trk"
+          Get-ChildItem "$env:RUNNER_TEMP\trk\exports"
+          if (-not (Get-ChildItem "$env:RUNNER_TEMP\trk\exports" -Filter *.pdf)) { throw "no PDF produced" }
+
+  linux-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python3 scripts/hostos.py
+      - run: python3 scripts/install_tools.py --dry-run
+      - name: install_tools (real; downloads whisper.cpp prebuilt)
+        run: python3 scripts/install_tools.py --json
+      - name: whisper-cli must be runnable
+        run: |
+          python3 - <<'PY'
+          import sys; sys.path.insert(0, "scripts"); import hostos
+          p = hostos.exe("whisper-cli"); print(p); assert p
+          rc, out = hostos.run(["whisper-cli", "-h"], timeout=60); print(rc, out[:300]); assert rc in (0, 1)
+          PY
+      - name: schedule via crontab
+        run: |
+          python3 scripts/schedule.py --dry-run
+          python3 scripts/schedule.py
+          python3 scripts/schedule.py --status
+          crontab -l
+          python3 scripts/schedule.py --uninstall
+          ! (crontab -l 2>/dev/null | grep -q teacher-records-kit)
+
+  urls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: every download URL in hostos.DOWNLOADS still answers
+        run: |
+          python3 - <<'PY'
+          import sys, urllib.request; sys.path.insert(0, "scripts"); import hostos
+          bad = []
+          for k, (url, _, _) in hostos.DOWNLOADS.items():
+              req = urllib.request.Request(url, headers={"Range": "bytes=0-0", "User-Agent": "trk-ci"})
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      print("ok ", k, r.status, url)
+              except Exception as e:
+                  print("BAD", k, e, url); bad.append(k)
+          sys.exit(1 if bad else 0)
+          PY

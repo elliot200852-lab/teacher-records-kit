@@ -6,6 +6,12 @@
 設計的正本是 `docs/SPEC-v3.md`（含紅隊裁決）。這份是它的人讀版。
 每一版改了什麼看 `CHANGELOG.md`。
 
+腳本全部是 Python 3、三個平台同一份（macOS／Windows／Linux）。**平台差異只寫在
+`scripts/hostos.py` 這一支**：工具怎麼裝、執行檔怎麼找、主控台編碼、Drive 同步夾與
+Chrome／Edge 的候選、排程掛在哪——其他腳本一律經它，人讀的那一份是 `docs/PLATFORMS.md`。
+所有腳本寫出來的文字檔一律用 LF 換行（`newline="\n"`，有測試守著），`.gitattributes` 也鎖 LF；
+不然同一則記錄在兩台機器上算出的雜湊會不一樣，同步會一直報「內容不同」。
+
 ---
 
 ## 1. 三處一台帳
@@ -373,7 +379,9 @@ v3 起安全規則允許擁有者刪除記錄（`allow delete: if isOwner();`）
 
 ### 排程失敗要看得見
 
-排程（`schedule.sh` 掛的 launchd）會靜默死掉——電腦沒開機、權限被擋。
+排程由 `scripts/schedule.py` 掛：macOS 是 launchd LaunchAgent、Windows 是工作排程器（XML 定義檔）、
+Linux 是 crontab 區塊（三個平台的細節與移除方式見 `docs/PLATFORMS.md`）。
+三種都會靜默死掉——電腦沒開機、權限被擋、學校電腦鎖住排程。
 所以網頁頂端讀 `meta/status`，顯示「上次同步 X 天前・上次備份 Y 天前」，
 **任一超過 7 天就顯示紅字**。
 
@@ -388,8 +396,13 @@ v3 起安全規則允許擁有者刪除記錄（`allow delete: if isOwner();`）
 
 | 模式 | 怎麼跑 | 適合誰 |
 |---|---|---|
-| **desktop**（預設、零設定） | 把 zip 複製進「Google 雲端硬碟」桌面程式的同步資料夾（`drive.desktop_dir`），剩下交給那個程式自己上傳 | 所有人。不用 OAuth，Windows 也行 |
-| **gws**（進階） | 用 `googleworkspace-cli` 直接上傳到指定的 Drive 資料夾，上傳後比對 md5 | 已經在用 gws、不想裝桌面程式的人 |
+| **desktop**（預設、零設定） | 把 zip 複製進「Google 雲端硬碟」桌面程式的同步資料夾（`drive.desktop_dir`），剩下交給那個程式自己上傳 | 所有人。不用 OAuth |
+| **gws**（進階） | 用 `@googleworkspace/cli` 直接上傳到指定的 Drive 資料夾，上傳後比對 md5 | 已經在用 gws、不想裝桌面程式的人 |
+
+同步夾的根目錄名稱與位置不固定：可能叫 `My Drive` 也可能叫 `我的雲端硬碟`；
+macOS 在 `~/Library/CloudStorage/GoogleDrive-<信箱>/` 底下，Windows 常掛成磁碟機代號
+（`G:\My Drive\教學紀錄備份`）或家目錄下的資料夾。`setup.py` 靠 `hostos.drive_desktop_candidates()`
+自動偵測候選當預設值，`doctor.py` 發現設定的路徑不存在時會把候選列出來。
 
 **gws 模式有一條鐵則：找不到那個資料夾就停手，絕不自己建一個新的。**
 自建的話備份會靜靜地跑到別的地方去，而老師以為他有備份。
@@ -524,6 +537,7 @@ VERSION                    ──┘（版本字串進 window.KIT.version）
 - **`.docx` 是真的 OOXML**：用標準庫 `zipfile` 直接寫最小的 OOXML 封包，**零第三方套件**。
 - **`.pdf` 借本機的 Chrome**：`--headless=new --print-to-pdf`。
   Chrome 不在預設路徑時用環境變數 **`TRK_CHROME`** 指定執行檔（測試也是靠它換掉 Chrome）。
+  **Windows 沒裝 Chrome 就自動改用 Microsoft Edge**（`msedge.exe` 也在候選名單裡）。
 - **找不到 Chrome 就退回 HTML**：不當成失敗，改成留下排版好的 `.html`，
   並印一行「用瀏覽器開這個檔 → 列印 → 儲存為 PDF」。
 - 輸出目錄預設 `exports/`（`.gitignore` 擋著），檔名 `<種類>-<對象>[-<類型>]-<日期>`。

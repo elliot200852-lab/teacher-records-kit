@@ -14,28 +14,11 @@
 import os
 import sys
 import json
-import shutil
 import argparse
-import subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
-
-BREW = "brew install %s"
-INSTALL_ALL = "一次裝齊：`bash scripts/install_tools.sh`"
-
-
-def sh(cmd, timeout=60):
-    """跑一個指令，回 (returncode, stdout+stderr)。找不到指令回 (127, '')。"""
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        return r.returncode, (r.stdout or "") + (r.stderr or "")
-    except FileNotFoundError:
-        return 127, ""
-    except subprocess.TimeoutExpired:
-        return 124, ""
-    except Exception as e:                                  # pragma: no cover
-        return 1, str(e)
+import hostos
 
 
 class Report:
@@ -113,48 +96,75 @@ def check_version(r, kit, skip_network):
               required=False)
 
 
+def check_platform(r):
+    """這是哪種電腦、放對地方沒。平台事實的正本在 hostos.py 與 docs/PLATFORMS.md。"""
+    s = hostos.summary()
+    why = hostos.unsupported_reason()
+    r.add("platform", "平台 %s（%s）" % (s["os_label"], s["arch"]), not why, why or
+          "Python 叫法：`%s`；套件管理：%s%s" % (s["python_cmd"], s["package_manager"],
+                                             "" if s["package_manager_found"] else "（找不到）"),
+          "換到 Windows 原生的 PowerShell／Windows Terminal 再裝。")
+    for reason, fix in hostos.repo_path_warnings(lib.PKG):
+        r.add("repo_path", "kit 放的位置", False, reason, fix, required=False)
+
+
 def check_tools(r, kit, skip_network):
     v = sys.version_info
-    r.add("python", "Python 3.8 以上", v >= (3, 8), "目前 %d.%d.%d" % v[:3],
-          "macOS 內建的 python3 就夠；`brew install python` 也可以。")
+    r.add("python", "Python 3.8 以上", v >= (3, 8), "目前 %d.%d.%d（%s）" % (v[0], v[1], v[2], sys.executable),
+          "macOS 內建的 python3 就夠；Windows 到 https://www.python.org/downloads/ 裝（勾 Add to PATH）；"
+          "Linux 用 apt-get install python3。")
 
-    for key, cmd, label, required, fix in [
-        ("node", "node", "Node.js（Firebase CLI 要用）", True, BREW % "node"),
-        ("firebase", "firebase", "Firebase CLI（部署規則與網站）", True, "npm i -g firebase-tools"),
-        ("gcloud", "gcloud", "gcloud（本機腳本讀寫你的 Firestore）", True,
-         "brew install --cask google-cloud-sdk，或 https://cloud.google.com/sdk/docs/install"),
-        ("ffmpeg", "ffmpeg", "ffmpeg（錄音轉檔）", False, BREW % "ffmpeg"),
-        ("whisper", "whisper-cli", "whisper-cli（本機語音轉逐字稿）", False, BREW % "whisper-cpp"),
-    ]:
-        path = shutil.which(cmd)
-        r.add(key, label, bool(path), path or "找不到指令 %s" % cmd,
-              "%s（%s）" % (fix, INSTALL_ALL), required=required)
+    for name in hostos.TOOL_ORDER:
+        spec = hostos.TOOLS[name]
+        if spec.get("win_only") and hostos.OS != "win":
+            continue
+        if name == "gws":
+            continue                                   # 下面依 drive.mode 另外判
+        if name == "vcredist":
+            sysroot = os.environ.get("SystemRoot", r"C:\Windows")
+            p = os.path.join(sysroot, "System32", "vcruntime140.dll")
+            r.add("vcredist", spec["label"], os.path.exists(p), p if os.path.exists(p) else "找不到 vcruntime140.dll",
+                  hostos.install_hint("vcredist"), required=False)
+            continue
+        path = hostos.exe(name)
+        detail, ok = (path or "找不到指令 %s" % name), bool(path)
+        if ok and name == "node":
+            major = hostos.node_major()
+            if major and major < spec["min_major"]:
+                ok, detail = False, "%s（v%d 太舊，Firebase CLI 要 %d 以上）" % (path, major, spec["min_major"])
+            elif major:
+                detail = "%s（v%d）" % (path, major)
+        r.add(name.replace("-cli", ""), spec["label"], ok, detail, hostos.install_hint(name),
+              required=spec["required"])
 
     if (kit.get("drive") or {}).get("mode") == "gws":
-        path = shutil.which("gws")
+        path = hostos.exe("gws")
         r.add("gws", "gws（Google Workspace CLI，備份走 gws 模式才要）", bool(path),
               path or "找不到指令 gws",
-              "brew install googleworkspace-cli ——注意 formula 叫 googleworkspace-cli，"
-              "`brew install gws` 會裝到完全不相干的套件。不想弄這個就把 config/kit.json 的 "
-              "drive.mode 改成 desktop。")
+              "%s 不想弄這個就把 config/kit.json 的 drive.mode 改成 desktop。" % hostos.install_hint("gws"))
     else:
         r.add("gws", "gws（只有 drive.mode=gws 才需要）", True, "目前是 desktop 模式，不需要",
               required=False)
 
+    chrome = hostos.chrome_candidates()
+    r.add("chrome", "Chrome／Edge（export_docs.py 印 PDF 用）", bool(chrome),
+          chrome[0] if chrome else "找不到 Chrome、Chromium 或 Edge",
+          "沒有也能用：匯出會留下排版好的 HTML，自己用瀏覽器開 → 列印 → 儲存為 PDF。", required=False)
+
     # 語音模型
     model = (kit.get("voice") or {}).get("model") or "ggml-large-v3-turbo"
-    mpath = os.path.expanduser("~/.cache/whisper-cpp/%s.bin" % model)
+    mpath = os.path.join(hostos.model_dir(), "%s.bin" % model)
     exists = os.path.exists(mpath)
     size = (" %.1f GB" % (os.path.getsize(mpath) / 1e9)) if exists else ""
     r.add("model", "語音模型 %s" % model, exists, (mpath + size) if exists else "還沒下載",
-          "第一次跑 `python3 scripts/transcribe.py --inbox` 時會自動下載（約 1.6GB），"
-          "也可以手動抓 https://huggingface.co/ggerganov/whisper.cpp 放到 ~/.cache/whisper-cpp/",
+          "第一次跑 `%s scripts/transcribe.py --inbox` 時會自動下載（約 1.6GB），"
+          "也可以手動抓 https://huggingface.co/ggerganov/whisper.cpp 放到 %s" % (lib.PY, hostos.model_dir()),
           required=False)
 
     if skip_network:
         r.add("gcloud_auth", "gcloud 已登入", False, "--skip-network", required=True, skipped=True)
-    elif shutil.which("gcloud"):
-        rc, out = sh(["gcloud", "auth", "print-access-token"])
+    elif hostos.exe("gcloud"):
+        rc, out = hostos.run(["gcloud", "auth", "print-access-token"], timeout=60)
         r.add("gcloud_auth", "gcloud 已登入（拿得到存取權杖）", rc == 0,
               "" if rc == 0 else out.strip().splitlines()[-1][:120] if out.strip() else "拿不到權杖",
               "跑 `gcloud auth login`，用你當初開 Firebase 專案的那個 Google 帳號。")
@@ -236,10 +246,12 @@ def check_drive(r, kit, skip_network):
                   "在 config/kit.json 的 drive.desktop_dir 填「Google 雲端硬碟」同步夾裡的一個資料夾。")
             return
         ok = os.path.isdir(path)
+        cands = [] if ok else hostos.drive_desktop_candidates()
+        hint = ("這台電腦上找得到的同步夾：%s ——在裡面建一個資料夾，把完整路徑填進去。" % "；".join(cands)) if cands else \
+               "這台電腦上找不到「Google 雲端硬碟」的同步夾——多半是桌面程式沒裝或沒登入。%s" % hostos.drive_desktop_where()
         r.add("drive", "Drive 備份資料夾（desktop 模式）", ok, path,
               "先安裝並登入「Google 雲端硬碟」桌面程式 https://www.google.com/drive/download/ ，"
-              "在雲端硬碟裡建一個資料夾，再把正確路徑填回 config/kit.json 的 drive.desktop_dir。"
-              "（路徑裡的信箱要跟你登入桌面程式的那個一樣。）")
+              "在雲端硬碟裡建一個資料夾，再把正確路徑填回 config/kit.json 的 drive.desktop_dir。" + hint)
         return
 
     fid = drive.get("backup_folder_id") or ""
@@ -247,12 +259,12 @@ def check_drive(r, kit, skip_network):
         r.add("drive", "Drive 備份資料夾（gws 模式）", False, "backup_folder_id 沒填",
               "打開那個 Drive 資料夾，網址 .../folders/XXXX 的 XXXX 就是 id。")
         return
-    if skip_network or not shutil.which("gws"):
+    if skip_network or not hostos.exe("gws"):
         r.add("drive", "Drive 備份資料夾（gws 模式）", False,
               "--skip-network" if skip_network else "gws 還沒裝", skipped=True)
         return
-    rc, out = sh(["gws", "drive", "files", "get", "--format", "json",
-                  "--params", json.dumps({"fileId": fid, "fields": "id,name,trashed"})])
+    rc, out = hostos.run(["gws", "drive", "files", "get", "--format", "json",
+                          "--params", json.dumps({"fileId": fid, "fields": "id,name,trashed"})], timeout=60)
     info = {}
     if rc == 0:
         txt = "\n".join(l for l in out.splitlines() if not l.startswith("Using keyring"))
@@ -279,6 +291,7 @@ def main():
     kit = lib.load_kit(required=False)
     tabs = lib.load_tabs(required=False) or {}
     r = Report()
+    check_platform(r)
     check_version(r, kit, a.skip_network)
     check_tools(r, kit, a.skip_network)
     check_config(r, kit, tabs, a.skip_network)
@@ -290,7 +303,7 @@ def main():
                           "items": r.items}, ensure_ascii=False, indent=2))
         sys.exit(1 if r.failed else 0)
 
-    print("健檢：%s（kit %s）\n" % (lib.root(), lib.version()))
+    print("健檢：%s（kit %s，%s）\n" % (lib.root(), lib.version(), hostos.OS_LABEL))
     r.render()
     print()
     if r.failed:

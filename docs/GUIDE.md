@@ -23,24 +23,29 @@
 
 ---
 
-## 1. 裝 Claude Code
+## 1. 裝一個 AI 代理（三選一）
 
-Claude Code 就是我們要用的 AI 代理，它跑在終端機裡。
+AI 代理跑在終端機裡。三個裡面挑一個就好——**你手上有哪一家的訂閱就挑哪一家**，
+這套系統三個都能帶你裝完。
 
-1. 先確認你有 Claude 帳號。沒有的話到 https://claude.ai 註冊一個。
-2. 打開安裝說明：**https://docs.claude.com/en/docs/claude-code**
-   照那一頁「Install / 安裝」的步驟做（它會給你一行安裝指令）。
-3. 安裝需要用到終端機——**怎麼開終端機看下一節**，開好之後把那一行指令貼進去、按 Enter。
+- **Claude Code**：要有 Claude 帳號（https://claude.ai ）。安裝說明
+  **https://docs.claude.com/en/docs/claude-code** ；裝好之後在終端機打 `claude` 按 Enter。
+- **Codex CLI**：要有 ChatGPT 帳號。安裝說明
+  **https://developers.openai.com/codex/cli** ；裝好之後在終端機打 `codex` 按 Enter。
+- **Gemini CLI**：要有 Google 帳號。安裝說明
+  **https://github.com/google-gemini/gemini-cli** ；裝好之後在終端機打 `gemini` 按 Enter。
 
-裝好之後，在終端機打 `claude` 按 Enter，會看到 Claude Code 啟動、要你登入。
-登入用的就是你 https://claude.ai 那個帳號。
+安裝都需要用到終端機——**怎麼開終端機看下一節**，開好之後把安裝頁給你的那一行指令貼進去、按 Enter。
+第一次啟動它會要你登入，登入用的就是上面那個帳號。
 
-> **看不懂安裝頁上的英文？** 沒關係——把那一頁的網址貼給 https://claude.ai 上的 Claude，
-> 說「我用 Mac，請你用中文一步一步告訴我怎麼裝 Claude Code」。它會帶你做。
+> **看不懂安裝頁上的英文？** 沒關係——把那一頁的網址貼給任何一個 AI 聊天視窗，
+> 說「我用 Mac（或：我用 Windows），請你用中文一步一步告訴我怎麼裝」。它會帶你做。
 
 ---
 
-## 2. 怎麼開終端機（macOS）
+## 2. 怎麼開終端機
+
+### macOS
 
 三種方法，挑一個：
 
@@ -52,6 +57,14 @@ Claude Code 就是我們要用的 AI 代理，它跑在終端機裡。
 你要做的只有兩件事：**貼上文字**（`⌘ + V`）跟**按 Enter**。
 
 > 覺得字太小 → 選單「終端機」→「設定」→ 調字級。眼睛比較舒服，你等一下會盯著它一陣子。
+
+### Windows 10／11
+
+按 **Windows 鍵** → 打 `terminal` 或 `PowerShell` → 按 Enter。
+用「Windows Terminal」或「PowerShell」都可以，**不要用 WSL、不要用 cmd**。
+
+打開之後一樣是一個視窗、一行字、一個閃著的游標。你要做的也只有兩件事：
+**貼上文字**（`Ctrl + V`）跟**按 Enter**。
 
 ---
 
@@ -65,7 +78,9 @@ Claude Code 就是我們要用的 AI 代理，它跑在終端機裡。
 3. 按 **`Accept invitation`**。
 4. 接受之後你會進到這個 repo 的頁面。找到右上方那顆綠色的 **`Code`** 按鈕，點它。
 5. 下拉選單最下面有 **`Download ZIP`**，點下去。
-6. 下載好的 zip 檔在你的「下載項目」資料夾。**點兩下解開它**，
+6. 下載好的 zip 檔在你的「下載項目」資料夾。
+   - macOS：**點兩下解開它**。
+   - Windows：在那個 zip 上**按右鍵 →「全部解壓縮」**，按「解壓縮」。
    然後把解開的那個資料夾**拖到桌面**（放哪裡都行，但桌面最好找）。
 
 > **懂一點電腦、想用 git 的話**：`Code` 按鈕裡有一段 `git clone https://github.com/...` 的網址，
@@ -81,9 +96,9 @@ AI 代理要「站在」那個資料夾裡才看得到程式。做法：
 2. 打 `cd ` （**cd 後面有一個空格**），先不要按 Enter。
 3. 把剛剛那個資料夾**從桌面直接拖進終端機視窗**——它會自動把路徑填進去。
 4. 按 Enter。
-5. 打 `claude` 按 Enter。
+5. 打 `claude` 按 Enter（你裝的是 Codex CLI 就打 `codex`、Gemini CLI 就打 `gemini`）。
 
-Claude Code 起來了。現在你可以用中文跟它講話。
+AI 代理起來了。現在你可以用中文跟它講話。
 
 ---
 

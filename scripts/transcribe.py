@@ -5,7 +5,7 @@
 流程：ffmpeg 轉成 16kHz 單聲道 wav（暫存，用完就刪）→ whisper.cpp 轉錄 →
       寫成 inbox/transcripts/<檔名>.md（每行帶 [HH:MM:SS] 時間戳）→ 原始錄音移到 inbox/done/。
 
-模型第一次會自動下載到 ~/.cache/whisper-cpp/（約 1.6GB，會顯示進度）。
+模型第一次會自動下載到 ~/.cache/whisper-cpp/（約 1.6GB，會顯示進度；Windows 的 ~ 是 C:\\Users\\你）。
 
 用法：
   python3 scripts/transcribe.py --inbox             把 inbox/ 裡的錄音全部轉一遍
@@ -28,9 +28,10 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
+import hostos
 
 AUDIO_EXT = (".m4a", ".mp3", ".wav", ".mp4", ".mov", ".aac", ".flac", ".ogg", ".m4v", ".caf")
-MODEL_DIR = os.path.expanduser("~/.cache/whisper-cpp")
+MODEL_DIR = hostos.model_dir()
 MODEL_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/%s.bin"
 VAD_NAME = "ggml-silero-v5.1.2"
 VAD_URL = "https://huggingface.co/ggml-org/whisper-vad/resolve/main/%s.bin" % VAD_NAME
@@ -42,10 +43,10 @@ def hms(sec):
     return "%02d:%02d:%02d" % (sec // 3600, (sec % 3600) // 60, sec % 60)
 
 
-def need(cmd, fix):
-    p = shutil.which(cmd)
+def need(cmd):
+    p = hostos.exe(cmd)
     if not p:
-        lib.die("找不到 %s。" % cmd, fix)
+        lib.die("找不到 %s。" % cmd, hostos.install_hint(cmd) or hostos.install_hint("ffmpeg"))
     return p
 
 
@@ -82,7 +83,8 @@ def ensure_model(name, url):
     return path
 
 
-def transcribe_one(src, model, vad, lang, out_dir, done_dir, keep):
+def transcribe_one(src, model, vad, lang, out_dir, done_dir, keep, tools=None):
+    ffmpeg, ffprobe, whisper = tools or ("ffmpeg", "ffprobe", "whisper-cli")
     base = os.path.splitext(os.path.basename(src))[0]
     out_md = os.path.join(out_dir, base + ".md")
     if os.path.exists(out_md):
@@ -93,28 +95,30 @@ def transcribe_one(src, model, vad, lang, out_dir, done_dir, keep):
         wav = os.path.join(tmp, "audio.wav")
         print("── %s ──" % os.path.basename(src))
         print("① 轉成 16kHz 單聲道 wav…")
-        r = subprocess.run(["ffmpeg", "-y", "-i", src, "-ac", "1", "-ar", "16000",
-                            "-c:a", "pcm_s16le", wav], capture_output=True, text=True)
+        r = subprocess.run([ffmpeg, "-y", "-i", src, "-ac", "1", "-ar", "16000",
+                            "-c:a", "pcm_s16le", wav], capture_output=True)
+        r.stderr = hostos.decode_output(r.stderr)
         if r.returncode != 0 or not os.path.exists(wav):
             lib.err("ffmpeg 轉檔失敗：%s" % os.path.basename(src),
                     "這個檔可能不是音訊或已經損壞。最後幾行訊息：%s"
                     % " ".join((r.stderr or "").strip().splitlines()[-2:]))
             return None
         dur = 0.0
-        p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+        p = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration",
                             "-of", "default=noprint_wrappers=1:nokey=1", wav],
-                           capture_output=True, text=True)
+                           capture_output=True)
         try:
-            dur = float((p.stdout or "0").strip())
+            dur = float(hostos.decode_output(p.stdout).strip() or "0")
         except ValueError:
             dur = 0.0
         print("② 轉錄中（%s，長度 %s，這一步最花時間）…" % (os.path.basename(model), hms(dur)))
         prefix = os.path.join(tmp, "out")
-        cmd = ["whisper-cli", "-m", model, "-l", lang, "--prompt", PRIMER,
+        cmd = [whisper, "-m", model, "-l", lang, "--prompt", PRIMER,
                "-f", wav, "-oj", "-of", prefix, "-np", "-pp"]
         if vad:
             cmd += ["--vad", "--vad-model", vad]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = subprocess.run(cmd, capture_output=True)
+        r.stderr, r.stdout = hostos.decode_output(r.stderr), hostos.decode_output(r.stdout)
         jpath = prefix + ".json"
         if r.returncode != 0 or not os.path.exists(jpath):
             lib.err("whisper-cli 轉錄失敗：%s" % os.path.basename(src),
@@ -130,7 +134,7 @@ def transcribe_one(src, model, vad, lang, out_dir, done_dir, keep):
             t = (seg.get("offsets", {}) or {}).get("from", 0) / 1000.0
             lines.append("[%s] %s" % (hms(t), text))
         os.makedirs(out_dir, exist_ok=True)
-        with open(out_md, "w", encoding="utf-8") as f:
+        with open(out_md, "w", encoding="utf-8", newline="\n") as f:
             f.write("# 逐字稿：%s\n\n" % base)
             f.write("- 來源檔：%s\n" % os.path.basename(src))
             f.write("- 長度：%s\n" % hms(dur))
@@ -192,8 +196,7 @@ def main():
     if missing:
         lib.die("找不到這些檔：%s" % "、".join(missing), "確認路徑有沒有打錯（檔名有空白要加引號）。")
 
-    need("ffmpeg", "brew install ffmpeg（或跑 `bash scripts/install_tools.sh`）")
-    need("whisper-cli", "brew install whisper-cpp（或跑 `bash scripts/install_tools.sh`）")
+    ffmpeg, ffprobe, whisper = need("ffmpeg"), need("ffprobe"), need("whisper-cli")
     model = ensure_model(model_name, MODEL_URL % model_name)
     vad = None
     if not a.no_vad:
@@ -205,7 +208,7 @@ def main():
 
     made = []
     for s in srcs:
-        r = transcribe_one(s, model, vad, lang, out_dir, done_dir, a.keep)
+        r = transcribe_one(s, model, vad, lang, out_dir, done_dir, a.keep, (ffmpeg, ffprobe, whisper))
         if r:
             made.append(r)
 

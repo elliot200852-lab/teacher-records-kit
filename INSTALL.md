@@ -4,8 +4,12 @@
 > 每一題告訴你去哪裡拿答案。這份是同一套流程的**純指令版**，步驟編號與 `AGENTS.md` 一一對應。
 > 每一步「為什麼要這樣做、怎麼驗證、失敗怎麼辦」都寫在 `AGENTS.md` 對應的那一步。
 
-前置條件：macOS、一個能自己開 Firebase 專案的 Google 帳號、Homebrew（https://brew.sh ）。
-Windows：`[[待確認：Windows 支援]]`。
+前置條件：macOS 或 Windows 10／11（Linux 盡力支援，WSL 不行）、一個能自己開 Firebase 專案的
+Google 帳號、套件管理程式（macOS＝Homebrew，https://brew.sh ；Windows＝系統內建的 winget）。
+支援等級與每個平台的坑見 `docs/PLATFORMS.md`。
+
+> **Windows**：這份文件裡的 `python3` 一律換成 `py -3`（或 `python`），路徑的 `/` 換成 `\`；
+> 細節見 `docs/PLATFORMS.md`。
 
 ---
 
@@ -24,10 +28,11 @@ ls config/kit.json config.yaml 2>/dev/null
 ## 1. 裝工具
 
 ```bash
-bash scripts/install_tools.sh --dry-run     # 先看會裝什麼
-bash scripts/install_tools.sh               # 真的裝
-bash scripts/install_tools.sh --with-gws    # 備份要走 gws 進階模式才加這個
-python3 scripts/doctor.py                   # 健檢
+python3 scripts/install_tools.py --dry-run     # 先看會裝什麼
+python3 scripts/install_tools.py               # 真的裝
+python3 scripts/install_tools.py --with-gws    # 備份要走 gws 進階模式才加這個
+python3 scripts/install_tools.py --json        # 要機器讀的輸出
+python3 scripts/doctor.py                      # 健檢（裝完工具先重開終端機）
 ```
 
 ## 2. Firebase 專案
@@ -164,10 +169,13 @@ python3 scripts/append_record.py --kind students --target S-03 --stream homeroom
 
 **預設（desktop 模式）**：裝「Google 雲端硬碟」桌面程式（https://www.google.com/drive/download/ ）→ 登入
 → 在雲端硬碟裡建一個資料夾 → 把它在電腦上的路徑填進 `config/kit.json` 的 `drive.desktop_dir`
-（通常是 `~/Library/CloudStorage/GoogleDrive-<你的信箱>/My Drive/<資料夾名>`）。
+（macOS 通常是 `~/Library/CloudStorage/GoogleDrive-<你的信箱>/My Drive/<資料夾名>`；
+Windows 通常是 `G:\My Drive\<資料夾名>`，根目錄也可能叫 `我的雲端硬碟`）。
+`setup.py` 會自動偵測這台電腦上的候選路徑當預設值，`doctor.py` 找不到設定的路徑時也會列出候選。
 
 **進階（gws 模式）**：`drive.mode` 改 `gws`，`drive.backup_folder_id` 填資料夾 ID
-（在瀏覽器打開那個資料夾，網址 `.../folders/XXXX` 的 `XXXX`）。需要用 `bash scripts/install_tools.sh --with-gws` 裝的 `googleworkspace-cli` 與你自己的 OAuth 憑證。
+（在瀏覽器打開那個資料夾，網址 `.../folders/XXXX` 的 `XXXX`）。需要用 `python3 scripts/install_tools.py --with-gws` 裝的 `@googleworkspace/cli`（三個平台都走
+`npm i -g @googleworkspace/cli`）與你自己的 OAuth 憑證。
 
 ```bash
 python3 scripts/build_config.py
@@ -182,12 +190,17 @@ python3 scripts/backup.py --no-export     # 不抓資料庫快照（離線時）
 ## 8. 排程（選用）
 
 ```bash
-bash scripts/schedule.sh --dry-run      # 先看
-bash scripts/schedule.sh                # 每天 07:00 同步、每週日 08:00 備份
-bash scripts/schedule.sh --print-cron   # 只印等效的 crontab 兩行
-bash scripts/schedule.sh --uninstall    # 移除
+python3 scripts/schedule.py --dry-run                   # 先看
+python3 scripts/schedule.py                             # 每天 07:00 同步、每週日 08:00 備份
+python3 scripts/schedule.py --sync-time 08:30           # 換同步時間
+python3 scripts/schedule.py --backup-day 6 --backup-time 21:00   # 換備份的星期與時間（0＝週日）
+python3 scripts/schedule.py --status                    # 現在掛了什麼
+python3 scripts/schedule.py --print-cron                # 只印等效的 crontab 兩行
+python3 scripts/schedule.py --uninstall                 # 移除
 ```
 
+三個平台各自的排程機制（launchd／工作排程器／crontab）見 `docs/PLATFORMS.md`；
+Windows 跑的時候會閃一下黑色視窗，正常。
 排程會靜默失敗。**真正的驗證是隔天看網頁頂端「上次同步 X 天前」有沒有更新**，超過七天會變紅字。
 
 ## 9. 錄音
@@ -305,6 +318,8 @@ git status
 ```bash
 python3 scripts/sync.py                                   # 同步
 python3 scripts/backup.py                                 # 備份
+python3 scripts/schedule.py --status                      # 排程現況
+python3 scripts/schedule.py --uninstall                   # 拆掉排程
 python3 scripts/ledger.py --check                         # 三處對帳
 python3 scripts/doctor.py                                 # 健檢
 python3 scripts/monthly_reminder.py --dry-run             # 本月未記名單（先看不寄）

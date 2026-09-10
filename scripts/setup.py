@@ -39,13 +39,14 @@ import subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
+import hostos
 
 CONSOLE = "https://console.firebase.google.com"
 WEBCFG_PATH = "專案設定（左上齒輪）→ 一般 → 你的應用程式 → 網頁應用程式 → SDK 設定與配置 → Config"
 
 STEP_TITLES = [
     "判斷新裝／升級／續裝",
-    "裝工具（install_tools.sh ＋ doctor.py）",
+    "裝工具（install_tools.py ＋ doctor.py）",
     "Google 帳號與 Firebase 專案",
     "分頁與向度（學生記錄類型／課程／業務組，全部勾選）",
     "產生設定與安全規則（build_config.py ＋ firebase deploy；部署完 --mark-step 4）",
@@ -524,15 +525,14 @@ def gather(ask, answers, existing_kit):
                       ["把 zip 複製進「Google 雲端硬碟」桌面程式的同步資料夾（推薦，零設定）",
                        "用 googleworkspace-cli 直接上傳（進階，要自己備 OAuth 憑證）"], 0)
         mode = ["desktop", "gws"][mi]
-    default_dir = d_a.get("desktop_dir") or (
-        "~/Library/CloudStorage/GoogleDrive-%s/My Drive/教學紀錄備份" % owner)
+    default_dir = d_a.get("desktop_dir") or hostos.drive_desktop_hint(owner)
     desktop_dir = default_dir
     folder_id = d_a.get("backup_folder_id", "")
     if mode == "desktop":
         desktop_dir = ask.text("   備份資料夾路徑", default=default_dir,
                                where="先安裝並登入「Google 雲端硬碟」桌面程式 "
                                      "https://www.google.com/drive/download/ ，"
-                                     "在雲端硬碟裡自己建一個資料夾，再把路徑貼過來。")
+                                     "在雲端硬碟裡自己建一個資料夾，再把路徑貼過來。" + hostos.drive_desktop_where())
     else:
         folder_id = ask.text("   Drive 資料夾 ID", default=folder_id,
                              where="打開那個資料夾，網址 .../folders/XXXX 的 XXXX 就是 ID。",
@@ -593,7 +593,7 @@ def build_data(kit, tabs, student_ids, members=None, cards=None):
         lib.save_roster_rows(rows, d)
         made.append(roster)
     elif not os.path.exists(roster):
-        with open(roster, "w", encoding="utf-8") as f:
+        with open(roster, "w", encoding="utf-8", newline="\n") as f:
             f.write(lib.ROSTER_HEADER + "\n")
         made.append(roster)
 
@@ -608,7 +608,7 @@ def build_data(kit, tabs, student_ids, members=None, cards=None):
             p = os.path.join(d, "students", sid, name)
             if not os.path.exists(p):
                 os.makedirs(os.path.dirname(p), exist_ok=True)
-                with open(p, "w", encoding="utf-8") as f:
+                with open(p, "w", encoding="utf-8", newline="\n") as f:
                     f.write(lib.file_header(kind, sid, sid, s.get("label") or s["id"]))
                 made.append(p)
         if s.get("scope", "class") != "class":
@@ -616,7 +616,7 @@ def build_data(kit, tabs, student_ids, members=None, cards=None):
         p = os.path.join(d, "class", name)
         if not os.path.exists(p):
             os.makedirs(os.path.dirname(p), exist_ok=True)
-            with open(p, "w", encoding="utf-8") as f:
+            with open(p, "w", encoding="utf-8", newline="\n") as f:
                 f.write(lib.file_header("class", "main", "班級整體觀察", s.get("label") or s["id"]))
             made.append(p)
     # ── 學生卡片（IEP 目標／個案概念化）──
@@ -634,14 +634,14 @@ def build_data(kit, tabs, student_ids, members=None, cards=None):
         p = os.path.join(d, "courses", c["id"], "records.md")
         if not os.path.exists(p):
             os.makedirs(os.path.dirname(p), exist_ok=True)
-            with open(p, "w", encoding="utf-8") as f:
+            with open(p, "w", encoding="utf-8", newline="\n") as f:
                 f.write(lib.file_header("courses", c["id"], c.get("title") or c["id"]))
             made.append(p)
     for g in ((tabs.get("business") or {}).get("groups") or []):
         p = os.path.join(d, "business", g["id"], "records.md")
         if not os.path.exists(p):
             os.makedirs(os.path.dirname(p), exist_ok=True)
-            with open(p, "w", encoding="utf-8") as f:
+            with open(p, "w", encoding="utf-8", newline="\n") as f:
                 f.write(lib.file_header("business", g["id"], g.get("label") or g["id"]))
             made.append(p)
     for sub in ("inbox", "backups"):
@@ -666,7 +666,7 @@ def write_progress(done_steps, notes=None):
         steps.append({"step": i, "title": title, "done": done,
                       "at": lib.now_iso() if (done and not prev.get("at")) else prev.get("at"),
                       "notes": (notes or {}).get(i, prev.get("notes", ""))})
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump({"version": 3, "steps": steps}, f, ensure_ascii=False, indent=2)
         f.write("\n")
     return path
@@ -774,7 +774,7 @@ def main():
     for p, data in ((kit_path, kit), (tabs_path, tabs)):
         if os.path.exists(p):
             shutil.copy2(p, p + ".bak")
-        with open(p, "w", encoding="utf-8") as f:
+        with open(p, "w", encoding="utf-8", newline="\n") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
             f.write("\n")
     lib.ok("寫好 %s" % os.path.relpath(kit_path, lib.root()))
@@ -826,10 +826,10 @@ def main():
     print("\n%s安裝精靈跑完了。%s接下來：" % (lib.GREEN, lib.RESET))
     pid = (kit.get("firebase") or {}).get("project_id") or "<你的專案id>"
     print("  1. 部署安全規則：firebase deploy --only firestore:rules --project %s" % pid)
-    print("     部署成功後標記進度：python3 scripts/setup.py --mark-step 4")
+    print("     部署成功後標記進度：%s scripts/setup.py --mark-step 4" % lib.PY)
     print("  2. 上線：firebase deploy --only hosting --project %s" % pid)
-    print("  3. 填名單：data/roster.csv（代號,姓名,類型），然後 `python3 scripts/sync.py --dry-run` 看一次")
-    print("  4. 備份夾對不對：`python3 scripts/doctor.py`")
+    print("  3. 填名單：data/roster.csv（代號,姓名,類型），然後 `%s scripts/sync.py --dry-run` 看一次" % lib.PY)
+    print("  4. 備份夾對不對：`%s scripts/doctor.py`" % lib.PY)
     if doctor_rc:
         print("\n%s健檢有項目沒過（上面 ✗ 的部分）——照每一項的「→」修完再往下。%s" % (lib.YELLOW, lib.RESET))
     print("進度記在 setup/progress.json（AI 代理接手前先讀它）。")

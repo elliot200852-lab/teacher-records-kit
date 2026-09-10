@@ -20,11 +20,14 @@ import json
 import time
 import hashlib
 import smtplib
-import subprocess
 import urllib.parse
 import urllib.request
 import urllib.error
 from email.mime.text import MIMEText
+
+import hostos                      # 平台差異只寫在 hostos.py
+hostos.enable_console()            # Windows：主控台改 UTF-8、開 ANSI 顏色
+PY = hostos.PY                     # 這台電腦怎麼叫 Python（訊息裡用）
 
 # ── 路徑 ────────────────────────────────────────────────────────────────
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -74,7 +77,8 @@ def data_dir():
 
 
 # ── 訊息 ────────────────────────────────────────────────────────────────
-RED, GREEN, YELLOW, DIM, RESET = "\033[31m", "\033[32m", "\033[33m", "\033[2m", "\033[0m"
+RED, GREEN, YELLOW, DIM, RESET = ("\033[31m", "\033[32m", "\033[33m", "\033[2m", "\033[0m") \
+    if hostos.color_ok() else ("", "", "", "", "")
 
 
 def err(msg, fix=""):
@@ -536,7 +540,7 @@ def save_card(sid, card, data_root=None):
     old.update({"id": card.get("id") or sid,
                 "goals": norm_goals(card.get("goals")),
                 "conceptualization": norm_conceptualization(card.get("conceptualization"))})
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(old, f, ensure_ascii=False, indent=2)
         f.write("\n")
     return path
@@ -742,15 +746,15 @@ class FirestoreError(Exception):
 
 def token(quiet=False):
     """gcloud 的存取權杖。拿不到就 die（除非 quiet=True，那就回 None）。"""
-    try:
-        return subprocess.check_output(["gcloud", "auth", "print-access-token"],
-                                       text=True, stderr=subprocess.DEVNULL, timeout=60).strip()
-    except Exception:
-        if quiet:
-            return None
-        die("取不到 gcloud 存取權杖——本機腳本要用它讀寫你自己的 Firestore。",
-            "先跑 `gcloud auth login`（用你當初開 Firebase 專案的 Google 帳號）；"
-            "還沒裝 gcloud 就先跑 `bash scripts/install_tools.sh`。")
+    rc, out = hostos.run(["gcloud", "auth", "print-access-token"], timeout=60)
+    tok = out.strip().splitlines()[-1].strip() if rc == 0 and out.strip() else ""
+    if tok:
+        return tok
+    if quiet:
+        return None
+    die("取不到 gcloud 存取權杖——本機腳本要用它讀寫你自己的 Firestore。",
+        ("先跑 `gcloud auth login`（用你當初開 Firebase 專案的 Google 帳號）。" if rc != 127 else
+         "還沒裝 gcloud：%s" % hostos.install_hint("gcloud")))
 
 
 def fs_value(v):
@@ -899,8 +903,14 @@ mask = mask_email
 def send_email(kit, to_list, subject, body):
     e = kit.get("email") or {}
     if e.get("method") == "gws":
-        subprocess.run(["gws", "gmail", "+send", "--to", ",".join(to_list),
-                        "--subject", subject, "--body", body], check=True, stdout=subprocess.DEVNULL)
+        rc, out = hostos.run(["gws", "gmail", "+send", "--to", ",".join(to_list),
+                              "--subject", subject, "--body", body], timeout=120)
+        if rc == 126:
+            die("這封信的主旨或內文含有 Windows 命令列的特殊字元，走 gws 會被改寫。",
+                "把 config/kit.json 的 email.method 改成 smtp（用應用程式密碼寄），或把 & | < > ^ % ! 引號拿掉。")
+        if rc != 0:
+            die("gws 寄信失敗（回傳 %s）：%s" % (rc, out.strip()[-200:]),
+                "確認 gws 已登入（gws auth login）；或改用 email.method = smtp。" if rc != 127 else hostos.install_hint("gws"))
         return
     user = e.get("smtp_user", "")
     pw = os.environ.get("KIT_SMTP_APP_PASSWORD", "")

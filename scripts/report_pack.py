@@ -512,9 +512,9 @@ def main():
         pack_name = stem + "-素材包.md"
         pack_path = os.path.join(outdir, pack_name)
         prompt_path = os.path.join(outdir, stem + "-prompt.md")
-        with open(pack_path, "w", encoding="utf-8") as f:
+        with open(pack_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(build_pack(fmt, title, sid, recs, card, streams, dfrom, dto))
-        with open(prompt_path, "w", encoding="utf-8") as f:
+        with open(prompt_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(build_prompt(fmt, title, sid, pack_name, recs))
         made += [pack_path, prompt_path]
         rows.append({"sid": sid, "title": title, "n": len(recs), "span": span_of(recs),
@@ -523,7 +523,7 @@ def main():
 
     if target == "all":
         idx = os.path.join(outdir, "_index.md")
-        with open(idx, "w", encoding="utf-8") as f:
+        with open(idx, "w", encoding="utf-8", newline="\n") as f:
             f.write(build_index(fmt, rows, streams, dfrom, dto))
         made.append(idx)
 

@@ -1,0 +1,8 @@
+# 文字檔一律 LF；Windows 上 git 也不要換成 CRLF（記錄的雜湊要跨平台一致）
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.webp binary
+*.zip binary
+*.docx binary
+*.pdf binary

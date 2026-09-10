@@ -25,6 +25,8 @@ exports/
 preview/
 # 排程與腳本的 log
 logs/
+# 排程產生的啟動檔（Windows 工作排程器的 XML；含這台電腦的路徑與帳號）
+setup/launchers/
 # SMTP App Password 等密鑰
 .env
 # 服務帳號金鑰

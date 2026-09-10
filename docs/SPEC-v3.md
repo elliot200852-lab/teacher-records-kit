@@ -176,6 +176,18 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 - **腳本端（正式版、給期末或大量用）**：`scripts/export_docs.py --kind students|class|courses|business --target <id>|all [--stream X] [--from --to] [--with-class] --docx [--pdf] [--html]`：`.docx` 用標準庫 `zipfile` 直接寫最小 OOXML（零相依）；`.pdf` 若機器上有 Chrome／Chromium（或環境變數 `TRK_CHROME` 指定）就 `--headless=new --print-to-pdf`，沒有就把 HTML 留在 `exports/` 並印「用瀏覽器開這個檔→列印→儲存為 PDF」。輸出到 `exports/`（gitignored）。網頁端版面正本是 `buildExport()`（`renderExportHtml` 為薄包裝、`renderExportUI` 生選單）。
 - 匯出內容一律去識別化正文＋名冊姓名（因為是老師自己用），檔案落地在老師機器；文件與 README 要提醒「匯出檔含真名，別放到公開的地方」。
 
+### 3.7 跨平台層（David 2026-09-10 拍板）
+
+- **`scripts/hostos.py` 是唯一的平台模組**：工具怎麼裝、執行檔怎麼找（`.cmd`／`.bat`）、主控台編碼、
+  Drive 同步夾候選、Chrome／Edge 候選、排程機制——平台差異只寫在這一支，其他腳本一律經它。
+- **`docs/PLATFORMS.md` 是唯一的人讀正本**：支援等級、指令對照、每個平台的坑、排程機制。
+  其他文件只放一行對照與連結，不重複表格。
+- 支援等級：macOS 與 Windows 10／11 正式支援、Linux 盡力、**WSL 直接拒跑**。
+- CI（`.github/workflows/ci.yml`）三平台跑單元測試，另有 windows-latest 真機 smoke：
+  安裝腳本、工作排程器掛上／拆掉、免互動安裝、Edge 印 PDF。
+- **Windows 尚未有真人老師實測過**；第一位 Windows 使用者的怪狀先當是我們的問題。
+- 所有文字寫入一律 LF（`newline="\n"`，有測試守著），`.gitattributes` 鎖 LF。
+
 ## 4. 設定檔（單一產生器、三個輸出）
 
 - `config/kit.json`（**JSON，不再自寫 YAML 解析器**——紅隊 #10）：`owner_email`、`id_prefix`、`firebase{project_id,api_key,auth_domain,storage_bucket,messaging_sender_id,app_id}`、`drive{mode:"desktop"|"gws", desktop_dir, backup_folder_id, keep_backups}`、`voice{model,lang}`、`email{...}`。v2 的 `config.yaml` 由 `setup.py --upgrade` 一次轉成 JSON。
@@ -213,7 +225,7 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 | `setup.py` | **確定性安裝精靈** | 互動問答（或 `--answers`）→ 寫 `config/kit.json`、`config/tabs.json` → 呼叫 build_config → 跑 doctor；`--upgrade` 把 v2 的 config.yaml 轉過來（零預設的唯一例外：自動勾 `homeroom`，否則舊 observations.md 看不見）；`--resume` 讀 `setup/progress.json` 續做；**不部署規則、不標第 4 步**，AI 在 `firebase deploy` 成功後跑 `--mark-step 4 --note ...` |
 | `build_config.py` | 產生三個 gitignored 輸出 | 見 §4；`--check` 只驗不寫 |
 | `doctor.py` | 健檢 | 逐項 ✓／✗：工具在不在、config 齊不齊、gcloud／firebase／gws 登入了沒、Drive 夾 ID 存在且 `trashed=false`、whisper 模型在不在；每個 ✗ 附「怎麼修」與連結；`--json` 給 AI 讀 |
-| `install_tools.sh` | 裝依賴 | macOS：Homebrew → `node`、`firebase-tools`、`google-cloud-sdk`、`gws`、`whisper-cpp`、`ffmpeg`；每步先印「要裝什麼、為什麼」；Windows／Linux 印說明不硬裝 |
+| `install_tools.py` | 裝依賴 | 三個平台同一支：macOS 走 Homebrew、Windows 走 winget（失敗退可攜版）、Linux 走 apt／官方說明，裝的都是 `node`、`firebase-tools`、`google-cloud-sdk`、`whisper-cpp`、`ffmpeg`（`gws` 選用，一律 `npm i -g @googleworkspace/cli`）；每步先印「要裝什麼、為什麼」，不重試、不留半裝狀態；`--dry-run`、`--with-gws`、`--json`、`--remove-portable`。每個平台的細節見 `docs/PLATFORMS.md` |
 | `sync.py` | 本機 ↔ Firestore 雙向 | 通用化到四種目標；衝突不覆蓋；回寫前備 `.prev.md`；`--dry-run`；結束寫 `.sync-last-status` 與 Firestore `meta/status.lastSyncAt`。**每個 PATCH 必帶 `currentDocument.updateTime` 前置條件**（紅隊 #9：v2 的無條件回寫會在老師同時編輯時靜默蓋掉他的字）；412 就當衝突處理、不重試覆寫 |
 | `append_record.py` | **唯一寫入通道** | `--kind students|class|courses|business --target ID --date --tags --content-file --fields-json --related --source voice|file --task-id`；O_APPEND；寫前後 rid 斷言；名冊真名攔下；審計 `data/audit.jsonl`；`--sync` 順手跑 sync |
 | `transcribe.py` | 錄音 → 逐字稿 | 單檔或 `--inbox`（掃 `inbox/*.m4a|mp3|wav|mp4`）；ffmpeg 轉 16k wav → `whisper-cli -m ~/.cache/whisper-cpp/ggml-large-v3-turbo.bin -l zh`（模型缺就從 Hugging Face 下載並印進度）；輸出 `inbox/transcripts/<檔名>.md`，處理完原檔移到 `inbox/done/`；結尾印「接下來請 AI 讀逐字稿、改寫成○○記錄、再用 append_record.py 寫入」；逐字稿永不出本機。**AI 改寫不在腳本裡**（見 AGENTS.md §錄音） |
@@ -222,7 +234,7 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 | `export_records.py` | 匯出取材（Markdown／JSON） | 通用化四種；`--by-tag`、`--related`（把關聯記錄一起帶出）、`--stream`（只匯某一種學生記錄類型） |
 | `report_pack.py` | 期末素材包＋草稿 prompt | 見 §3.6；`--format waldorf-homeroom|subject-4|iep-tracking|case-summary|custom`、`--target <id>|all`（＝`--all`）、`--stream`；輸出 `exports/` |
 | `export_docs.py` | 匯出 Word／PDF | 見 §3.5；`.docx` 標準庫 zipfile、`.pdf` 走 headless Chrome（沒有就給 HTML） |
-| `schedule.sh` | 排程（選用） | 產生 launchd plist（每日 sync、每週 backup）到 `~/Library/LaunchAgents/`，或印 cron 行；`--uninstall`。**失敗要看得見**（紅隊 #11）：網頁頂端讀 `meta/status`，上次同步／備份超過 7 天就顯示紅字 |
+| `schedule.py` | 排程（選用） | 三個平台同一支：macOS 產 launchd plist、Windows 用工作排程器 XML 定義檔註冊、Linux 寫 crontab 區塊（每日 sync、每週 backup）；`--dry-run`、`--status`、`--print-cron`、`--uninstall`、`--sync-time`、`--backup-day`、`--backup-time`。**失敗要看得見**（紅隊 #11）：網頁頂端讀 `meta/status`，上次同步／備份超過 7 天就顯示紅字 |
 | `parent_email.py`、`pending.py`、`monthly_reminder.py` | 選用 | 沿用 v2 |
 | `tests/` | 零網路測試 | 區塊解析、rid、欄位列、關聯、ledger rebuild、build_config 輸出、demo store 種子 |
 
@@ -239,9 +251,9 @@ match /meta/{doc} { allow read, write: if isOwner(); }
 ## 8. 引導流程 `AGENTS.md`（精靈）
 
 - 開頭「你是誰在讀」：假設讀者是 Claude Code 等最高等級代理；**一次只問一題**；每題附「去哪裡拿」連結；問完做、做完驗、驗完由 `setup.py` 寫 `setup/progress.json`（gitignored）再往下。**AI 不手寫任何產生檔**（規則、firebase-config、kit-config）——一律跑腳本。
-- 前置條件先講清楚（紅隊 #1）：macOS（Windows 待 David 定案 `[[待確認：Windows 支援]]`）、能開 Firebase 專案的 Google 帳號（學校配發帳號常被管理員鎖住 Cloud Console，GUIDE 要教怎麼判斷、以及改用個人帳號的取捨）、已裝好的 AI 代理。
+- 前置條件先講清楚（紅隊 #1）：macOS 或 Windows 10／11（David 2026-09-10 拍板支援 Windows；Linux 盡力、WSL 拒絕，見 `docs/PLATFORMS.md`）、能開 Firebase 專案的 Google 帳號（學校配發帳號常被管理員鎖住 Cloud Console，GUIDE 要教怎麼判斷、以及改用個人帳號的取捨）、已裝好的 AI 代理。
 - 「去哪裡拿」寫**目標＋驗證**而不是逐畫面截圖（紅隊 #2：Console 畫面會改版，AI 自己會找路）。
-- 步驟：0 判斷新裝／升級／續裝（讀 progress） → 1 裝工具（跑 `install_tools.sh` 與 `doctor.py`） → 2 Google 帳號與 Firebase 專案（console 連結、逐畫面指引、取 web config） → 3 分頁與向度（學生：名冊來源；課程：先建幾門；業務：勾組＋兩層開放選項） → 4 產生設定與規則（`build_config.py`、`firebase deploy`） → 5 上線（Firebase Hosting 預設；GitHub Pages 備選；嵌入現有站見 embed/） → 6 學生名單與既有資料匯入 → 7 Google Drive 備份夾（老師自己建夾→貼網址→AI 抽 ID→`doctor.py` 驗） → 8 排程 → 9 錄音檔試跑一次 → 10 驗收清單。
+- 步驟：0 判斷新裝／升級／續裝（讀 progress） → 1 裝工具（跑 `install_tools.py` 與 `doctor.py`） → 2 Google 帳號與 Firebase 專案（console 連結、逐畫面指引、取 web config） → 3 分頁與向度（學生：名冊來源；課程：先建幾門；業務：勾組＋兩層開放選項） → 4 產生設定與規則（`build_config.py`、`firebase deploy`） → 5 上線（Firebase Hosting 預設；GitHub Pages 備選；嵌入現有站見 embed/） → 6 學生名單與既有資料匯入 → 7 Google Drive 備份夾（老師自己建夾→貼網址→AI 抽 ID→`doctor.py` 驗） → 8 排程 → 9 錄音檔試跑一次 → 10 驗收清單。
 - 每步固定四段：**AI 要問的話**／**使用者去哪裡拿（連結＋畫面路徑）**／**AI 要做的事（指令）**／**怎麼驗證＋失敗時怎麼辦**。
 - 升級路徑 v2→v3：保留設定與 data、跑 `build_config.py`、重新部署規則、`sync.py --dry-run`。
 - 錄音流程、日常使用、每月／期末取材各一節。
@@ -258,7 +270,7 @@ match /meta/{doc} { allow read, write: if isOwner(); }
 
 ## 10. Placeholder 標記
 
-尚未確定的資料一律寫成 `[[待確認：…]]`，建置後 `grep -rn "\[\[待確認" .` 就是待辦清單。目前已知待確認：授權條款與價格、支援聯絡方式、Windows 支援、業務組清單校對、示範資料的班級人數。
+尚未確定的資料一律寫成 `[[待確認：…]]`，建置後 `grep -rn "\[\[待確認" .` 就是待辦清單。目前已知待確認：授權條款與價格、支援聯絡方式、業務組清單校對、示範資料的班級人數。
 
 ## 11. 不做（v3 範圍外）
 
@@ -272,13 +284,13 @@ Stage 1 由 fresh opus 攻擊 15 條；裁決如下（成立的已寫回上面�
 | # | 攻擊 | 裁決 | 落地 |
 |---|---|---|---|
 | 3 | AI 安裝不確定 | **成立** | `setup.py` 確定性精靈；AI 禁手寫產生檔（§4、§8） |
-| 4 | `brew install gws` 撞名、需自建 OAuth client | **成立** | 正確 formula＝`googleworkspace-cli`；備份預設走 Drive 桌面同步夾，gws 為進階（§6 backup） |
+| 4 | `brew install gws` 撞名、需自建 OAuth client | **成立** | 當時的解法＝改用 formula `googleworkspace-cli`（**v3.0.0-alpha.2 起改走 npm**：`npm i -g @googleworkspace/cli`，三個平台同一種裝法）；備份預設走 Drive 桌面同步夾，gws 為進階（§6 backup） |
 | 6 | 不可刪除的未成年人紀錄 | **成立** | 規則允許 owner 刪除＋審計（§7） |
 | 9 | 無前置條件 PATCH 靜默蓋字 | **成立** | 回寫必帶 `currentDocument.updateTime`（§6 sync） |
 | 10 | 自寫 YAML 解析器 | **成立** | 設定全改 JSON（§4） |
 | 11 | 排程靜默死掉 | **成立** | `meta/status`＋網頁紅字（§5、§6） |
 | 13 | 動態欄位 schema 演化 | **部分成立** | 欄位寬鬆解析、不當閘（§2.2） |
-| 1、2、5、12 | 零基礎老師裝不起來／Console 改版／學校帳號／Windows | **成立但屬產品決策** | 前置條件寫進 README／GUIDE；Windows 與陪跑搭配交 David 決定（§10 待確認） |
+| 1、2、5、12 | 零基礎老師裝不起來／Console 改版／學校帳號／Windows | **成立但屬產品決策** | 前置條件寫進 README／GUIDE；（2026-09-10：Windows 已支援，見 `docs/PLATFORMS.md`；CI windows-latest 真機驗，但尚無真人老師實測） |
 | 7 | 代號＝安全劇場 | **理論性**：代號的目的是讓紀錄文字能交給 AI 與匯出，不是匿名 | 文件改口徑（§9） |
 | 8 | 三處一台帳太複雜 | **不成立**：David 5A 已跑一年、語音→本機→網站需要雙向；Drive 只是單向備份 | 維持，但 #9 修好後風險才可接受 |
 | 14 | 程式量太大／lock-in | **部分成立** | 砍 `voice_intake.py`（併入 transcribe）、`ledger --related` 延後；`export_records.py` 保證資料可整包帶走 |

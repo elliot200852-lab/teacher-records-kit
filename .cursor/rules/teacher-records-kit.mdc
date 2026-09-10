@@ -1,0 +1,6 @@
+---
+description: teacher-records-kit 的唯一安裝腦是 AGENTS.md
+alwaysApply: true
+---
+先完整讀 `AGENTS.md` 再動手（安裝步驟 0–10、鐵則、日常使用都在那裡）；平台差異見 `docs/PLATFORMS.md`。
+產生檔一律由 `scripts/setup.py`／`scripts/build_config.py` 產生，不手寫；有副作用的動作先講一句再做。
