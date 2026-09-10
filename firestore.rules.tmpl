@@ -29,6 +29,14 @@ service cloud.firestore {
     }
 
     // 每生摘要
+    //
+    // ── 學生卡上的兩張卡（v3 §3.6，三個垂直方案）──
+    // IEP  → goals: [{id, 領域, 學年目標, 學期目標, 評量方式, 評量標準, 期程}]
+    // SOAP → conceptualization: {主訴, 背景, 評估假設, 處遇目標, 結案標準}
+    // 兩個鍵都由網頁上的「目標清單」／「個案概念化」卡直接寫進這份文件。
+    // 下面這一行 write 已經涵蓋（owner 可寫整份卡），**故意不收窄成欄位白名單**：
+    // 卡上的欄位跟業務組的 fields 一樣是「表單建議、不是 schema 閘」（§2.2、紅隊 #13），
+    // 加一個欄位就要改規則、重新部署的話，老師會在網頁上看到莫名其妙的 permission-denied。
     match /students/{id} {
       allow read, write: if isOwner();
 

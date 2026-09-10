@@ -5,6 +5,9 @@
   "owner_email": "you@example.com",
   "id_prefix": "S",
 
+  "_註解_vertical": "三個垂直方案（config/verticals.json）：qualitative-assessment（質性評量自動化）、iep-tracking（IEP／早療目標追蹤）、soap-casework（SOAP 個案紀錄）。安裝精靈會唸出這個方案建議勾的記錄類型、業務組與期末格式——**只是建議，一項都不會幫你預先勾**，下面 students.streams 勾了什麼就是什麼。都不是就填 \"none\" 或整個鍵拿掉。",
+  "vertical": "qualitative-assessment",
+
   "firebase": {
     "project_id": "your-firebase-project-id",
     "api_key": "AIzaSyEXAMPLE-EXAMPLE-EXAMPLE-EXAMPLE",
@@ -28,6 +31,30 @@
     "custom_streams": [],
     "members": {
       "case": ["S-02"]
+    },
+    "_註解_cards": "學生卡片的初始值（正本在 data/students/<代號>/card.json，範本 templates/card.example.json）。goals＝IEP／早療的學年與學期目標，iep 類型的每一則靠「目標編號」掛在某一條下（填了卡片上沒有的編號，append_record.py 會擋下來）。conceptualization＝個案概念化五格，soap 類型的結案報告會逐條對照「結案標準」。卡片已經有內容的那一塊，重跑安裝不會覆蓋。",
+    "cards": {
+      "S-02": {
+        "goals": [
+          {"id": "G1", "領域": "溝通",
+           "學年目標": "能在課堂情境中以口語表達自己的需求。",
+           "學期目標": "能在一次口語提示下說出完整的請求句。",
+           "評量方式": "課堂觀察紀錄", "評量標準": "連續三次上課有兩次做到即通過。",
+           "期程": "2026-09 至 2027-01"},
+          {"id": "G2", "領域": "生活自理",
+           "學年目標": "能獨立完成上學前的準備。",
+           "學期目標": "能依圖卡順序完成整理書包五個步驟。",
+           "評量方式": "檢核表＋家長回報", "評量標準": "一週五天有四天獨立完成。",
+           "期程": "2026-09 至 2027-01"}
+        ],
+        "conceptualization": {
+          "主訴": "（個案自己說的、這次來談的是什麼事）",
+          "背景": "（相關的家庭、學校或發展脈絡，只寫與處遇有關的）",
+          "評估假設": "（寫成假設，不寫成定論）",
+          "處遇目標": "（這一段要往哪裡走，可檢核）",
+          "結案標準": "（達到什麼就可以結案）"
+        }
+      }
     }
   },
 

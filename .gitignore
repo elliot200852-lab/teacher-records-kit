@@ -9,6 +9,9 @@ config/tabs.json
 config.yaml
 # 安裝進度（含你的答案）
 setup/progress.json
+# 你們學校自己的報告格式（老師貼的，可能含校名與內部欄位）；範本是
+# templates/report-format.custom.example.json
+config/report-format.custom.json
 # 你真實的學生紀錄、名冊、家長通訊錄、台帳、稽核全放這裡
 data/
 # 錄音檔與逐字稿——永不出本機、永不進 git

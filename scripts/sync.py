@@ -16,6 +16,8 @@
   · 刪除：雲端那則被刪掉（以前同步過、現在不見了）→ 從本機檔案也刪掉，並寫進 data/audit.jsonl。
     但**整個檔案不見或變成空的時候一律不刪任何東西**——那多半是檔案出事，不是老師要刪。
   · 回寫前先備份成 `.<檔名>.prev.md`。
+  · 學生卡片上的兩塊底稿（IEP 的 goals、個案概念化）也雙向同步：只有一邊改就照那一邊，
+    兩邊都改就印出來讓老師自己決定——跟記錄同一條規則。
   · 去識別化：正文出現名冊真名就攔下不同步（兩個方向都攔）。
 
 用法：
@@ -238,6 +240,51 @@ def sync_target(t, base, tok, names, state, dry, notes, counters, cards):
     return ({x["rid"] for x in fb} | set(cloud)) - {b["rid"] for b in pend_del}
 
 
+def sync_student_card(sid, path, base, tok, state, dry, notes):
+    """學生卡片上的兩塊底稿（IEP goals／個案概念化）雙向同步。
+
+    這兩塊跟記錄不一樣——它們會被回頭改（目標改寫、結案標準補上），所以要兩邊都能改。
+    判斷方式跟名冊第三欄一樣，用上次同步的指紋當基準：
+      · 只有本機改 → 推上去　· 只有網頁改 → 寫回 card.json　· 兩邊都改 → 不覆蓋，印出來
+    回傳這一次之後的基準指紋（沒同步成功就沿用舊的）。
+    """
+    baseline = ((state.get("_cards") or {}).get(sid) or "")
+    local = lib.load_card(sid)
+    fields, ut = lib.get_doc(base, path, tok)
+    cloud = {"id": sid,
+             "goals": lib.norm_goals((fields or {}).get("goals")),
+             "conceptualization": lib.norm_conceptualization((fields or {}).get("conceptualization"))}
+    lh, ch = lib.card_fingerprint(local), lib.card_fingerprint(cloud)
+    if lh == ch:
+        return lh
+    if ch == baseline:                                   # 只有本機改過 → 推上去
+        if dry:
+            notes.append("（預演）卡片 %s：本機的目標／個案概念化會推上去" % sid)
+            return baseline
+        try:
+            lib.http("PATCH", base, path, tok,
+                     {"goals": local["goals"], "conceptualization": local["conceptualization"]},
+                     mask=["goals", "conceptualization"],
+                     precondition_update_time=ut,
+                     precondition_exists=None if ut else False, raise_errors=True)
+        except lib.Precondition:
+            notes.append("衝突 卡片 %s：網頁在同步途中改過目標／個案概念化——這次沒推上去" % sid)
+            return baseline
+        notes.append("卡片 %s：目標／個案概念化已推上雲端" % sid)
+        return lh
+    if lh == baseline:                                   # 只有網頁改過 → 寫回本機
+        if dry:
+            notes.append("（預演）卡片 %s：網頁上的目標／個案概念化會寫回 card.json" % sid)
+            return baseline
+        lib.save_card(sid, cloud)
+        notes.append("卡片 %s：網頁改的目標／個案概念化已寫回 %s"
+                     % (sid, os.path.relpath(lib.card_path(sid), lib.root())))
+        return ch
+    notes.append("衝突 卡片 %s：本機與網頁的目標／個案概念化都改過——兩邊都沒動，"
+                 "打開 %s 跟網頁比對後留一邊" % (sid, os.path.relpath(lib.card_path(sid), lib.root())))
+    return baseline
+
+
 def write_cards(cards, base, tok, notes=None):
     """把累加好的卡片摘要寫回去（學生卡、課程卡、業務組卡）。
 
@@ -415,7 +462,16 @@ def main():
         if not a.dry_run:
             state[t["key"]] = {"rids": sorted(rids), "at": lib.now_iso()}
 
+    # 學生卡片的兩塊底稿（IEP goals／個案概念化）雙向同步——預演也跑，只是不寫。
+    card_state = dict(state.get("_cards") or {})
+    for path, c in sorted(cards.items()):
+        if c["kind"] != "students":
+            continue
+        fp = sync_student_card(c["id"], path, base, tok, state, a.dry_run, notes)
+        if fp:
+            card_state[c["id"]] = fp
     if not a.dry_run:
+        state["_cards"] = card_state
         write_cards(cards, base, tok, notes)
     roster_streams = sync_roster(kit, base, tok, state, a.dry_run, notes)
     check_web_additions(tabs, base, tok, notes)

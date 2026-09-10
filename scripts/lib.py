@@ -178,6 +178,44 @@ def load_stream_library():
                       "這個檔跟著程式碼走，重新下載一份 kit 就有了。")
 
 
+def load_report_formats():
+    """期末報告格式庫（`report_pack.py --format` 的可選清單）。"""
+    return _load_json(pkg_path("config", "report-formats.library.json"),
+                      "報告格式庫 config/report-formats.library.json",
+                      "這個檔跟著程式碼走，重新下載一份 kit 就有了。")
+
+
+def find_format(fid, formats=None):
+    """依 id 拿一個報告格式；找不到回 None。"""
+    for f in ((formats or load_report_formats()).get("formats") or []):
+        if f.get("id") == fid:
+            return f
+    return None
+
+
+def load_verticals():
+    """三個垂直方案（安裝精靈唸給老師聽的建議；只是建議，不預先勾）。"""
+    return _load_json(pkg_path("config", "verticals.json"),
+                      "垂直方案庫 config/verticals.json",
+                      "這個檔跟著程式碼走，重新下載一份 kit 就有了。")
+
+
+def find_vertical(vid, verticals=None):
+    for v in ((verticals or load_verticals()).get("verticals") or []):
+        if v.get("id") == vid:
+            return v
+    return None
+
+
+def load_custom_format():
+    """老師自己貼的校方格式 config/report-format.custom.json（沒有就回 None）。"""
+    path = rpath("config", "report-format.custom.json")
+    if not os.path.exists(path):
+        return None
+    return _load_json(path, "校方格式 config/report-format.custom.json",
+                      "照 templates/report-format.custom.example.json 的格式寫。")
+
+
 def project_id(kit):
     pid = (kit.get("firebase") or {}).get("project_id", "")
     if not pid or pid.startswith("your-"):
@@ -414,11 +452,108 @@ def student_streams(tabs):
     return out
 
 
+def stream_ids(s):
+    """一種類型認得的所有 id：自己的 id ＋ 舊 id（aliases）。
+
+    v3 alpha 把 counseling 併進 soap，所以 `--stream counseling` 也要打得中 soap。
+    本機檔名照設定裡的 id 走（`stream_file`），資料不必搬。
+    """
+    return [s.get("id")] + [a for a in (s.get("aliases") or []) if a]
+
+
 def find_stream(tabs, stream_id):
     for s in student_streams(tabs):
-        if s["id"] == stream_id:
+        if stream_id in stream_ids(s):
             return s
     return None
+
+
+# ── 學生卡片（goals／個案概念化）──────────────────────────────────────────
+# 兩塊「不是一則一則的記錄，而是一直被回頭改的底稿」：
+#   goals[]           IEP／早療的學年與學期目標（每一則 iep 記錄靠 `目標編號` 掛在某一條下）
+#   conceptualization 個案概念化（主訴／背景／評估假設／處遇目標／結案標準）
+# 本機住 data/students/<代號>/card.json，雲端住 students/<代號>；sync.py 雙向同步、衝突不覆蓋。
+CARD_FILE = "card.json"
+GOAL_KEYS = ("id", "領域", "學年目標", "學期目標", "評量方式", "評量標準", "期程")
+CONCEPT_KEYS = ("主訴", "背景", "評估假設", "處遇目標", "結案標準")
+
+
+def card_path(sid, data_root=None):
+    return os.path.join(data_root or data_dir(), "students", sid, CARD_FILE)
+
+
+def norm_goals(raw):
+    """goals[] 正規化：只留固定七個鍵、值一律字串、沒有 id 的自動編 G1、G2…"""
+    out = []
+    for i, g in enumerate(raw or [], 1):
+        if not isinstance(g, dict):
+            continue
+        gid = str(g.get("id") or "").strip() or "G%d" % i
+        item = {"id": gid}
+        for k in GOAL_KEYS[1:]:
+            item[k] = str(g.get(k) or "").strip()
+        out.append(item)
+    return out
+
+
+def norm_conceptualization(raw):
+    """個案概念化正規化：固定五格，缺的補空字串；全空回 {}。"""
+    raw = raw or {}
+    if not isinstance(raw, dict):
+        return {}
+    out = {k: str(raw.get(k) or "").strip() for k in CONCEPT_KEYS}
+    return out if any(out.values()) else {}
+
+
+def load_card(sid, data_root=None):
+    """讀一位學生的卡片；沒有這個檔回 {"id": sid, "goals": [], "conceptualization": {}}。"""
+    path = card_path(sid, data_root)
+    data = {}
+    if os.path.exists(path):
+        data = _load_json(path, "學生卡片 %s" % os.path.relpath(path, root()),
+                          "照 templates/card.example.json 的格式寫；"
+                          "或把它刪掉重跑 `python3 scripts/setup.py`。")
+    if not isinstance(data, dict):
+        data = {}
+    return {"id": data.get("id") or sid,
+            "goals": norm_goals(data.get("goals")),
+            "conceptualization": norm_conceptualization(data.get("conceptualization"))}
+
+
+def save_card(sid, card, data_root=None):
+    """寫回卡片（只寫 id／goals／conceptualization 三個鍵，其他鍵原樣保留）。"""
+    path = card_path(sid, data_root)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    old = {}
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                old = json.load(f)
+        except Exception:
+            old = {}
+    if not isinstance(old, dict):
+        old = {}
+    old.update({"id": card.get("id") or sid,
+                "goals": norm_goals(card.get("goals")),
+                "conceptualization": norm_conceptualization(card.get("conceptualization"))})
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(old, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    return path
+
+
+def card_fingerprint(card):
+    """卡片上這兩塊的指紋（判斷「本機改了沒／雲端改了沒」用）。"""
+    payload = json.dumps({"goals": norm_goals((card or {}).get("goals")),
+                          "conceptualization": norm_conceptualization(
+                              (card or {}).get("conceptualization"))},
+                         ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def stream_needs(streams, key):
+    """這些記錄類型裡，有沒有哪一種需要卡片上的 goals／conceptualization。"""
+    return [s for s in streams if ((s.get("card") or {}).get(key))]
 
 
 # ── 記錄目標 ────────────────────────────────────────────────────────────

@@ -125,7 +125,11 @@ def gather(data, kind, target, streams, dfrom, dto, with_class):
             sections.append({"title": "班級整體觀察",
                              "records": recs_of([t for t in tg if t["kind"] == "class"])})
         for sid in ids:
+            # 學生卡片上的底稿（IEP 目標／個案概念化）排在那一位的紀錄前面——
+            # 評鑑與個案報告一定要先看得到目標與概念化，才讀得懂後面每一則在追什麼。
+            card = lib.load_card(sid)
             sections.append({"title": student_title(sid, roster),
+                             "card": card,
                              "records": recs_of([t for t in tg
                                                  if t["kind"] == "students" and t["id"] == sid])})
         title = "學生記錄　%s" % ("全部學生" if target == "all" else student_title(ids[0], roster))
@@ -147,6 +151,23 @@ def gather(data, kind, target, streams, dfrom, dto, with_class):
         title = "%s　%s" % (KIND_LABEL[kind],
                             "全部" if target == "all" else items[0]["label"])
     return sections, title
+
+
+def card_blocks(card):
+    """學生卡片 → [(小節標題, [(鍵, 值)…])…]；卡片上這兩塊都空的就回空清單。
+
+    IEP 的每一條目標一個小節（目標編號當標題），個案概念化一個小節（固定五格）。
+    """
+    out = []
+    for g in ((card or {}).get("goals") or []):
+        rows = [(k, g.get(k, "")) for k in lib.GOAL_KEYS[1:] if str(g.get(k, "")).strip()]
+        if rows:
+            out.append(("目標 %s｜%s" % (g.get("id", ""), g.get("領域") or "（沒寫領域）"), rows))
+    con = (card or {}).get("conceptualization") or {}
+    rows = [(k, con.get(k, "")) for k in lib.CONCEPT_KEYS if str(con.get(k, "")).strip()]
+    if rows:
+        out.append(("個案概念化", rows))
+    return out
 
 
 def rec_heading(rec):
@@ -285,6 +306,9 @@ def document_xml(title, sub, sections):
     body = [_p(title, "Heading1"), _p(sub)]
     for sec in sections:
         body.append(_p(sec["title"], "Heading2"))
+        for sub, rows in card_blocks(sec.get("card")):
+            body.append(_p(sub, "Heading3"))
+            body.append(_table(rows))
         if not sec["records"]:
             body.append(_p(NO_RECORD))
             continue
@@ -346,6 +370,12 @@ def render_html(title, sub, sections):
          "<h1>%s</h1>" % xe(title), '<div class="sub">%s</div>' % xe(sub)]
     for sec in sections:
         L.append("<h2>%s</h2>" % xe(sec["title"]))
+        for sub, rows in card_blocks(sec.get("card")):
+            L.append("<h3>%s</h3>" % xe(sub))
+            L.append("<table>")
+            for k, v in rows:
+                L.append("<tr><th>%s</th><td>%s</td></tr>" % (xe(k), xe(v)))
+            L.append("</table>")
         if not sec["records"]:
             L.append('<p class="none">%s</p>' % NO_RECORD)
             continue

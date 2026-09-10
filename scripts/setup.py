@@ -15,11 +15,15 @@
   python3 scripts/setup.py --mark-step 4 --note "已部署"     把第 N 步標成完成（AI 部署完用）
 
 問法的原則（David 2026-09-10）：**全部勾選、沒有預設**——三個分頁都問「要不要」，
-學生記錄類型與業務組都把清單列出來讓老師勾，一個都不預設打勾。
+學生記錄類型與業務組都把清單列出來讓老師勾，一個都不預設打勾。學生段之前會先問一句
+「你最像哪一種？」（三個垂直方案：質性評量自動化／IEP 追蹤／SOAP 個案紀錄，見
+config/verticals.json），然後**唸出**那個方案建議勾的類型、業務組與期末格式——
+唸歸唸，一項都不會替老師勾起來。
 
 它會寫出：
   config/kit.json、config/tabs.json      你的設定（gitignored）
   data/…                                  空的資料骨架（名冊、每位學生每種記錄類型一檔、課程、業務組）
+  data/students/<代號>/card.json          學生卡片（IEP 的 goals、個案概念化；答案檔可給初始值）
   site/js/kit-config.js、site/js/firebase-config.js、firestore.rules  （呼叫 build_config.py）
   setup/progress.json                     安裝進度，AI 代理接手前先讀它
 
@@ -223,11 +227,44 @@ def read_legacy_yaml(path):
 
 
 # ── 問答 → 設定 ─────────────────────────────────────────────────────────
+def ask_vertical(ask, answers, verticals):
+    """學生段之前先問一句「你最像哪一種？」，唸出那個方案的建議——**一項都不預先勾**。
+
+    回傳 (vertical id 或 ""，這個方案的 suggest 字典)。答案檔用 `"vertical": "<id>"`；
+    填 "none" 或不填＝都不是，什麼建議都不唸。
+    """
+    vids = [v["id"] for v in verticals]
+    vid = str((answers or {}).get("vertical") or "").strip()
+    if ask.interactive:
+        ask.say("\n④-0 先問一件事，好讓我知道待會兒要建議你什麼（**只是建議，一項都不會幫你預先勾**）：")
+        idx = ask.pick("   你最像哪一種？",
+                       ["%s — %s" % (v["label"], v["pain"]) for v in verticals]
+                       + ["都不是（我自己勾）"])
+        vid = vids[idx] if idx < len(vids) else ""
+    if vid in ("none", "無", "都不是"):
+        vid = ""
+    if vid and vid not in vids:
+        lib.warn("config/verticals.json 裡沒有這個方案：%s（當成「都不是」）。" % vid)
+        vid = ""
+    v = next((x for x in verticals if x["id"] == vid), None)
+    if not v:
+        return "", {}
+    sug = v.get("suggest") or {}
+    ask.say("   ▸ 這一種老師通常會勾：記錄類型 %s；業務組 %s；期末用「%s」格式。"
+            % ("、".join(sug.get("streams") or []) or "（無）",
+               "、".join(sug.get("groups") or []) or "（無）",
+               sug.get("format") or "（無）"))
+    ask.say("   ▸ 語音改寫規則：%s" % (v.get("voiceRule") or ""))
+    ask.say("   ▸ 以上只是建議——下面每一項還是你自己勾，我不會替你打勾。")
+    return vid, sug
+
+
 def gather(ask, answers, existing_kit):
-    """回傳 (kit, tabs, student_ids, members)。
+    """回傳 (kit, tabs, student_ids, members, cards)。
 
     members＝{記錄類型 id: [學生代號…]}，也就是「哪些學生列入哪些個案型類型」，
     等一下由 build_data 寫進 data/roster.csv 第三欄。
+    cards＝{學生代號: {goals, conceptualization}}，寫進 data/students/<代號>/card.json。
     """
     a = answers or {}
     kit_ex = lib._load_json(lib.pkg_path("config", "kit.example.json"), "kit 範本", "")
@@ -282,21 +319,25 @@ def gather(ask, answers, existing_kit):
         n = int(n or 0)
         student_ids = ["%s-%02d" % (prefix.rstrip('-'), i) for i in range(1, n + 1)]
 
-    # 學生記錄：先問要不要，再勾記錄類型（導師班級／任課／個案／IEP／輔導晤談…）
+    # 三個垂直方案：先問「你最像哪一種」，唸出建議（不預勾），再照原本流程逐項勾。
+    vertical, suggest = ask_vertical(ask, a, (lib.load_verticals().get("verticals") or []))
+
+    # 學生記錄：先問要不要，再勾記錄類型（質性評量／導師班級／任課／個案／IEP／SOAP…）
     students_on = st_a.get("enabled", True)
     if ask.interactive:
         ask.say("\n⑤ 學生記錄＝一位學生一個檔，一則一則累積下來的觀察。")
         students_on = ask.yes("   要不要「學生記錄」分頁", True)
-    streams, members = [], {}
+    streams, members, cards = [], {}, {}
     if students_on:
         chosen_sids = list(st_a.get("streams") or [])
         if ask.interactive:
             ask.say("   學生記錄不能混在一起——導師的班級紀錄、任課老師的觀察、個案追蹤、")
             ask.say("   IEP、輔導晤談各是一種「記錄類型」，各有自己的欄位與分類詞。")
             idx = ask.multi("   勾選你要的記錄類型（可複選；一種都不勾也可以）",
-                            ["%s〔%s〕 — %s" % (s["label"],
-                                                "全班每一位" if s.get("scope") == "class" else "只有列入的學生",
-                                                s.get("desc", ""))
+                            ["%s〔%s〕%s — %s" % (s["label"],
+                                                  "全班每一位" if s.get("scope") == "class" else "只有列入的學生",
+                                                  "（建議）" if s["id"] in (suggest.get("streams") or []) else "",
+                                                  s.get("desc", ""))
                              for s in lib_streams])
             chosen_sids = [lib_streams[i]["id"] for i in idx]
         by_sid = {s["id"]: s for s in lib_streams}
@@ -315,9 +356,18 @@ def gather(ask, answers, existing_kit):
             if ask.interactive:
                 ask_extra_fields(ask, "   ", s["label"], fields)
                 ask_extra_tags(ask, "   ", s["label"], tags)
-            streams.append({"id": sid, "label": s["label"], "desc": s.get("desc", ""),
-                            "scope": s.get("scope", "class"), "fields": fields,
-                            "tags": lib.norm_tags(tags), "custom": False})
+            entry = {"id": sid, "label": s["label"], "desc": s.get("desc", ""),
+                     "scope": s.get("scope", "class"), "fields": fields,
+                     "tags": lib.norm_tags(tags), "custom": False}
+            # 舊 id（counseling → soap）與「這種類型要用到學生卡片的哪一塊」都帶著走，
+            # 網頁表單與 append_record.py 的目標編號檢查都靠它。
+            if s.get("aliases"):
+                entry["aliases"] = list(s["aliases"])
+            if s.get("card"):
+                entry["card"] = dict(s["card"])
+            if s.get("vertical"):
+                entry["vertical"] = s["vertical"]
+            streams.append(entry)
             members[sid] = list(ans_members.get(sid) or [])
 
         # 第二層開放選項：清單外的記錄類型（AI 問四件事）
@@ -365,6 +415,28 @@ def gather(ask, answers, existing_kit):
                 if got:
                     members[s["id"]] = split_list(got)
         members = {k: v for k, v in members.items() if v}
+
+        # 學生卡片：IEP 的 goals、SOAP 的個案概念化。答案檔可以先給初始值
+        # （students.cards.<代號>.goals／.conceptualization），互動安裝就只提示去哪裡填——
+        # 目標要一條一條打，在編輯器或網頁上填比在終端機問一輪快得多。
+        for sid, c in (st_a.get("cards") or {}).items():
+            if not isinstance(c, dict):
+                continue
+            entry = {}
+            if c.get("goals"):
+                entry["goals"] = lib.norm_goals(c["goals"])
+            if c.get("conceptualization"):
+                entry["conceptualization"] = lib.norm_conceptualization(c["conceptualization"])
+            if entry:
+                cards[str(sid)] = entry
+        if ask.interactive:
+            if lib.stream_needs(streams, "goals"):
+                ask.say("   ▸ IEP／早療的學年與學期目標填在 data/students/<代號>/card.json 的 goals"
+                        "（範本：templates/card.example.json，網頁上也能建）。"
+                        "記錄時的「目標編號」就是從那裡選；填了不存在的編號會被擋下來。")
+            if lib.stream_needs(streams, "conceptualization"):
+                ask.say("   ▸ 個案概念化（主訴／背景／評估假設／處遇目標／結案標準）填在同一個 "
+                        "card.json 的 conceptualization；結案報告會逐條對照「結案標準」。")
 
     # 課程
     c_a = a.get("courses") or {}
@@ -484,18 +556,24 @@ def gather(ask, answers, existing_kit):
     tabs["courses"]["list"] = courses
     tabs["business"]["enabled"] = bool(business_on)
     tabs["business"]["groups"] = groups
-    return kit, tabs, student_ids, members
+    # 垂直方案只是「這位老師比較像哪一種」的標記與期末的預設格式；勾了什麼仍以上面為準。
+    tabs["vertical"] = vertical
+    tabs["reportFormat"] = (a.get("report_format") or suggest.get("format") or "")
+    return kit, tabs, student_ids, members, cards
 
 
 # ── 資料骨架 ────────────────────────────────────────────────────────────
-def build_data(kit, tabs, student_ids, members=None):
+def build_data(kit, tabs, student_ids, members=None, cards=None):
     """建 data/ 骨架。已存在的檔案一律不覆蓋（重跑安裝不會弄丟任何紀錄）。
 
     members＝{記錄類型 id: [學生代號…]}：個案型類型「哪些學生列入」，寫進 roster.csv
     第三欄。名冊本來就有的姓名一個字都不會動——只補代號列與第三欄。
+    cards＝{學生代號: {goals, conceptualization}}：寫進 data/students/<代號>/card.json。
+    卡片已經有內容的那一塊不覆蓋（重跑安裝不會把老師打好的目標蓋掉）。
     """
     made = []
     members = members or {}
+    cards = cards or {}
     d = lib.data_dir()
     os.makedirs(d, exist_ok=True)
 
@@ -541,6 +619,17 @@ def build_data(kit, tabs, student_ids, members=None):
             with open(p, "w", encoding="utf-8") as f:
                 f.write(lib.file_header("class", "main", "班級整體觀察", s.get("label") or s["id"]))
             made.append(p)
+    # ── 學生卡片（IEP 目標／個案概念化）──
+    for sid, c in sorted(cards.items()):
+        old = lib.load_card(sid, d)
+        new = dict(old)
+        if c.get("goals") and not old.get("goals"):
+            new["goals"] = c["goals"]
+        if c.get("conceptualization") and not old.get("conceptualization"):
+            new["conceptualization"] = c["conceptualization"]
+        if new != old or not os.path.exists(lib.card_path(sid, d)):
+            made.append(lib.save_card(sid, new, d))
+
     for c in ((tabs.get("courses") or {}).get("list") or []):
         p = os.path.join(d, "courses", c["id"], "records.md")
         if not os.path.exists(p):
@@ -678,7 +767,7 @@ def main():
         print("一次問一題，不確定就先按 Enter 用預設值，之後改 config/kit.json 再跑")
         print("`python3 scripts/build_config.py` 就會生效。\n")
 
-    kit, tabs, student_ids, members = gather(ask, answers, existing_kit)
+    kit, tabs, student_ids, members, cards = gather(ask, answers, existing_kit)
 
     kit_path = lib.rpath(lib.KIT_JSON)
     tabs_path = lib.rpath(lib.TABS_JSON)
@@ -691,8 +780,16 @@ def main():
     lib.ok("寫好 %s" % os.path.relpath(kit_path, lib.root()))
     lib.ok("寫好 %s" % os.path.relpath(tabs_path, lib.root()))
 
-    made = build_data(kit, tabs, student_ids, members)
+    made = build_data(kit, tabs, student_ids, members, cards)
     lib.ok("資料骨架：新建 %d 個檔（已存在的一個都沒動）" % len(made))
+    if tabs.get("vertical"):
+        v = lib.find_vertical(tabs["vertical"])
+        print("  方案：%s（期末預設格式 %s；只是預設，report_pack.py --format 隨時可換）"
+              % ((v or {}).get("label") or tabs["vertical"], tabs.get("reportFormat") or "—"))
+    if cards:
+        print("  學生卡片 %d 張：%s（IEP 目標／個案概念化，之後改 "
+              "data/students/<代號>/card.json 或在網頁上改）"
+              % (len(cards), "、".join(sorted(cards))))
     streams = (tabs.get("students") or {}).get("streams") or []
     if streams:
         print("  學生記錄類型 %d 種：%s" % (

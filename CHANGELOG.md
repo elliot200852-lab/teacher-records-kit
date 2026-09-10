@@ -14,6 +14,29 @@
 
 - repo 轉為私有、邀請制、收費（授權條款 placeholder，見 `LICENSE`）。
 - 三個分頁：學生記錄／課程記錄／業務記錄；每頁內建「這一頁需要什麼資料」說明框。
+- **學生記錄收斂為三個高痛點垂直方案**（David 2026-09-10）：①實驗教育／私校的**質性評量自動化**
+  （新類型 `qualitative`）②特教／早療的 **IEP 目標追蹤**（`iep` 擴欄，掛在學生卡片的 `goals[]` 下）
+  ③諮商／教練／社工的 **SOAP 個案紀錄**（`soap`，`counseling` 併進來、靠 `aliases` 讀舊設定）。
+  每個方案＝一種記錄類型（欄位都有一行 `hint` 引導、`type` 分 text／date／select／multiselect／goal）
+  ＋一種期末產出格式＋一條語音改寫規則。安裝精靈在學生段之前先問「你最像哪一種」，**唸出**建議的
+  類型、業務組與格式，**一項都不預先勾**（`config/verticals.json`；答案檔用 `vertical` 鍵）。
+- **學生卡片 `data/students/<代號>/card.json`**（雲端＝`students/<代號>`）：多 `goals[]`
+  （id／領域／學年目標／學期目標／評量方式／評量標準／期程）與 `conceptualization`
+  （主訴／背景／評估假設／處遇目標／結案標準）。`sync.py` 雙向同步這兩塊——只有一邊改就照那一邊、
+  兩邊都改就印出來讓老師自己決定，跟記錄同一條「不覆蓋」規則。`append_record.py` 的「目標編號」
+  必須是卡片上真的有的目標，填錯會被擋下來並列出可用目標；複選欄位可以直接給陣列，用「／」串起來寫檔。
+- **期末一鍵素材包 `scripts/report_pack.py`**：`--format waldorf-homeroom|subject-4|iep-tracking|
+  case-summary|custom --target <代號>|--all`。依格式把整年的紀錄分好組（質性＝報告維度→面向→課程；
+  IEP＝每目標一表、日期序達成情形、零紀錄目標會提示；SOAP＝依會談次數的 S／O／A／P 與風險趨勢），
+  附統計與缺漏，輸出 `exports/<代號>-<格式>-素材包.md` 與 `-prompt.md`（校方格式骨架＋書寫規則＋
+  定稿稽核清單＋一段固定指令）。`--all` 另出 `_index.md` 全班總表。**這支不呼叫任何 LLM、不生成
+  任何評語**——本文由老師的 AI 代理照 prompt 寫、由老師定稿，所以每次跑出來都一樣。
+- **格式庫 `config/report-formats.library.json`**：五種格式，每種帶 `sections`（標題／提示／字數）、
+  `rules`（稱名不稱全名、人稱一律「他」、先事實後判斷、每則一個下一步、禁「不是A而是B」等對比句、
+  禁定型語言、困難要交代情境與支持、情意觀察不打等級）與 `audit`（定稿前的全班稽核清單）。
+  結構取自使用者現行的評量系統與書寫準則、IEP 法定內容與 SOAP 慣例——**只抄結構，零學生內容**。
+  `custom` 讓老師把校方格式貼進 `config/report-format.custom.json`（範本在 `templates/`）。
+- `export_docs.py` 匯出學生時，卡片上的 IEP 目標與個案概念化排在他的紀錄前面。
 - **學生記錄再分「記錄類型」**（導師班級學生紀錄／任課老師學生紀錄／個案追蹤／IEP／輔導晤談＋清單外開放選項）：
   一種類型一組欄位與分類詞、一個本機檔（`data/students/<代號>/<類型>.md`，導師班級紀錄沿用 v2 的
   `observations.md`）；雲端同一個集合靠必填的 `stream` 欄位分流；`scope:case` 的類型只涵蓋

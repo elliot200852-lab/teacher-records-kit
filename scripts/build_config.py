@@ -133,6 +133,12 @@ def build_kit_js(kit, tabs, library, stream_library):
         "ownerEmail": kit.get("owner_email", ""),
         "idPrefix": lib.id_prefix(kit),
         "tabs": {k: tabs.get(k, {}) for k in ("students", "courses", "business")},
+        # 三個垂直方案：這位老師比較像哪一種（安裝時問的），與期末的預設報告格式。
+        "vertical": tabs.get("vertical", ""),
+        "reportFormat": tabs.get("reportFormat", ""),
+        # 期末「產生素材」按鈕的格式清單與方案清單（正本＝config/ 底下那兩個檔）。
+        "reportFormats": (lib.load_report_formats().get("formats") or []),
+        "verticals": (lib.load_verticals().get("verticals") or []),
         "businessLibrary": [g for g in (library.get("groups") or []) if not g.get("open")],
         # 網頁「＋ 新增記錄類型」的可選清單。open:true 的那筆是安裝時的開放選項
         # （「我的類型不在清單裡」），不是真的類型，不給網頁。

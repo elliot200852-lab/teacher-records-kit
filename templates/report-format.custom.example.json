@@ -1,0 +1,17 @@
+{
+  "_註解_這個檔是什麼": "`report_pack.py --format custom` 用的校方格式。把你們學校要求的報告標題、每段要寫什麼、字數限制貼進來，複製成 config/report-format.custom.json（那個檔是你的，gitignored）。",
+  "_註解_怎麼用": "cp templates/report-format.custom.example.json config/report-format.custom.json　然後照你們學校的表格改 sections。groupBy＝素材包要依哪個欄位分組（填你在記錄時實際用的欄位名，例如「報告維度」「觀察向度」「科目」）；dimensions＝一定要列出來的分組（沒有紀錄的也會列出來並標成缺漏），留空就照實際出現的分組列。",
+  "id": "custom",
+  "label": "○○國小 學期學習評量表",
+  "groupBy": ["報告維度"],
+  "dimensions": [],
+  "sections": [
+    {"title": "學習表現", "length": "150 字以內", "hint": "校方要求：課堂參與與學習成果。"},
+    {"title": "生活常規", "length": "100 字以內", "hint": "校方要求：作息、整潔、規則。"},
+    {"title": "特殊表現與建議", "length": "100 字以內", "hint": "校方要求：亮點與下學期方向。"}
+  ],
+  "rules": [
+    "（可自行增修；留空的話 report_pack.py 會用格式庫 custom 的通用規則）"
+  ],
+  "audit": []
+}

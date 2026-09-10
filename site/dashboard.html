@@ -95,11 +95,72 @@
 
   /* ── 業務記錄：欄位表單與欄位表 ── */
   .field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap: .5rem; margin-bottom: .5rem; }
-  .field-grid label { font-size: .82rem; color: #555; display: block; }
-  .field-grid label span { display: block; margin-bottom: .15rem; }
-  table.fields { border-collapse: collapse; margin: .1rem 0 .6rem; font-size: .86rem; }
+  .field-grid label { font-size: .82rem; color: #555; display: block; min-width: 0; }
+  .field-grid label span.fld-name { display: block; margin-bottom: .15rem; }
+  /* 欄位引導：每個欄位下方一行灰字（v3 §3.6「記錄時每個欄位要有引導」）*/
+  .field-grid .fld-hint { display: block; font-size: .76rem; color: #999; line-height: 1.55; margin: -.25rem 0 .1rem; word-break: break-word; }
+  /* 多選欄位＝一排可多選 chip（值以「／」串成字串存進 fields）*/
+  .ms-chips { display: flex; flex-wrap: wrap; gap: .3rem; margin: 0 0 .35rem; }
+  .ms-chips button { padding: .22rem .65rem; background: #fff; color: #555; border: 1px solid #d6d6d6; border-radius: 999px;
+                     cursor: pointer; font: inherit; font-size: .8rem; }
+  .ms-chips button.on { background: var(--brand); color: #fff; border-color: var(--brand); font-weight: 600; }
+  .fld-goal-empty { font-size: .78rem; color: var(--todo); line-height: 1.6; margin: 0 0 .35rem; }
+  table.fields { border-collapse: collapse; margin: .1rem 0 .6rem; font-size: .86rem; max-width: 100%; }
   table.fields th { text-align: left; color: var(--muted); font-weight: 600; padding: .15rem .8rem .15rem 0; vertical-align: top; white-space: nowrap; }
-  table.fields td { padding: .15rem 0; color: #333; }
+  table.fields td { padding: .15rem 0; color: #333; word-break: break-word; }
+
+  /* ── 記錄卡：SOAP 四段版面 ── */
+  .soap-block { margin: .1rem 0 .55rem; }
+  .soap-seg { display: flex; gap: .55rem; align-items: flex-start; padding: .3rem 0; border-bottom: 1px dotted #ececec; }
+  .soap-seg:last-child { border-bottom: none; }
+  .soap-key { flex: none; width: 4.6rem; font-size: .8rem; font-weight: 700; color: #5b4b8a; line-height: 1.7; }
+  .soap-val { flex: 1; min-width: 0; font-size: .89rem; line-height: 1.7; color: #333; white-space: pre-wrap; word-break: break-word; }
+  .soap-val.none { color: #bbb; }
+
+  /* ── 明細頁頂端的卡（IEP 目標清單／SOAP 個案概念化）── */
+  .detail-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: .85rem .95rem; margin: 0 0 1rem; }
+  .dc-head { display: flex; justify-content: space-between; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .5rem; }
+  .dc-title { font-size: 1rem; font-weight: 700; color: #333; }
+  .dc-hint { font-size: .78rem; color: #999; line-height: 1.65; margin: 0 0 .5rem; }
+  .dc-btn { padding: .28rem .8rem; background: #fff; border: 1px solid var(--brand); color: var(--brand);
+            border-radius: 4px; cursor: pointer; font: inherit; font-size: .82rem; }
+  .goal-row { border-top: 1px solid #f0f0f0; padding: .55rem 0 .5rem; }
+  .goal-row:first-of-type { border-top: none; }
+  .goal-top { display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; }
+  .goal-id { font-weight: 700; color: var(--brand); font-size: .88rem; }
+  .goal-dom { font-size: .78rem; color: #666; background: #f2f4f7; border-radius: 999px; padding: .05rem .5rem; }
+  .goal-main { font-size: .9rem; color: #222; line-height: 1.7; margin: .2rem 0; word-break: break-word; }
+  .goal-sub { font-size: .78rem; color: #888; line-height: 1.7; word-break: break-word; }
+  .goal-stat { font-size: .8rem; color: var(--ok); font-weight: 600; margin-top: .2rem; }
+  .goal-stat.zero { color: #aaa; font-weight: 400; }
+  .goal-btns { display: flex; gap: .35rem; flex-wrap: wrap; margin-top: .35rem; }
+  .goal-btns button { padding: .2rem .65rem; border-radius: 4px; cursor: pointer; font: inherit; font-size: .78rem;
+                      background: #fff; border: 1px solid #ccc; color: #555; }
+  .goal-btns button.del { border-color: #e6b4ae; color: var(--todo); }
+  .goal-form { border-top: 1px solid #eee; margin-top: .6rem; padding-top: .6rem; }
+  .goal-form input, .goal-form select, .conc-form textarea, .conc-form input {
+    width: 100%; padding: .42rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; margin-bottom: .35rem; background: #fff; }
+  .goal-form .gf-row { display: flex; gap: .45rem; flex-wrap: wrap; }
+  .goal-form .gf-row > * { flex: 1 1 130px; min-width: 0; }
+  .conc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px,1fr)); gap: .5rem; }
+  .conc-grid label { font-size: .82rem; color: #555; display: block; min-width: 0; }
+  .conc-grid label > span { display: block; margin-bottom: .15rem; font-weight: 600; }
+  .conc-view dt { font-size: .8rem; font-weight: 700; color: #5b4b8a; margin-top: .45rem; }
+  .conc-view dd { margin: 0; font-size: .88rem; color: #333; line-height: 1.7; word-break: break-word; }
+  .conc-view dd.none { color: #bbb; }
+
+  /* ── 方案卡（「你最像哪一種？」；點一張只加建議徽章，不自動勾）── */
+  .vert-box { border-bottom: 1px solid #eee; padding-bottom: .7rem; margin-bottom: .7rem; }
+  .vert-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap: .45rem; }
+  .vert-card { text-align: left; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: .55rem .7rem;
+               cursor: pointer; font: inherit; width: 100%; line-height: 1.6; }
+  .vert-card:hover { border-color: var(--brand); }
+  .vert-card.on { border-color: var(--brand); background: #f4f8fc; box-shadow: 0 0 0 2px rgba(47,122,196,.12); }
+  .vert-card .v-label { font-size: .88rem; font-weight: 700; color: #333; display: block; }
+  .vert-card .v-pain { font-size: .78rem; color: #8a8a8a; display: block; margin-top: .2rem; }
+  .vert-card .v-sug { font-size: .76rem; color: #1f5c96; display: block; margin-top: .3rem; }
+  .lib-item .sug-badge { display: inline-block; margin-left: .3rem; padding: .02rem .45rem; border-radius: 999px;
+                         background: #eef4fb; color: #1f5c96; border: 1px solid #cfe0f2; font-size: .72rem; font-weight: 600; }
 
   /* ── 關聯 ── */
   .rel-chips { display: flex; flex-wrap: wrap; gap: .35rem; margin: .1rem 0 .5rem; }
@@ -195,6 +256,12 @@
     .record-card { padding: .8rem .9rem; }
     .tab-btn { padding: .45rem .7rem; font-size: .95rem; }
     .field-grid { grid-template-columns: 1fr; }
+    .conc-grid, .vert-grid { grid-template-columns: 1fr; }
+    .soap-seg { flex-direction: column; gap: .1rem; }
+    .soap-key { width: auto; }
+    /* 窄螢幕上欄位表比較容易撐寬——只讓表格自己橫向捲，頁面本身不捲 */
+    .rc-fields { overflow-x: auto; }
+    .exp-menu { right: auto; left: 0; min-width: 10rem; max-width: calc(100vw - 2.4rem); }
   }
 </style>
 </head>
@@ -264,6 +331,8 @@
               <button class="add-btn" id="add-member-btn" type="button" hidden>＋ 列入學生</button>
               <button class="add-btn" id="open-class-obs" style="background:#5a6b8c" type="button">📋 班級整體觀察</button>
               <button class="add-btn exp-btn" id="export-all-btn" type="button">匯出所有學生 ▾</button>
+              <!-- 期末素材（全班）：一份 .md、每位學生一節，檔尾附給 AI 的 prompt -->
+              <span class="export-host" id="pack-all-host"></span>
             </div>
           </div>
           <!-- 匯出所有學生：一份文件、每位學生一節（含姓名與代號），沒有記錄的也列出來 -->
@@ -335,8 +404,13 @@
         <!-- 匯出 ▾（Word／PDF）：學生、班級整體觀察、課程、業務明細共用同一顆，
              選單內容由 renderExportUI() 依當前明細的種類生出來。 -->
         <span class="export-host" id="export-host" hidden></span>
+        <!-- 產生期末素材 ▾：列 KIT.reportFormats 中 for 含當前記錄類型的格式，
+             下載 <姓名（代號）>-<格式>-素材包.md（分組素材＋檔尾給 AI 的 prompt）。 -->
+        <span class="export-host" id="pack-host" hidden></span>
       </div>
       <div id="detail-streams" class="stream-mini" hidden></div>
+      <!-- 明細頁頂端的卡：IEP 的「目標清單」、SOAP 的「個案概念化」（依當前類型的 card 決定） -->
+      <div id="detail-cards"></div>
       <div id="add-form" class="add-form" hidden>
         <div class="add-row">
           <input id="add-date" type="date">
@@ -441,12 +515,41 @@ const KIT_VERSION = (KIT && KIT.version) ? String(KIT.version) : '';
 // meta/config.studentStreams（同一個形狀），開頁時兩邊合併。
 const STREAM_LIB = (KIT && KIT.studentStreamLibrary) || [];
 let STREAMS = ((tabCfg('students').streams) || []).slice();
-function streamById(id) { return STREAMS.find(s => s.id === id) || null; }
+// aliases：類型併掉舊類型時（counseling → soap）舊紀錄的 stream 值還是舊 id，
+// 這裡一併認下來，不然那些紀錄會變成沒人看得到的孤兒。
+function streamById(id) {
+  if (!id) return null;
+  return STREAMS.find(s => s.id === id)
+      || STREAMS.find(s => (s.aliases || []).indexOf(id) !== -1) || null;
+}
 function streamLabel(id) { const s = streamById(id); return (s && s.label) || id; }
 // 沒有註明類型的舊紀錄（v2 留下來的）一律當成第一種 class 範圍的類型。
 function fallbackStream() { const s = STREAMS.find(x => x.scope !== 'case'); return s ? s.id : (STREAMS[0] ? STREAMS[0].id : ''); }
-function recStream(r) { return (r && r.stream) || fallbackStream(); }
+function recStream(r) {
+  const raw = (r && r.stream) || '';
+  if (!raw) return fallbackStream();
+  const st = streamById(raw);
+  return st ? st.id : raw;
+}
 function streamTags(st) { return (st && st.tags && st.tags.length) ? st.tags : (tabCfg('students').categories || []); }
+
+// ══ v3 §3.6：三個高痛點垂直方案 ════════════════════════════════════════
+// 記錄類型可以帶 card：{goals:true} ＝這個類型的學生明細頁頂端有「目標清單」（IEP）；
+//                      {conceptualization:true} ＝有「個案概念化」（SOAP）。
+// 質性評量不靠 id 認，靠「有沒有『報告維度』這個欄位」——期末素材照那五個維度分組，
+// 老師把類型改名或自己另開一種同形狀的，一樣走得通。
+const MULTI_SEP = '／';                                   // 多選值以「／」串成字串存進 fields
+const SOAP_KEYS = ['S 主觀', 'O 客觀', 'A 評估', 'P 計畫'];
+const CONCEPT_KEYS = ['主訴', '背景', '評估假設', '處遇目標', '結案標準'];
+const GOAL_KEYS = ['領域', '學年目標', '學期目標', '評量方式', '評量標準', '期程'];
+const GOAL_DOMAINS = ['認知', '溝通', '語言', '行動', '動作', '情緒行為', '社會情緒', '社會', '生活自理', '學業'];
+function streamCard(st) { return (st && st.card) || {}; }
+function streamHasGoals(st) { return !!streamCard(st).goals; }
+function streamHasConcept(st) { return !!streamCard(st).conceptualization; }
+function streamField(st, name) { return ((st && st.fields) || []).find(f => f.name === name) || null; }
+function streamIsQualitative(st) { return !!streamField(st, '報告維度'); }
+function fieldOptions(st, name) { const f = streamField(st, name); return (f && f.options) || []; }
+function splitMulti(v) { return String(v == null ? '' : v).split(MULTI_SEP).map(x => x.trim()).filter(Boolean); }
 
 // ══ Store 介面 ════════════════════════════════════════════════════════
 // roster() / listCards(kind) / setCard(kind,id,data) / listRecords(kind,target)
@@ -477,26 +580,71 @@ function demoSeed() {
   // ── 這份示範資料要用到的三種記錄類型 ──
   // 老師實際勾的是哪幾種由設定決定，所以這裡是「找一種 class 範圍的、
   // 找兩種 case 範圍的」，找不到就那一段不種。
+  // 三個垂直方案各認自己那一種；認不到就退回「第一種 class／第一種還沒被佔走的 case」。
   const has = id => STREAMS.some(x => x.id === id);
-  const classStream = has('homeroom') ? 'homeroom' : ((STREAMS.filter(x => x.scope !== 'case')[0] || {}).id || '');
-  const caseStreams = STREAMS.filter(x => x.scope === 'case').map(x => x.id);
-  const caseStream = has('case') ? 'case' : (caseStreams[0] || '');
-  const iepStream = has('iep') ? 'iep' : (caseStreams.filter(x => x !== caseStream)[0] || '');
+  const qualStream = has('qualitative') ? 'qualitative' : '';
+  const iepStream = has('iep') ? 'iep' : '';
+  const soapStream = has('soap') ? 'soap' : (has('counseling') ? 'counseling' : '');
+  const classStream = qualStream || (has('homeroom') ? 'homeroom' : ((STREAMS.filter(x => x.scope !== 'case')[0] || {}).id || ''));
+  const taken = [iepStream, soapStream].filter(Boolean);
+  const caseStream = has('case') ? 'case'
+    : ((STREAMS.filter(x => x.scope === 'case' && taken.indexOf(x.id) === -1)[0] || {}).id || '');
 
-  // ── 名冊：12 位。個案追蹤 3 位、IEP 2 位，其中 1 位兩邊都在 ──
+  // ── 名冊：12 位。個案追蹤 3 位、IEP 2 位、SOAP 2 位（有重疊）──
   const students = [];
   for (let i = 1; i <= 12; i++) students.push({ id: sid(i), name: DEMO_NAMES[i-1] || ('學生' + i), streams: [] });
   const join = (n, ids) => {
     const s = students[n-1]; if (!s) return;
     ids.filter(Boolean).forEach(x => { if (s.streams.indexOf(x) === -1) s.streams.push(x); });
   };
-  join(4,  [caseStream]);
+  join(4,  [caseStream, soapStream]);
   join(7,  [caseStream, iepStream]);   // 這位兩種都在
-  join(11, [caseStream]);
+  join(11, [caseStream, soapStream]);
   join(2,  [iepStream]);
 
   const cards = { students: {}, courses: {}, business: {} };
   students.forEach(s => { cards.students[s.id] = { name: s.name }; });
+
+  // ── IEP：學生卡上的目標清單（students/{id}.goals）──
+  // 每位兩個目標；下面的 iep 記錄用「目標編號」對回這裡，目標旁就會出現
+  //「已記 N 則・最近達成情形」。
+  if (iepStream) {
+    cards.students[sid(7)].goals = [
+      { id: 'G1', 領域: '學業', 學年目標: '能在課堂時間內完成主課本的抄寫工作',
+        學期目標: '能在提示下完成主課本抄寫的前三行', 評量方式: '課堂觀察＋工作本檢核',
+        評量標準: '連續四週有三週達成', 期程: '秋季（9–1 月）' },
+      { id: 'G2', 領域: '情緒行為', 學年目標: '能在情緒升高時使用一種自我調節方式',
+        學期目標: '能在老師提示下走到教室後方的安靜角待兩分鐘', 評量方式: '事件記錄',
+        評量標準: '每月至少三次自行使用', 期程: '秋季（9–1 月）' },
+    ];
+    cards.students[sid(2)].goals = [
+      { id: 'G1', 領域: '生活自理', 學年目標: '能自己準備隔天上學要用的東西',
+        學期目標: '每天能自己收拾書包並帶齊隔天用品', 評量方式: '家長回報＋晨間檢查',
+        評量標準: '一週五天中有四天做到', 期程: '秋季（9–1 月）' },
+      { id: 'G2', 領域: '認知', 學年目標: '能依圖示清單完成兩步驟以上的指令',
+        學期目標: '能看四格圖示清單完成整理座位', 評量方式: '課堂觀察',
+        評量標準: '連續三週每週至少三次', 期程: '秋季（9–1 月）' },
+    ];
+  }
+
+  // ── SOAP：個案卡上的個案概念化（students/{id}.conceptualization）──
+  if (soapStream) {
+    cards.students[sid(4)].conceptualization = {
+      主訴: '午休一直哭，說沒有人要跟他玩。',
+      背景: '中年級轉入，原班有一位固定玩伴，轉入後尚未建立新的同儕連結；家中排行最小。',
+      評估假設: '不是社交技巧缺乏，而是進入新團體時缺少一個「被邀請」的起點；被拒絕的經驗被他記得很細，形成預期。',
+      處遇目標: '每週能有一次由他自己發起、且被接受的邀請。',
+      結案標準: '連續四週午休有穩定的同伴，且他能自己說出兩次成功的邀請經驗。',
+    };
+    cards.students[sid(11)].conceptualization = {
+      主訴: '長期缺席後回校，進教室前會在走廊站很久。',
+      背景: '上學期因病缺席七週；回校後課業落後兩個單元，家長對進度焦慮。',
+      評估假設: '進教室的門檻來自「跟不上」的預期，而不是拒學；家長的焦慮讓他更難開口說不會。',
+      處遇目標: '兩週內能在上課鐘響前自己進教室。',
+      結案標準: '連續三週準時進教室，且能在課堂上主動說一次「我不會」。',
+    };
+  }
+
   cards.courses['秋-分數'] = { title: '分數', kind: 'main', season: '秋', weeks: '秋1–3', teacherName: '（我）', order: 1 };
   cards.courses['秋-地方探究'] = { title: '地方探究', kind: 'main', season: '秋', weeks: '秋4–6', teacherName: '（我）', order: 2 };
   cards.courses['音樂'] = { title: '音樂', kind: 'subject', season: '', weeks: '', teacherName: '林老師', order: 3 };
@@ -523,25 +671,56 @@ function demoSeed() {
   const putS = (stream, n, rid, r) => { if (!stream) return; put('students', sid(n), rid, Object.assign({ stream }, r)); };
   const putB = (gid, rid, r) => { if (!cards.business[gid]) return; put('business', gid, rid, r); };
 
-  // ── 導師班級學生紀錄（全班都在裡面）──
-  putS(classStream, 1, d(3), { date: d(3), tags: ['#課堂','#專注意志'],
+  // ── 質性評量觀察（全班都在裡面）──
+  // 每一則都先標好「面向／報告維度／課程／證據來源／指標」，期末的素材包就是
+  // 照這幾個欄位分組出來的（報告維度 → 面向 → 課程）。
+  // 如果老師勾的 class 範圍類型不是質性評量（例如是導師班級學生紀錄），
+  // putQ 會把 fields 拿掉，只留正文——那一種類型本來就沒有這些欄位。
+  const putQ = (n, rid, r) => {
+    if (!classStream) return;
+    const rec = Object.assign({}, r);
+    if (classStream !== qualStream) delete rec.fields;
+    putS(classStream, n, rid, rec);
+  };
+  putQ(1, d(3), { date: d(3), tags: ['#課堂','#專注意志'],
+    fields: { '面向': '頭·思考／手·意志', '報告維度': '①行為與自我管理', '課程': '數學（分數）',
+              '證據來源': '課堂觀察', '指標': '第3條 需輔助完成' },
     body: '晨圈唱歌時整個人是醒的，跟著節奏踏步沒有落拍。第三節數學課寫到第四題就開始轉筆、看窗外，我走過去他才回來。今天他自己說「我知道我又飄走了」——他開始看得見自己了。' });
-  putS(classStream, 1, d(10), { date: d(10), tags: ['#人際'],
+  putQ(1, d(10), { date: d(10), tags: ['#人際'],
+    fields: { '面向': '社群·人際／心·情感', '報告維度': '②人際互動', '課程': '下課時間', '證據來源': '課堂觀察' },
     body: '下課跟' + sid(5) + ' 為了球場搶到，兩個人都很大聲。我讓他們各講一次，他先讓步，說「那我等下一輪」。',
     related: ['students/' + sid(5) + '/' + d(10)] });
-  putS(classStream, 5, d(10), { date: d(10), tags: ['#人際','#情緒'],
+  putQ(5, d(10), { date: d(10), tags: ['#人際','#情緒'],
+    fields: { '面向': '心·情感／社群·人際', '報告維度': '②人際互動', '課程': '下課時間', '證據來源': '課堂觀察' },
     body: '球場那件事她哭了一下，但沒有跑走，留在原地把話講完。比起上學期，她現在願意留在衝突現場。',
     related: ['students/' + sid(1) + '/' + d(10)] });
-  putS(classStream, 3, d(1), { date: d(1), tags: ['#突破','#主課程'],
+  putQ(3, d(1), { date: d(1), tags: ['#突破','#主課程'],
+    fields: { '面向': '頭·思考', '報告維度': '③學習態度與能力', '課程': '數學（分數）',
+              '證據來源': '工作本', '指標': '第1條 可獨立完成' },
     body: '分數的分子分母，她一直卡在「為什麼下面大反而小」。今天用切蛋糕的圖，她自己畫到第三張就喊出來了。' });
-  putS(classStream, 3, d(20), { date: d(20), tags: ['#親師'],
+  putQ(3, d(20), { date: d(20), tags: ['#親師'],
+    fields: { '面向': '手·意志', '報告維度': '⑤挑戰與方向', '課程': '回家功課', '證據來源': '親師' },
     body: '媽媽在聯絡簿寫說她晚上寫功課會拖到十點。回覆建議先做二十分鐘就休息，一週後再看。',
     related: ['business/homeroom/' + d(20)] });
-  putS(classStream, 7, d(6), { date: d(6), tags: ['#情緒'],
+  putQ(7, d(6), { date: d(6), tags: ['#情緒'],
+    fields: { '面向': '心·情感', '報告維度': '⑤挑戰與方向', '課程': '晨圈', '證據來源': '身體' },
     body: '這週有兩天早上進教室就趴著。問他只說「沒事」。已跟輔導老師談過，先做兩週的觀察。' });
-  putS(classStream, 9, d(2), { date: d(2), tags: ['#學習態度'],
+  putQ(9, d(2), { date: d(2), tags: ['#學習態度'],
+    fields: { '面向': '手·意志／頭·思考', '報告維度': '③學習態度與能力', '課程': '主課程',
+              '證據來源': '工作本', '指標': '第2條 可獨立完成' },
     body: '主課本抄寫變工整了，自己在頁邊畫了小圖。他說「這樣我比較想寫」。' });
-  putS(classStream, 12, d(35), { date: d(35), tags: ['#生活'],
+  putQ(9, d(16), { date: d(16), tags: ['#突破'],
+    fields: { '面向': '頭·思考／心·情感', '報告維度': '④內在特質與個人發展', '課程': '地方探究', '證據來源': '口說' },
+    body: '訪談完回來的分享，他第一次講超過一分鐘還沒停。講到那位修鞋的老先生時，聲音慢下來了。' });
+  putQ(6, d(8), { date: d(8), tags: ['#課堂'],
+    fields: { '面向': '手·意志', '報告維度': '①行為與自我管理', '課程': '直笛', '證據來源': '身體',
+              '指標': '第4條 需輔助完成' },
+    body: '拿出直笛到吹第一個音之間要三分鐘。今天把譜架先放好之後，剩不到一分鐘。' });
+  putQ(10, d(13), { date: d(13), tags: ['#人際','#生活'],
+    fields: { '面向': '社群·人際', '報告維度': '④內在特質與個人發展', '課程': '掃地時間', '證據來源': '課堂觀察' },
+    body: '看到低年級的孩子拖不動水桶，他放下自己的掃把先去幫忙，回來才把自己那區掃完。' });
+  putQ(12, d(35), { date: d(35), tags: ['#生活'],
+    fields: { '面向': '手·意志', '報告維度': '①行為與自我管理', '課程': '掃地時間', '證據來源': '課堂觀察' },
     body: '掃地時間會主動把畚箕倒乾淨，不用人講。（這則是上個月的，卡片上就會顯示本月未記。）' });
 
   // ── 個案追蹤（只有被列入的三位）──
@@ -560,15 +739,73 @@ function demoSeed() {
     fields: { '來源': '輔導室', '主訴／議題': '長期缺席後回校的適應', '處遇／介入': '前兩週只要求到校，不要求進度', '追蹤與下次': d(-5) },
     body: '（這則是上個月的，卡片上就會顯示本月未記。）' });
 
-  // ── IEP 個案追蹤（兩位，其中一位與個案追蹤重疊）──
+  // ── IEP 個案追蹤（兩位，每位兩個目標）──
+  // 每一則的「目標編號」對回學生卡上的 goals；明細頁的目標清單就靠這個欄位
+  // 算出「已記 N 則・最近達成情形」，期末素材包也照目標一個一個出表。
+  // S-07 的 G2 故意一則都沒有——期末的表要看得到「本期無紀錄」。
   putS(iepStream, 7, d(11), { date: d(11), tags: ['#個案會議'],
-    fields: { '本期目標': '能在提示下完成主課本抄寫的前三行', '觀察': '需要口語提示兩次以上才起筆', '調整／支持': '抄寫格放大、行數減半', '會議決議': '下次個案會議前先做兩週紀錄' },
-    body: '會議上媽媽同意先減量、不減難度。' });
+    fields: { '目標編號': 'G1', '達成情形': '初步', '證據': '觀察',
+              '支持策略': '抄寫格放大、行數減半', '下一步': '下週改成只提示一次就等他起筆' },
+    body: '需要口語提示兩次以上才起筆。會議上媽媽同意先減量、不減難度。' });
+  putS(iepStream, 7, d(4), { date: d(4), tags: ['#IEP'],
+    fields: { '目標編號': 'G1', '達成情形': '部分達成', '證據': '作品',
+              '支持策略': '先把譜線描好再抄', '下一步': '把描好的線減成兩行' },
+    body: '前三行抄完了，第四行開始跳字。他自己數了一次行數。' });
   putS(iepStream, 2, d(5), { date: d(5), tags: ['#IEP','#資源班'],
-    fields: { '本期目標': '每天能自己收拾書包並帶齊隔天用品', '觀察': '五天裡有三天做到，忘的都是水壺', '調整／支持': '在桌角貼四格圖示清單', '會議決議': '' },
-    body: '圖示清單是他自己畫的，貼上去以後他會主動去看。' });
+    fields: { '目標編號': 'G1', '達成情形': '部分達成', '證據': '家長回報',
+              '支持策略': '在桌角貼四格圖示清單', '下一步': '把水壺獨立成一格' },
+    body: '五天裡有三天做到，忘的都是水壺。圖示清單是他自己畫的，貼上去以後他會主動去看。' });
   putS(iepStream, 2, d(25), { date: d(25), tags: ['#轉銜'],
-    fields: { '本期目標': '同上', '觀察': '換到靠走廊的位子之後分心變多', '調整／支持': '位子換回靠牆', '會議決議': '座位由導師決定、不再輪換' },
+    fields: { '目標編號': 'G2', '達成情形': '初步', '證據': '觀察',
+              '支持策略': '位子換回靠牆', '下一步': '圖示清單改貼在桌面正前方' },
+    body: '換到靠走廊的位子之後分心變多，整理座位只做到第二格。' });
+  putS(iepStream, 2, d(12), { date: d(12), tags: ['#IEP'],
+    fields: { '目標編號': 'G2', '達成情形': '達成', '證據': '觀察',
+              '支持策略': '不提示，只在旁邊等', '下一步': '下週試著把清單收起來' },
+    body: '四格全部做完，中間沒有人提醒他。做完他自己看了一次清單再走。' });
+
+  // ── 諮商／個案 SOAP 紀錄（兩位，第 1–3 次、風險不同）──
+  putS(soapStream, 4, d(30), { date: d(30), tags: ['#初談','#個別'],
+    fields: { 'S 主觀': '「午休都沒有人要跟我玩。」他講的時候一直看自己的鞋子。',
+              'O 客觀': '談話 25 分鐘，前 10 分鐘只回單字；提到原班的玩伴時抬頭、語速變快。',
+              'A 評估': '轉入後尚未建立同儕連結；被拒絕的經驗記得很細，形成預期。先建立關係，不急著給策略。',
+              'P 計畫': '每週一次個別談；下次請他帶一樣午休想玩的東西。',
+              '會談形式': '個別', '會談次數': '1', '風險評估': '低', '下次時間': d(23) },
+    body: '他講得出來是哪三次被拒絕，記得很清楚。' });
+  putS(soapStream, 4, d(23), { date: d(23), tags: ['#個別'],
+    fields: { 'S 主觀': '「我今天問了，可是他們說人滿了。」語氣平平的，沒有哭。',
+              'O 客觀': '主動帶了一副撲克牌來。談到被拒絕時停頓約五秒，接著自己說「那我明天再問別人」。',
+              'A 評估': '已經能自己發起邀請，這是這兩週最大的進展；挫折後的復原時間明顯縮短。',
+              'P 計畫': '請導師安排一位固定的伴讀夥伴，讓邀請有一個成功的起點。',
+              '會談形式': '個別', '會談次數': '2', '風險評估': '無', '下次時間': d(16) },
+    body: '' });
+  putS(soapStream, 4, d(16), { date: d(16), tags: ['#個別'],
+    fields: { 'S 主觀': '「今天是他們來找我的。」講完自己笑了。',
+              'O 客觀': '整段談話都是他在說，25 分鐘沒有停頓超過三秒。',
+              'A 評估': '同儕連結已建立；處遇目標的「一次成功的邀請」在本週達成。',
+              'P 計畫': '改成兩週一次，觀察是否穩定；四週後評估結案。',
+              '會談形式': '個別', '會談次數': '3', '風險評估': '無', '下次時間': d(2) },
+    body: '' });
+  putS(soapStream, 11, d(28), { date: d(28), tags: ['#初談','#個別'],
+    fields: { 'S 主觀': '「進去大家都已經寫到第三頁了。」',
+              'O 客觀': '上課鐘響後在走廊站了 6 分鐘才進教室，連續三天。',
+              'A 評估': '門檻來自「跟不上」的預期，不是拒學；家長的進度焦慮讓他更難開口說不會。',
+              'P 計畫': '前兩週只要求到校，不要求進度；與家長談一次。',
+              '會談形式': '個別', '會談次數': '1', '風險評估': '中', '下次時間': d(21) },
+    body: '長期缺席後回校的適應。' });
+  putS(soapStream, 11, d(21), { date: d(21), tags: ['#家長'],
+    fields: { 'S 主觀': '家長：「我怕他跟不上就更不想去。」',
+              'O 客觀': '家長晤談 40 分鐘。談到「先到校就好」時，家長沉默了一段時間才點頭。',
+              'A 評估': '家長的焦慮是可以工作的；把成功的標準先降到「到校」，親子的張力才會鬆。',
+              'P 計畫': '請家長兩週內不問進度；補救進度由導師另外安排時間。',
+              '會談形式': '家長', '會談次數': '2', '風險評估': '中', '下次時間': d(9) },
+    body: '' });
+  putS(soapStream, 11, d(9), { date: d(9), tags: ['#個別'],
+    fields: { 'S 主觀': '「我昨天有舉手說我不會。」',
+              'O 客觀': '本週五天都在鐘響前進教室，走廊停留時間為 0。',
+              'A 評估': '處遇目標達成；能在課堂上說出「我不會」是關鍵的轉折。',
+              'P 計畫': '再觀察三週；若穩定則進入結案程序。',
+              '會談形式': '個別', '會談次數': '3', '風險評估': '低', '下次時間': d(-4) },
     body: '' });
 
   // ── 班級整體觀察（掛在 class 範圍的類型底下）──
@@ -675,14 +912,21 @@ function DemoStore() {
     Object.keys(data.cards[kind] || {}).forEach(id => {
       const c = Object.assign({ id }, data.cards[kind][id]);
       const all = data.records[key(kind, id)] || {};
-      const recs = Object.keys(all).map(r => all[r])
+      const recs = Object.keys(all).sort().map(r => Object.assign({ rid: r }, all[r]))
         .filter(r => !streamId || recStream(r) === streamId);
       const dates = recs.map(r => r.date || '').filter(Boolean).sort();
       c.recordCount = recs.length;
       c.lastRecordDate = dates.length ? dates[dates.length - 1] : '';
+      // 最後一則的欄位：SOAP 的一覽卡要顯示「第 N 次・風險 X」，靠這個。
+      c.lastFields = recs.length ? (recs[recs.length - 1].fields || {}) : {};
       out.push(c);
     });
     return out;
+  };
+  // 一張卡的原始內容（不算則數）——IEP 的 goals、SOAP 的 conceptualization 從這裡讀。
+  self.getCard = async function (kind, id) {
+    const c = (data.cards[kind] || {})[id];
+    return JSON.parse(JSON.stringify(Object.assign({ id }, c || {})));
   };
   self.setCard = async function (kind, id, d) {
     data.cards[kind] = data.cards[kind] || {};
@@ -747,12 +991,12 @@ function FirestoreStore() {
   // 計數／最後日期：讀取時即時衍生，不看卡片上的摘要欄位（v2 的教訓：
   // 純網頁模式沒有任何東西會更新那些欄位，整片卡片會永遠是「0 則」）。
   async function derive(col) {
-    const [recordCount, lastRecordDate] = await Promise.all([
+    const [recordCount, last] = await Promise.all([
       fb.getCountFromServer(col).then(s => s.data().count).catch(e => { console.error(e); return 0; }),
       fb.getDocs(fb.query(col, fb.orderBy('date', 'desc'), fb.limit(1)))
-        .then(s => s.empty ? '' : (s.docs[0].data().date || '')).catch(e => { console.error(e); return ''; }),
+        .then(s => s.empty ? {} : (s.docs[0].data() || {})).catch(e => { console.error(e); return {}; }),
     ]);
-    return { recordCount, lastRecordDate };
+    return { recordCount, lastRecordDate: last.date || '', lastFields: last.fields || {} };
   }
   // 依記錄類型算的版本。故意不用 where('stream','==',…)＋orderBy('date')——那要
   // 一個複合索引，老師得自己去 Console 建，第一次開頁就會整片壞掉。一位學生的
@@ -760,15 +1004,15 @@ function FirestoreStore() {
   async function deriveByStream(col, streamId) {
     try {
       const snap = await fb.getDocs(fb.query(col, fb.orderBy('date', 'desc')));
-      let recordCount = 0, lastRecordDate = '';
+      let recordCount = 0, lastRecordDate = '', lastFields = {}, got = false;
       snap.forEach(d => {
         const r = d.data();
         if (recStream(r) !== streamId) return;
         recordCount++;
-        if (!lastRecordDate) lastRecordDate = r.date || '';
+        if (!got) { got = true; lastRecordDate = r.date || ''; lastFields = r.fields || {}; }
       });
-      return { recordCount, lastRecordDate };
-    } catch (e) { console.error(e); return { recordCount: 0, lastRecordDate: '' }; }
+      return { recordCount, lastRecordDate, lastFields };
+    } catch (e) { console.error(e); return { recordCount: 0, lastRecordDate: '', lastFields: {} }; }
   }
 
   self.roster = async function () {
@@ -827,8 +1071,19 @@ function FirestoreStore() {
       const col = recCol(kind === 'students' ? 'students' : kind, c.id);
       return (kind === 'students' && streamId) ? deriveByStream(col, streamId) : derive(col);
     }));
-    list.forEach((c, i) => { c.recordCount = counts[i].recordCount; c.lastRecordDate = counts[i].lastRecordDate; });
+    list.forEach((c, i) => {
+      c.recordCount = counts[i].recordCount;
+      c.lastRecordDate = counts[i].lastRecordDate;
+      c.lastFields = counts[i].lastFields || {};
+    });
     return list;
+  };
+  // 一張卡的原始內容（不算則數）——IEP 的 goals、SOAP 的 conceptualization 從這裡讀。
+  self.getCard = async function (kind, id) {
+    try {
+      const snap = await fb.getDoc(cardRef(kind, id));
+      return snap.exists() ? Object.assign({ id }, snap.data()) : { id };
+    } catch (e) { console.error(e); return { id }; }
   };
   self.setCard = async function (kind, id, d) { await fb.setDoc(cardRef(kind, id), d, { merge: true }); };
   self.listRecords = async function (kind, target, streamId) {
@@ -1039,6 +1294,7 @@ async function loadStudents(force) {
 function renderStudents() {
   const st = streamById(currentStreamId);
   if (!st) { renderStreamBar(); return; }
+  renderPackAllUI();
   const ym = thisYearMonth();
   const done = students.filter(s => recordedThisMonth(s.lastRecordDate)).length;
   monthSummaryEl.innerHTML = `${esc(st.label || st.id)}・本月（${ym}）已記 <strong>${done}</strong> ／ ${students.length}`;
@@ -1058,8 +1314,16 @@ function renderStudents() {
     const card = document.createElement('button');
     card.type = 'button';
     card.className = 'item-card' + (isDone ? '' : ' is-todo');
+    // SOAP 的一覽卡多一行「第 N 次・風險 X」——這一頁最常被問的就是這兩件事。
+    let soapLine = '';
+    if (streamHasConcept(st) && (s.recordCount || 0) > 0) {
+      const lf = s.lastFields || {};
+      const nth = lf['會談次數'] || s.recordCount;
+      soapLine = `<div class="sc-meta">第 ${esc(nth)} 次 · 風險 ${esc(lf['風險評估'] || '未評')}</div>`;
+    }
     card.innerHTML = `<div><span class="sc-name">${esc(s.name || s.id)}</span><span class="sc-id">${esc(s.id)}</span></div>
       <div class="sc-meta">${s.recordCount || 0} 則 · ${s.lastRecordDate ? '最後 ' + esc(s.lastRecordDate) : '尚無記錄'}</div>
+      ${soapLine}
       <span class="badge ${isDone ? 'done' : 'todo'}">${isDone ? '本月已記' : '本月未記'}</span>`;
     card.onclick = () => { location.hash = '#s/' + encodeURIComponent(s.id) + '/' + encodeURIComponent(st.id); };
     wrap.appendChild(card);
@@ -1149,6 +1413,8 @@ $('mb-save').onclick = async (e) => {
 const streamPicker = makePicker($('stream-picker-host'), {
   intro: '一種記錄類型＝一本各記各的簿子。先從下面的清單勾，勾不到的就用最下面的「我的類型不在清單裡」自己開一種。',
   library: () => STREAM_LIB,
+  // 三個高痛點方案（KIT.verticals）：唸給老師聽的建議，點一張只加徽章、不代勾
+  verticals: () => (KIT && KIT.verticals) || [],
   existingIds: () => new Set(STREAMS.map(x => x.id)),
   emptyLibHint: '設定檔裡沒有記錄類型庫，請直接用下面的自訂。',
   customToggleLabel: '我的記錄類型不在清單裡，我自己開一種',
@@ -1162,10 +1428,13 @@ const streamPicker = makePicker($('stream-picker-host'), {
   doneAlert: '已加入。請回頭跟你的 AI 代理說「我在網頁上加了學生記錄類型，幫我寫進 config/tabs.json」——本機記錄檔與安全規則以 config 為準。',
   denyHint: '加入失敗：安全規則還沒有 meta 區塊，請重新部署 firestore.rules。',
   onSave: async (items) => {
-    const merged = STREAMS.concat(items.map(x => ({
-      id: x.id, label: x.label, desc: x.desc || '', scope: x.scope === 'case' ? 'case' : 'class',
-      fields: x.fields || [], tags: x.tags || [], custom: !!x.custom,
-    })));
+    const merged = STREAMS.concat(items.map(x => {
+      const st = { id: x.id, label: x.label, desc: x.desc || '', scope: x.scope === 'case' ? 'case' : 'class',
+        fields: x.fields || [], tags: x.tags || [], custom: !!x.custom };
+      if (x.card) st.card = x.card;              // {goals:true}／{conceptualization:true}
+      if (x.aliases) st.aliases = x.aliases;     // 舊 id（counseling → soap）
+      return st;
+    }));
     await store.setConfig({ studentStreams: merged });
     STREAMS = merged;
     if (!currentStreamId) currentStreamId = STREAMS[0].id;
@@ -1331,6 +1600,11 @@ function makePicker(host, opts) {
   form.hidden = true;
   form.innerHTML =
     `<p class="nc-hint">${esc(opts.intro)}</p>
+     <!-- 方案卡（v3 §3.6）：只建議、不預勾——點一張只會在清單裡標「建議」徽章 -->
+     <div class="vert-box pk-verts" hidden>
+       <p class="nc-hint" style="margin-bottom:.45rem"><strong>你最像哪一種？</strong>　點一張看它建議勾哪幾種——只是建議，不會自動幫你勾。</p>
+       <div class="vert-grid"></div>
+     </div>
      <div class="lib-list pk-lib"></div>
      <div class="pk-custom" style="border-top:1px solid #eee;padding-top:.6rem">
        <label style="font-size:.85rem;color:#555;display:flex;gap:.45rem;align-items:center;margin-bottom:.5rem">
@@ -1350,7 +1624,8 @@ function makePicker(host, opts) {
      <div class="editbtns"><button class="save" type="button">加入</button><button class="cancel" type="button">取消</button><span class="msg"></span></div>`;
   host.appendChild(form);
 
-  const libBox = form.querySelector('.pk-lib'), onBox = form.querySelector('.pk-on'),
+  const libBox = form.querySelector('.pk-lib'), vertBox = form.querySelector('.pk-verts'),
+    vertGrid = form.querySelector('.vert-grid'), onBox = form.querySelector('.pk-on'),
     fieldsBox = form.querySelector('.pk-fields-box'), labelIn = form.querySelector('.pk-label'),
     fieldsIn = form.querySelector('.pk-fields'), tagsIn = form.querySelector('.pk-tags'),
     scopeIn = form.querySelector('.pk-scope'), msg = form.querySelector('.msg'),
@@ -1358,27 +1633,74 @@ function makePicker(host, opts) {
 
   onBox.onchange = () => { fieldsBox.hidden = !onBox.checked; };
 
+  // 方案卡點下去只會改這一個集合：清單裡對應的項目多一顆「建議」徽章，
+  // 勾選框一律不動（「零預設」是規格，AI 與網頁都不准替老師勾）。
+  let suggested = new Set();
+
   function reset() {
     labelIn.value = fieldsIn.value = tagsIn.value = '';
     if (scopeIn) scopeIn.value = 'class';
     onBox.checked = false; fieldsBox.hidden = true; msg.textContent = '';
+    suggested = new Set();
   }
   function close() { form.hidden = true; reset(); if (opts.onClose) opts.onClose(); }
 
-  function open() {
-    reset();
+  // 重畫清單時要保住已經勾好的項目——老師可能先勾了幾個才去點方案卡。
+  function renderLib() {
     const lib = opts.library() || [], have = opts.existingIds();
+    const checked = new Set([...libBox.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value));
     libBox.innerHTML = lib.length ? '' : `<div class="nc-hint">${esc(opts.emptyLibHint)}</div>`;
     lib.forEach(g => {
       const div = document.createElement('div');
       div.className = 'lib-item';
       const already = have.has(g.id);
       const scopeNote = opts.askScope ? (g.scope === 'case' ? '（只有列入的學生）' : '（全班）') : '';
-      div.innerHTML = `<label><input type="checkbox" value="${esc(g.id)}" ${already ? 'disabled' : ''}>
-        <span><strong>${esc(g.label)}</strong>${already ? '（已加入）' : ''}${esc(scopeNote)}
+      const badge = suggested.has(g.id) ? '<span class="sug-badge">建議</span>' : '';
+      div.innerHTML = `<label><input type="checkbox" value="${esc(g.id)}" ${already ? 'disabled' : ''}${checked.has(g.id) ? ' checked' : ''}>
+        <span><strong>${esc(g.label)}</strong>${badge}${already ? '（已加入）' : ''}${esc(scopeNote)}
         <span class="lib-desc">${esc(g.desc || '')}</span></span></label>`;
       libBox.appendChild(div);
     });
+  }
+
+  function renderVerticals() {
+    const list = (opts.verticals && opts.verticals()) || [];
+    if (!list.length) { vertBox.hidden = true; return; }
+    vertBox.hidden = false;
+    let picked = '';
+    const draw = () => {
+      vertGrid.innerHTML = '';
+      list.forEach(v => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'vert-card' + (v.id === picked ? ' on' : '');
+        const sug = (v.suggest && v.suggest.streams) || [];
+        const names = sug.map(id => {
+          const it = (opts.library() || []).find(x => x.id === id);
+          return (it && it.label) || id;
+        });
+        const fmt = (v.suggest && v.suggest.format) || '';
+        const fmtLabel = ((KIT && KIT.reportFormats) || []).reduce((a, f) => (f.id === fmt ? (f.label || f.id) : a), fmt);
+        b.innerHTML = `<span class="v-label">${esc(v.label || v.id)}</span>` +
+          `<span class="v-pain">${esc(v.pain || '')}</span>` +
+          `<span class="v-sug">建議類型：${esc(names.join('、') || '—')}` +
+          (fmtLabel ? `<br>建議期末格式：${esc(fmtLabel)}` : '') + '</span>';
+        b.onclick = () => {
+          picked = (picked === v.id) ? '' : v.id;
+          suggested = new Set(picked ? sug : []);
+          draw();
+          renderLib();     // 只加徽章；勾選框一顆都不動
+        };
+        vertGrid.appendChild(b);
+      });
+    };
+    draw();
+  }
+
+  function open() {
+    reset();
+    renderVerticals();
+    renderLib();
     form.hidden = false;
   }
 
@@ -1390,7 +1712,10 @@ function makePicker(host, opts) {
     if (!picked.length && !custom) { msg.textContent = '請至少勾一個，或勾「我自己開一個」'; return; }
     const items = picked.map(id => {
       const g = lib.find(x => x.id === id) || { id, label: id };
-      return { id, label: g.label || id, desc: g.desc || '', scope: g.scope || 'class', fields: g.fields || [], tags: g.tags || [], custom: false };
+      // card／aliases 也要一起帶（IEP 的目標清單、SOAP 的個案概念化與舊 id 相容靠它們）
+      return { id, label: g.label || id, desc: g.desc || '', scope: g.scope || 'class',
+               fields: g.fields || [], tags: g.tags || [], custom: false,
+               card: g.card || null, aliases: g.aliases || null };
     });
     let hasCustom = false;
     if (custom) {
@@ -1490,7 +1815,16 @@ function renderChips() {
 }
 addTags.addEventListener('input', renderChips);
 
-// ── 業務欄位動態表單 ────────────────────────────────────────────────
+// ── 動態欄位表單（業務組與學生記錄類型共用）──────────────────────────
+// v3 §3.6：每個欄位下方一行灰字 hint（記錄時的引導）；多選欄位用一排 chip；
+// goal 型欄位＝下拉列這位學生的目標清單（沒有目標就直接告訴他去哪裡加）。
+function goalOptionLabel(g) {
+  const parts = [g.id];
+  if (g['領域']) parts.push(g['領域']);
+  const main = g['學期目標'] || g['學年目標'] || '';
+  if (main) parts.push(main.length > 26 ? main.slice(0, 26) + '…' : main);
+  return parts.join('・');
+}
 function renderFieldForm(values) {
   const fields = (activeCtx && activeCtx.fields) || [];
   addFieldsEl.innerHTML = '';
@@ -1499,17 +1833,63 @@ function renderFieldForm(values) {
     const label = document.createElement('label');
     const id = 'fld-' + i;
     const v = (values && values[f.name]) || '';
-    let ctrl;
-    if (f.type === 'select') {
+    label.innerHTML = `<span class="fld-name">${esc(f.name)}</span>`;
+
+    if (f.type === 'multiselect') {
+      // 真正的值放在隱藏欄位上（以「／」串成字串），chip 只是輸入方式；
+      // readFieldForm 一律讀 [data-field]，所以這裡跟其他型別是同一條路。
+      const hidden = document.createElement('input');
+      hidden.type = 'hidden'; hidden.id = id;
+      hidden.setAttribute('data-field', f.name); hidden.value = v;
+      const box = document.createElement('div'); box.className = 'ms-chips';
+      const draw = () => {
+        const on = new Set(splitMulti(hidden.value));
+        box.innerHTML = '';
+        (f.options || []).forEach(o => {
+          const b = document.createElement('button');
+          b.type = 'button'; b.textContent = o;
+          if (on.has(o)) b.classList.add('on');
+          b.onclick = () => {
+            const cur = new Set(splitMulti(hidden.value));
+            if (cur.has(o)) cur.delete(o); else cur.add(o);
+            // 照 options 的順序串回去，值才不會因為點選順序而變來變去
+            hidden.value = (f.options || []).filter(x => cur.has(x)).join(MULTI_SEP);
+            draw();
+          };
+          box.appendChild(b);
+        });
+      };
+      draw();
+      label.appendChild(box);
+      label.appendChild(hidden);
+    } else if (f.type === 'goal') {
+      const goals = currentGoals();
+      if (!goals.length) {
+        const p = document.createElement('p');
+        p.className = 'fld-goal-empty';
+        p.textContent = '先在上方「目標清單」加目標';
+        label.appendChild(p);
+        // 沒有目標也要放一個欄位，不然這一則的欄位讀取會少一格（也免得後面 querySelector 落空）
+        const hidden = document.createElement('input');
+        hidden.type = 'hidden'; hidden.id = id;
+        hidden.setAttribute('data-field', f.name); hidden.value = '';
+        label.appendChild(hidden);
+      } else {
+        const opts = ['<option value=""></option>'].concat(goals.map(g =>
+          `<option value="${esc(g.id)}"${g.id === v ? ' selected' : ''}>${esc(goalOptionLabel(g))}</option>`)).join('');
+        label.insertAdjacentHTML('beforeend', `<select id="${id}" data-field="${esc(f.name)}">${opts}</select>`);
+      }
+    } else if (f.type === 'select') {
       const opts = ['<option value=""></option>'].concat((f.options || []).map(o =>
         `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(o)}</option>`)).join('');
-      ctrl = `<select id="${id}" data-field="${esc(f.name)}">${opts}</select>`;
+      label.insertAdjacentHTML('beforeend', `<select id="${id}" data-field="${esc(f.name)}">${opts}</select>`);
     } else if (f.type === 'date') {
-      ctrl = `<input id="${id}" data-field="${esc(f.name)}" type="date" value="${esc(v)}">`;
+      label.insertAdjacentHTML('beforeend', `<input id="${id}" data-field="${esc(f.name)}" type="date" value="${esc(v)}">`);
     } else {
-      ctrl = `<input id="${id}" data-field="${esc(f.name)}" type="text" value="${esc(v)}">`;
+      label.insertAdjacentHTML('beforeend', `<input id="${id}" data-field="${esc(f.name)}" type="text" value="${esc(v)}">`);
     }
-    label.innerHTML = `<span>${esc(f.name)}</span>${ctrl}`;
+
+    if (f.hint) label.insertAdjacentHTML('beforeend', `<span class="fld-hint">${esc(f.hint)}</span>`);
     addFieldsEl.appendChild(label);
   });
 }
@@ -1643,6 +2023,9 @@ $('add-save').onclick = async (e) => {
     existingRids.add(rid);
     const empty = recordListEl.querySelector('.empty-state'); if (empty) recordListEl.innerHTML = '';
     recordListEl.insertBefore(recordCard(rid, rec), recordListEl.firstChild);
+    // 目標清單的「已記 N 則・最近達成情形」要跟著這一則動
+    currentRecords.unshift(Object.assign({ rid }, rec));
+    refreshDetailCards();
     bumpCount(activeCtx.kind, activeCtx.target, date);
     pendingRid = pendingRidDate = null;
     btn.disabled = false;
@@ -1674,8 +2057,31 @@ function bumpCount(kind, target, date) {
 function fieldsTable(fields) {
   const keys = Object.keys(fields || {}).filter(k => fields[k] !== '' && fields[k] != null);
   if (!keys.length) return '';
+  // 多選欄位的值本來就是以「／」串起來的字串，直接照原樣顯示。
   return '<table class="fields">' + keys.map(k =>
     `<tr><th>${esc(k)}</th><td>${esc(fields[k])}</td></tr>`).join('') + '</table>';
+}
+// SOAP：S／O／P／A 四段各自一行版面，其餘欄位（會談形式、次數、風險…）還是走欄位表。
+function soapBlockHtml(fields) {
+  const f = fields || {};
+  if (!SOAP_KEYS.some(k => f[k])) return '';
+  return '<div class="soap-block">' + SOAP_KEYS.map(k => {
+    const v = f[k];
+    return `<div class="soap-seg"><div class="soap-key">${esc(k)}</div>` +
+           `<div class="soap-val${v ? '' : ' none'}">${v ? esc(v) : '（未填）'}</div></div>`;
+  }).join('') + '</div>';
+}
+function fieldsTableExcept(fields, skip) {
+  const out = {};
+  Object.keys(fields || {}).forEach(k => { if (skip.indexOf(k) === -1) out[k] = fields[k]; });
+  return fieldsTable(out);
+}
+// 這一則要用哪一種版面：只有學生／班級記錄才看記錄類型（業務與課程沒有 stream）。
+function recordFieldsHtml(r) {
+  const isStu = activeCtx && (activeCtx.kind === 'students' || activeCtx.kind === 'class');
+  const st = isStu ? streamById(recStream(r)) : null;
+  if (st && streamHasConcept(st)) return soapBlockHtml(r.fields) + fieldsTableExcept(r.fields, SOAP_KEYS);
+  return fieldsTable(r.fields);
 }
 function recordCard(rid, r) {
   const card = document.createElement('div');
@@ -1689,7 +2095,7 @@ function recordCard(rid, r) {
       <span><span class="rc-date">${esc((r.date || '') + ridTimeLabel(rid, r.date))}</span> ${stTag}${tags} <span class="flag">${flag}</span></span>
       <span class="rc-btns"><button class="rc-edit" type="button">編輯</button><button class="rc-del" type="button">刪除</button></span>
     </div>
-    <div class="rc-fields">${fieldsTable(r.fields)}</div>
+    <div class="rc-fields">${recordFieldsHtml(r)}</div>
     <p class="record-body">${esc(r.body || '')}</p>
     <div class="rel-links"></div>
     <div class="editor" hidden>
@@ -1750,6 +2156,8 @@ function recordCard(rid, r) {
       try {
         await store.deleteRecord(activeCtx.kind, activeCtx.target, rid);
         existingRids.delete(rid);
+        currentRecords = currentRecords.filter(x => x.rid !== rid);
+        refreshDetailCards();
         card.remove();
         if (!recordListEl.querySelector('.record-card')) recordListEl.innerHTML = '<div class="empty-state">還沒有記錄——點上方「＋ 新增一則記錄」開始。</div>';
       } catch (err) {
@@ -1790,12 +2198,17 @@ async function openRecords(ctx) {
   addBody.placeholder = ctx.placeholder || '記錄內容（客觀描述具體事件；請用代號、勿寫真名）…';
   renderDetailStreams(ctx);
   renderExportUI(ctx);
+  renderPackUI(ctx);
+  $('detail-cards').innerHTML = '';
+  currentRecords = [];
   closeAddForm(); existingRids.clear();
   // 學生／班級記錄一定要屬於某一種記錄類型；一種都還沒選就先不讓新增
   if ((ctx.kind === 'students' || ctx.kind === 'class') && !ctx.stream) addBtn.hidden = true;
   recordListEl.innerHTML = '<div class="empty-state">載入中…</div>';
   try {
     const list = await store.listRecords(ctx.kind, ctx.target, ctx.stream);
+    currentRecords = list.slice();          // 新→舊；目標清單的「已記 N 則」用它算
+    await renderDetailCards(ctx);           // 目標清單／個案概念化（依當前類型才出現）
     recordListEl.innerHTML = '';
     if (!list.length) recordListEl.innerHTML = '<div class="empty-state">還沒有記錄——點上方「＋ 新增一則記錄」開始。</div>';
     else list.forEach(r => { existingRids.add(r.rid); recordListEl.appendChild(recordCard(r.rid, r)); });
@@ -1844,6 +2257,547 @@ function renderDetailStreams(ctx) {
     box.appendChild(b);
   });
   box.hidden = false;
+}
+
+// ══ 明細頁頂端的卡（v3 §3.6）══════════════════════════════════════════
+// IEP → 「目標清單」（寫 students/{id}.goals）
+// SOAP → 「個案概念化」（寫 students/{id}.conceptualization）
+// 兩張都只在該記錄類型底下出現（由類型的 card 決定），而且只掛在學生明細頁。
+let currentGoalsList = [];   // 當前這位學生的 goals
+let currentConcept = {};     // 當前這位學生的 conceptualization
+let currentRecords = [];     // 當前明細頁載進來的記錄（新→舊）——目標統計用它算
+function currentGoals() { return currentGoalsList; }
+
+// 一個目標記過幾則、最近一次的達成情形（currentRecords 是新→舊，所以第一個就是最近的）
+function goalStats(goalId) {
+  let n = 0, last = '';
+  currentRecords.forEach(r => {
+    const f = r.fields || {};
+    if (String(f['目標編號'] || '') !== String(goalId)) return;
+    n++;
+    if (!last && f['達成情形']) last = f['達成情形'];
+  });
+  return { n: n, last: last };
+}
+function nextGoalId() {
+  let n = 1;
+  const have = new Set(currentGoalsList.map(g => String(g.id)));
+  while (have.has('G' + n)) n++;
+  return 'G' + n;
+}
+
+async function renderDetailCards(ctx, keepData) {
+  const host = $('detail-cards');
+  if (!host) return;
+  host.innerHTML = '';
+  const st = (ctx && ctx.kind === 'students') ? streamById(ctx.stream) : null;
+  if (!st || (!streamHasGoals(st) && !streamHasConcept(st))) {
+    if (!keepData) { currentGoalsList = []; currentConcept = {}; }
+    return;
+  }
+  if (!keepData) {
+    let card = {};
+    try { card = (store.getCard ? await store.getCard('students', ctx.target) : {}) || {}; }
+    catch (err) { console.error(err); card = {}; }
+    currentGoalsList = Array.isArray(card.goals) ? card.goals : [];
+    currentConcept = (card.conceptualization && typeof card.conceptualization === 'object') ? card.conceptualization : {};
+  }
+  if (streamHasGoals(st)) host.appendChild(buildGoalsCard(ctx));
+  if (streamHasConcept(st)) host.appendChild(buildConceptCard(ctx));
+}
+// 新增／刪除一則之後就地重畫（統計要跟著動），不必再回去讀卡片
+function refreshDetailCards() {
+  if (activeCtx && activeCtx.kind === 'students') renderDetailCards(activeCtx, true);
+}
+
+// ── IEP：目標清單卡 ──────────────────────────────────────────────────
+function buildGoalsCard(ctx) {
+  const box = document.createElement('div');
+  box.className = 'detail-card';
+  let editing = -1;              // -1＝沒在編、-2＝新增中、>=0＝在編第幾個
+
+  async function persist() {
+    await store.setCard('students', ctx.target, { goals: currentGoalsList.slice() });
+  }
+
+  function goalRow(g, i) {
+    const row = document.createElement('div');
+    row.className = 'goal-row';
+    const s = goalStats(g.id);
+    const sub = [g['學年目標'] ? '學年目標：' + g['學年目標'] : '',
+                 g['評量方式'] ? '評量方式：' + g['評量方式'] : '',
+                 g['評量標準'] ? '評量標準：' + g['評量標準'] : '',
+                 g['期程'] ? '期程：' + g['期程'] : ''].filter(Boolean);
+    row.innerHTML =
+      `<div class="goal-top"><span class="goal-id">${esc(g.id)}</span>` +
+      (g['領域'] ? `<span class="goal-dom">${esc(g['領域'])}</span>` : '') + '</div>' +
+      `<div class="goal-main">${esc(g['學期目標'] || g['學年目標'] || '（還沒填目標內容）')}</div>` +
+      (sub.length ? `<div class="goal-sub">${sub.map(esc).join('　｜　')}</div>` : '') +
+      `<div class="goal-stat${s.n ? '' : ' zero'}">已記 ${s.n} 則${s.n ? '・最近達成情形：' + esc(s.last || '未填') : '・還沒有記錄'}</div>`;
+    const btns = document.createElement('div');
+    btns.className = 'goal-btns';
+    const ed = document.createElement('button');
+    ed.type = 'button'; ed.textContent = '編輯';
+    ed.onclick = () => { editing = i; draw(); };
+    const del = document.createElement('button');
+    del.type = 'button'; del.className = 'del'; del.textContent = '刪除';
+    let armed = false, timer = null;
+    del.onclick = async () => {
+      if (!armed) {
+        armed = true; del.textContent = '確定刪除？';
+        timer = setTimeout(() => { armed = false; del.textContent = '刪除'; }, 5000);
+        return;
+      }
+      clearTimeout(timer);
+      del.disabled = true; del.textContent = '刪除中…';
+      const keep = currentGoalsList.slice();
+      currentGoalsList.splice(i, 1);
+      try { await persist(); draw(); }
+      catch (err) { console.error(err); currentGoalsList = keep; del.disabled = false; armed = false; del.textContent = '刪除'; alert('刪除失敗：' + errText(err)); }
+    };
+    btns.appendChild(ed); btns.appendChild(del);
+    row.appendChild(btns);
+    return row;
+  }
+
+  function goalForm(g, i) {
+    const form = document.createElement('div');
+    form.className = 'goal-form';
+    const cur = g || {};
+    const doms = GOAL_DOMAINS.slice();
+    if (cur['領域'] && doms.indexOf(cur['領域']) === -1) doms.unshift(cur['領域']);
+    form.innerHTML =
+      '<div class="gf-row">' +
+        `<input class="gf-id" type="text" value="${esc(cur.id || nextGoalId())}" placeholder="目標編號（例如 G1）">` +
+        '<select class="gf-dom"><option value="">領域（選填）</option>' +
+          doms.map(d => `<option value="${esc(d)}"${d === cur['領域'] ? ' selected' : ''}>${esc(d)}</option>`).join('') +
+        '</select>' +
+      '</div>' +
+      `<input class="gf-year" type="text" value="${esc(cur['學年目標'] || '')}" placeholder="學年目標">` +
+      `<input class="gf-term" type="text" value="${esc(cur['學期目標'] || '')}" placeholder="學期目標">` +
+      '<div class="gf-row">' +
+        `<input class="gf-how" type="text" value="${esc(cur['評量方式'] || '')}" placeholder="評量方式">` +
+        `<input class="gf-std" type="text" value="${esc(cur['評量標準'] || '')}" placeholder="評量標準">` +
+        `<input class="gf-when" type="text" value="${esc(cur['期程'] || '')}" placeholder="期程（例如 秋季 9–1 月）">` +
+      '</div>' +
+      '<div class="editbtns"><button class="save gf-save" type="button">儲存</button>' +
+      '<button class="cancel gf-cancel" type="button">取消</button><span class="msg gf-msg"></span></div>';
+    const msg = form.querySelector('.gf-msg');
+    form.querySelector('.gf-cancel').onclick = () => { editing = -1; draw(); };
+    form.querySelector('.gf-save').onclick = async (e) => {
+      const btn = e.currentTarget;
+      const id = form.querySelector('.gf-id').value.trim();
+      if (!id) { msg.textContent = '請填目標編號'; return; }
+      if (currentGoalsList.some((x, k) => k !== i && String(x.id) === id)) { msg.textContent = `已經有一個「${id}」了`; return; }
+      const data = {
+        id: id,
+        '領域': form.querySelector('.gf-dom').value,
+        '學年目標': form.querySelector('.gf-year').value.trim(),
+        '學期目標': form.querySelector('.gf-term').value.trim(),
+        '評量方式': form.querySelector('.gf-how').value.trim(),
+        '評量標準': form.querySelector('.gf-std').value.trim(),
+        '期程': form.querySelector('.gf-when').value.trim(),
+      };
+      const keep = currentGoalsList.slice();
+      if (i >= 0) currentGoalsList[i] = data; else currentGoalsList.push(data);
+      btn.disabled = true; msg.textContent = '儲存中…';
+      try { await persist(); editing = -1; draw(); }
+      catch (err) {
+        console.error(err);
+        currentGoalsList = keep;
+        btn.disabled = false;
+        msg.textContent = isDenied(err) ? '儲存失敗：請確認安全規則已部署，且你登入的是擁有者帳號。' : '儲存失敗：' + errText(err);
+      }
+    };
+    return form;
+  }
+
+  function draw() {
+    box.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'dc-head';
+    head.innerHTML = `<span class="dc-title">目標清單（${currentGoalsList.length} 個）</span>`;
+    const addB = document.createElement('button');
+    addB.type = 'button'; addB.className = 'dc-btn'; addB.textContent = '＋ 新增目標';
+    addB.onclick = () => { editing = -2; draw(); };
+    head.appendChild(addB);
+    box.appendChild(head);
+    const hint = document.createElement('p');
+    hint.className = 'dc-hint';
+    hint.textContent = '這學期要追的目標先列在這裡；新增記錄時的「目標編號」就是從這份清單挑。目標旁的統計只算這位學生在這個類型底下對到該目標的記錄。';
+    box.appendChild(hint);
+    if (!currentGoalsList.length && editing !== -2) {
+      const p = document.createElement('p');
+      p.className = 'dc-hint';
+      p.textContent = '還沒有目標——點右上角「＋ 新增目標」加第一個。';
+      box.appendChild(p);
+    }
+    currentGoalsList.forEach((g, i) => box.appendChild(editing === i ? goalForm(g, i) : goalRow(g, i)));
+    if (editing === -2) box.appendChild(goalForm(null, -1));
+  }
+
+  draw();
+  return box;
+}
+
+// ── SOAP：個案概念化卡 ───────────────────────────────────────────────
+function buildConceptCard(ctx) {
+  const box = document.createElement('div');
+  box.className = 'detail-card';
+  let editing = false;
+
+  function view() {
+    const dl = document.createElement('dl');
+    dl.className = 'conc-view';
+    CONCEPT_KEYS.forEach(k => {
+      const v = currentConcept[k] || '';
+      dl.innerHTML += `<dt>${esc(k)}</dt><dd class="${v ? '' : 'none'}">${v ? esc(v) : '（還沒填）'}</dd>`;
+    });
+    return dl;
+  }
+
+  function form() {
+    const f = document.createElement('div');
+    f.className = 'conc-form';
+    const grid = document.createElement('div');
+    grid.className = 'conc-grid';
+    grid.innerHTML = CONCEPT_KEYS.map(k =>
+      `<label><span>${esc(k)}</span><textarea rows="3" data-ck="${esc(k)}">${esc(currentConcept[k] || '')}</textarea></label>`).join('');
+    f.appendChild(grid);
+    const btns = document.createElement('div');
+    btns.className = 'editbtns';
+    btns.innerHTML = '<button class="save cf-save" type="button">儲存</button>' +
+      '<button class="cancel cf-cancel" type="button">取消</button><span class="msg cf-msg"></span>';
+    f.appendChild(btns);
+    const msg = f.querySelector('.cf-msg');
+    f.querySelector('.cf-cancel').onclick = () => { editing = false; draw(); };
+    f.querySelector('.cf-save').onclick = async (e) => {
+      const btn = e.currentTarget;
+      const next = {};
+      grid.querySelectorAll('[data-ck]').forEach(el => { next[el.getAttribute('data-ck')] = (el.value || '').trim(); });
+      const keep = currentConcept;
+      currentConcept = next;
+      btn.disabled = true; msg.textContent = '儲存中…';
+      try { await store.setCard('students', ctx.target, { conceptualization: next }); editing = false; draw(); }
+      catch (err) {
+        console.error(err);
+        currentConcept = keep;
+        btn.disabled = false;
+        msg.textContent = isDenied(err) ? '儲存失敗：請確認安全規則已部署，且你登入的是擁有者帳號。' : '儲存失敗：' + errText(err);
+      }
+    };
+    return f;
+  }
+
+  function draw() {
+    box.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'dc-head';
+    head.innerHTML = '<span class="dc-title">個案概念化</span>';
+    if (!editing) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'dc-btn'; b.textContent = '編輯';
+      b.onclick = () => { editing = true; draw(); };
+      head.appendChild(b);
+    }
+    box.appendChild(head);
+    const hint = document.createElement('p');
+    hint.className = 'dc-hint';
+    hint.textContent = '主訴／背景／評估假設／處遇目標／結案標準——這五欄是整條個案線的骨架，期末的個案摘要與結案報告都從這裡起頭。';
+    box.appendChild(hint);
+    box.appendChild(editing ? form() : view());
+  }
+
+  draw();
+  return box;
+}
+
+// ══ 期末素材包（v3 §3.6）══════════════════════════════════════════════
+// 純前端字串組裝、零相依：把這位（或全班）學生在當前記錄類型底下的記錄
+// 依格式分好組，寫成一份 .md，檔尾附一段給 AI 代理的 prompt（格式骨架＋
+// 書寫規則＋自我檢核）。評語本文由老師自己的 AI 代理寫——這裡只給素材與規則。
+// for 沒給、或給空陣列 ＝ 每一種類型都適用（`custom` 就是這樣寫的）。
+function packFormatsFor(streamId) {
+  return ((KIT && KIT.reportFormats) || [])
+    .filter(f => f && (!Array.isArray(f.for) || !f.for.length || f.for.indexOf(streamId) !== -1));
+}
+function mdCell(v) {
+  return String(v == null ? '' : v).replace(/\|/g, '｜').replace(/\r?\n+/g, ' ').trim() || '—';
+}
+function oneLine(v) { return String(v == null ? '' : v).replace(/\r?\n+/g, ' ').trim(); }
+function mdBodyLines(body) {
+  return String(body == null ? '' : body).split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+}
+function packRecordBullet(lines, r, keep) {
+  const f = r.fields || {};
+  const meta = (keep || []).map(k => f[k] ? k + '：' + oneLine(f[k]) : '').filter(Boolean);
+  const tags = (r.tags || []).join(' ');
+  lines.push('- **' + (r.date || '') + '**' + (tags ? '　' + tags : '') + (meta.length ? '　｜　' + meta.join('　｜　') : ''));
+  const body = mdBodyLines(r.body);
+  if (body.length) body.forEach(l => lines.push('  ' + l));
+  else lines.push('  （這一則沒有正文，只有欄位）');
+}
+// 質性評量（與任何「照欄位分組」的格式）：依 fmt.groupBy 一層一層分下去。
+// 預設＝報告維度 → 面向 → 課程（§3.6）；科任四段那個格式是 觀察向度 → 科目。
+// 第一層的每一個值都一定要出現，沒有記錄也要寫「（無記錄）」——期末寫評語時
+// 看得到哪一段是空的，比看不到重要。多選欄位（面向）一則會落在好幾組裡。
+const QUAL_GROUP_BY = ['報告維度', '面向', '課程'];
+function packGrouped(lines, st, recs, keys, seedValues, depth) {
+  if (!keys.length) {
+    if (!recs.length) { lines.push('（無記錄）'); lines.push(''); return; }
+    recs.forEach(r => packRecordBullet(lines, r, ['證據來源', '指標']));
+    lines.push('');
+    return;
+  }
+  const key = keys[0], rest = keys.slice(1);
+  const f = streamField(st, key);
+  const isMulti = !!(f && f.type === 'multiselect');
+  const groups = {}, order = [];
+  const seed = (seedValues && seedValues.length) ? seedValues : ((f && f.options) || []);
+  seed.forEach(v => { if (!groups[v]) { groups[v] = []; order.push(v); } });
+  const NONE = '（未標' + key + '）';
+  recs.forEach(r => {
+    const raw = (r.fields || {})[key];
+    const vals = isMulti ? splitMulti(raw) : (raw ? [String(raw)] : []);
+    const list = vals.length ? vals : [NONE];
+    list.forEach(v => {
+      if (!groups[v]) { groups[v] = []; order.push(v); }
+      groups[v].push(r);
+    });
+  });
+  const h = new Array(Math.min(depth + 3, 6) + 1).join('#') + ' ';
+  order.forEach(v => {
+    const list = groups[v] || [];
+    if (!list.length && depth > 0) return;                 // 只有第一層要把空的也列出來
+    lines.push(h + (depth === 0 ? v + '（' + list.length + ' 則）' : key + '：' + v));
+    lines.push('');
+    if (!list.length) { lines.push('（無記錄）'); lines.push(''); return; }
+    packGrouped(lines, st, list, rest, null, depth + 1);
+  });
+}
+function packQualitative(lines, st, recs, fmt) {
+  const keys = (fmt && Array.isArray(fmt.groupBy) && fmt.groupBy.length) ? fmt.groupBy : QUAL_GROUP_BY;
+  // fmt.dimensions ＝格式自己指定的「一定要出現的第一層值」；沒給就用欄位的 options
+  const seed = (fmt && Array.isArray(fmt.dimensions) && fmt.dimensions.length) ? fmt.dimensions : null;
+  packGrouped(lines, st, recs, keys, seed, 0);
+}
+// IEP：每一個目標一張表（零紀錄的目標也要出現，寫「本期無紀錄」）
+// ——這一段就是格式庫裡 groupBy: ["目標編號"] 的專屬版面，故意不走 packGrouped。
+function packIep(lines, st, card, recs) {
+  const goals = Array.isArray(card.goals) ? card.goals : [];
+  const used = {};
+  lines.push('目標數：' + goals.length + '　｜　本期記錄：' + recs.length + ' 則');
+  lines.push('');
+  if (!goals.length) { lines.push('### 目標清單'); lines.push(''); lines.push('（這位學生的學生卡上還沒有列任何目標）'); lines.push(''); }
+  goals.forEach(g => {
+    const mine = recs.filter(r => String((r.fields || {})['目標編號'] || '') === String(g.id));
+    mine.forEach(r => { used[r.rid] = true; });
+    lines.push('### 目標 ' + g.id + (g['領域'] ? '・' + g['領域'] : ''));
+    lines.push('');
+    lines.push('| 項目 | 內容 |');
+    lines.push('| --- | --- |');
+    ['學年目標', '學期目標', '評量方式', '評量標準', '期程'].forEach(k => lines.push('| ' + k + ' | ' + mdCell(g[k]) + ' |'));
+    lines.push('| 本期紀錄 | ' + mine.length + ' 則 |');
+    lines.push('');
+    lines.push('| 日期 | 達成情形 | 證據 | 支持策略 | 下一步 | 摘要 |');
+    lines.push('| --- | --- | --- | --- | --- | --- |');
+    if (!mine.length) lines.push('| （本期無紀錄） | — | — | — | — | — |');
+    else mine.forEach(r => {
+      const f = r.fields || {};
+      const extras = packExtras(f, ['目標編號', '達成情形', '證據', '支持策略', '下一步']);
+      const summary = [oneLine(r.body)].concat(extras).filter(Boolean).join('　｜　');
+      lines.push('| ' + [r.date, f['達成情形'], f['證據'], f['支持策略'], f['下一步'], summary].map(mdCell).join(' | ') + ' |');
+    });
+    lines.push('');
+  });
+  const rest = recs.filter(r => !used[r.rid]);
+  lines.push('### 未對應目標的記錄（' + rest.length + ' 則）');
+  lines.push('');
+  if (!rest.length) lines.push('（沒有——每一則都對到目標了）');
+  else rest.forEach(r => packRecordBullet(lines, r, ['達成情形', '證據', '支持策略', '下一步']));
+  lines.push('');
+}
+// SOAP：個案概念化＋依會談次數的歷程摘要＋風險趨勢
+// ——對應格式庫的 groupBy: ["會談次數"]，同樣是專屬版面。
+function soapSeq(r) {
+  const n = parseInt((r.fields || {})['會談次數'], 10);
+  return isNaN(n) ? 9999 : n;
+}
+function packSoap(lines, st, card, recs) {
+  const c = (card.conceptualization && typeof card.conceptualization === 'object') ? card.conceptualization : {};
+  lines.push('### 個案概念化');
+  lines.push('');
+  lines.push('| 項目 | 內容 |');
+  lines.push('| --- | --- |');
+  CONCEPT_KEYS.forEach(k => lines.push('| ' + k + ' | ' + mdCell(c[k]) + ' |'));
+  lines.push('');
+  const sorted = recs.slice().sort((a, b) => (soapSeq(a) - soapSeq(b)) || String(a.rid || '').localeCompare(String(b.rid || '')));
+  lines.push('### 歷程摘要（依會談次數）');
+  lines.push('');
+  if (!sorted.length) { lines.push('（還沒有會談紀錄）'); lines.push(''); }
+  sorted.forEach((r, i) => {
+    const f = r.fields || {};
+    const n = f['會談次數'] || (i + 1);
+    lines.push('#### 第 ' + n + ' 次・' + (r.date || '') +
+      (f['會談形式'] ? '・' + f['會談形式'] : '') + '・風險：' + (f['風險評估'] || '未評'));
+    lines.push('');
+    SOAP_KEYS.forEach(k => lines.push('- **' + k + '**：' + (f[k] ? oneLine(f[k]) : '（未填）')));
+    if (r.body) lines.push('- 補充：' + oneLine(r.body));
+    if (f['下次時間']) lines.push('- 下次時間：' + f['下次時間']);
+    packExtras(f, SOAP_KEYS.concat(['會談形式', '會談次數', '風險評估', '下次時間']))
+      .forEach(x => lines.push('- ' + x));
+    lines.push('');
+  });
+  lines.push('### 風險趨勢');
+  lines.push('');
+  lines.push(sorted.length
+    ? sorted.map((r, i) => '第 ' + ((r.fields || {})['會談次數'] || (i + 1)) + ' 次 ' + ((r.fields || {})['風險評估'] || '未評')).join(' → ')
+    : '（還沒有會談紀錄）');
+  lines.push('');
+}
+// 固定欄位以外的欄位（老師自己加的、或類型庫多給的，例如 iep 的「會議決議」）
+// 一律要跟著出來——素材包漏掉他填過的東西，是最不能出的錯。
+function packExtras(fields, skip) {
+  return Object.keys(fields || {})
+    .filter(k => skip.indexOf(k) === -1 && fields[k] !== '' && fields[k] != null)
+    .map(k => k + '：' + oneLine(fields[k]));
+}
+function packPlain(lines, recs) {
+  lines.push('### 全部記錄（依日期）');
+  lines.push('');
+  if (!recs.length) { lines.push('（無記錄）'); lines.push(''); return; }
+  recs.forEach(r => packRecordBullet(lines, r, []));
+  lines.push('');
+}
+function packPromptLines(fmt, st) {
+  const L = [];
+  L.push('---');
+  L.push('');
+  L.push('## 給 AI 代理的 prompt（把這份貼給你的 AI 代理）');
+  L.push('');
+  L.push('把**這份素材包整份**貼給你的 AI 代理，然後跟它說：');
+  L.push('「照下面的格式骨架與書寫規則，只用上面的素材寫。寫完照自我檢核逐條檢查一次。」');
+  L.push('');
+  L.push('### 格式骨架：' + (fmt.label || fmt.id) + '（' + (fmt.id || '') + '）');
+  L.push('');
+  (fmt.sections || []).forEach((s, i) => {
+    L.push((i + 1) + '. **' + (s.title || '') + '**' + (s.length ? '（' + s.length + '）' : ''));
+    if (s.hint) L.push('   - ' + s.hint);
+  });
+  if (!(fmt.sections || []).length) L.push('（這個格式沒有預設骨架，請把你們學校的格式標題貼在這裡，AI 會照你貼的順序寫。）');
+  if (fmt.totalLength) { L.push(''); L.push('全文長度：' + fmt.totalLength); }
+  if (fmt.customFile) { L.push(''); L.push('（校方格式的正本放在 `' + fmt.customFile + '`；改那一份，這裡就會跟著換。）'); }
+  L.push('');
+  L.push('### 書寫規則（rules）');
+  L.push('');
+  const rules = (fmt.rules || []);
+  if (rules.length) rules.forEach(r => L.push('- ' + r));
+  else L.push('- （這個格式沒有另外的書寫規則。）');
+  L.push('');
+  L.push('### 完成後自我檢核（audit）');
+  L.push('');
+  const audit = (fmt.audit || []);
+  if (audit.length) audit.forEach(a => L.push('- [ ] ' + a));
+  else L.push('- [ ] （這個格式沒有另外的檢核項。）');
+  L.push('');
+  L.push('> 記錄類型：' + (st ? (st.label || st.id) : '未知') + '　｜　素材產生時間：' + exportStamp());
+  return L;
+}
+// ids ＝要放進這一份的學生代號（一位或全班）；回傳 { md, name, total }
+async function buildPack(streamId, fmt, ids) {
+  const st = streamById(streamId);
+  const objectLabel = (ids.length === 1) ? studentLabel(ids[0], true) : '全班（' + ids.length + ' 位）';
+  const lines = [];
+  lines.push('# ' + (fmt.label || fmt.id) + '　素材包');
+  lines.push('');
+  lines.push('- 對象：' + objectLabel);
+  lines.push('- 記錄類型：' + (st ? (st.label || st.id) : streamId));
+  lines.push('- 產生時間：' + exportStamp());
+  lines.push('- 版本：' + (KIT_VERSION || '未知'));
+  lines.push('');
+  lines.push('> ' + EXPORT_WARN);
+  lines.push('> 這一份是**素材**，不是評語。評語本文請照檔尾的 prompt 交給你自己的 AI 代理寫。');
+  lines.push('');
+  let total = 0;
+  for (const id of ids) {
+    lines.push('## ' + studentLabel(id, true));
+    lines.push('');
+    let recs = [];
+    try { recs = await store.listRecords('students', id, streamId); } catch (err) { console.error(err); }
+    recs = recs.slice().sort((a, b) => String(a.rid || '').localeCompare(String(b.rid || '')));   // 由舊到新
+    total += recs.length;
+    let card = {};
+    try { card = (store.getCard ? await store.getCard('students', id) : {}) || {}; } catch (err) { console.error(err); }
+    if (streamHasGoals(st)) packIep(lines, st, card, recs);
+    else if (streamHasConcept(st)) packSoap(lines, st, card, recs);
+    else if (streamIsQualitative(st) || (Array.isArray(fmt.groupBy) && fmt.groupBy.length)) packQualitative(lines, st, recs, fmt);
+    else packPlain(lines, recs);
+  }
+  packPromptLines(fmt, st).forEach(l => lines.push(l));
+  const name = safeFileName(objectLabel + '-' + (fmt.label || fmt.id) + '-素材包') + '.md';
+  return { md: lines.join('\n') + '\n', name: name, total: total };
+}
+async function runPack(streamId, fmt, ids, msg) {
+  if (msg) msg.textContent = '產生素材包中…';
+  const out = await buildPack(streamId, fmt, ids);
+  downloadBlob(new Blob([out.md], { type: 'text/markdown;charset=utf-8' }), out.name);
+  if (msg) msg.textContent = `已下載 ${out.name}（共 ${out.total} 則）`;
+  return out;
+}
+
+// ── 「產生期末素材 ▾」下拉（明細頁一顆、學生一覽頁一顆）──────────────
+// 兩顆共用同一個小選單元件；點外面就收起來。
+const packMenus = [];
+document.addEventListener('click', (e) => {
+  packMenus.forEach(m => {
+    if (!m.menu.hidden && m.host && !m.host.contains(e.target)) m.menu.hidden = true;
+  });
+});
+function buildPackMenu(host, btnLabel, streamId, idsFn, note) {
+  host.innerHTML = '';
+  // 同一個 host 重畫時把舊的登記拿掉，不然「點外面收起來」那條會愈積愈多
+  for (let i = packMenus.length - 1; i >= 0; i--) if (packMenus[i].host === host) packMenus.splice(i, 1);
+  const formats = packFormatsFor(streamId);
+  if (!streamId || !formats.length) { host.hidden = true; return; }
+  host.hidden = false;
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'add-btn'; btn.style.background = '#7a6aa8'; btn.textContent = btnLabel;
+  const menu = document.createElement('div');
+  menu.className = 'exp-menu'; menu.hidden = true;
+  formats.forEach(f => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = f.label || f.id;
+    b.onclick = async () => {
+      const keep = b.textContent;
+      b.disabled = true; b.textContent = '產生中…';
+      try { await runPack(streamId, f, idsFn()); }
+      catch (err) { console.error(err); alert('產生素材失敗：' + errText(err)); }
+      b.textContent = keep; b.disabled = false; menu.hidden = true;
+    };
+    menu.appendChild(b);
+  });
+  const p = document.createElement('p');
+  p.className = 'exp-note';
+  p.textContent = note;
+  menu.appendChild(p);
+  btn.onclick = (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; };
+  host.appendChild(btn); host.appendChild(menu);
+  packMenus.push({ host: host, menu: menu });
+}
+function renderPackUI(ctx) {
+  const host = $('pack-host');
+  if (!host) return;
+  if (!ctx || ctx.kind !== 'students' || !ctx.stream) { host.innerHTML = ''; host.hidden = true; return; }
+  buildPackMenu(host, '產生期末素材 ▾', ctx.stream, () => [ctx.target],
+    '下載一份 .md：分好組的素材＋檔尾給 AI 的 prompt。評語本文由你的 AI 代理寫。');
+}
+function renderPackAllUI() {
+  const host = $('pack-all-host');
+  if (!host) return;
+  const ids = students.map(s => s.id);
+  if (!ids.length) { host.innerHTML = ''; host.hidden = true; return; }
+  buildPackMenu(host, '產生全班期末素材 ▾', currentStreamId, () => students.map(s => s.id),
+    '一份 .md、每位學生一節，檔尾附同一段 prompt。');
 }
 
 // ══ 一鍵匯出 Word／PDF ════════════════════════════════════════════════

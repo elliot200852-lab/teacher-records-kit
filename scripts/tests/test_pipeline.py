@@ -116,8 +116,10 @@ class TestBuildConfig(unittest.TestCase):
         self.assertTrue(payload["studentStreamLibrary"], "學生記錄類型庫是空的")
         self.assertFalse([s_ for s_ in payload["studentStreamLibrary"] if s_.get("open")],
                          "「我的類型不在清單裡」是安裝時的選項，不該出現在網頁的類型庫")
-        self.assertEqual([s_["id"] for s_ in payload["studentStreamLibrary"]][:2],
-                         ["homeroom", "subject"])
+        self.assertEqual([s_["id"] for s_ in payload["studentStreamLibrary"]][:3],
+                         ["qualitative", "homeroom", "subject"])
+        self.assertTrue(payload["reportFormats"], "期末報告格式庫要跟著送到網頁")
+        self.assertTrue(payload["verticals"], "三個垂直方案要跟著送到網頁")
         with open(os.path.join(PKG, "VERSION"), encoding="utf-8") as f:
             self.assertEqual(payload["version"], f.read().strip(), "window.KIT.version 要來自 VERSION 檔")
         self.assertFalse(payload["idPrefix"].endswith("-"))  # 不含尾綴，網頁自己補 -

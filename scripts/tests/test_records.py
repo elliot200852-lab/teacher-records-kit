@@ -301,16 +301,23 @@ class TestStreamHelpers(unittest.TestCase):
         got = lib.student_streams({"students": {"streams": [{"id": "iep"}]}})
         self.assertEqual(got[0]["scope"], "class", "沒寫 scope 就當 class")
 
-    def test_library_has_five_plus_open_option(self):
+    def test_library_has_six_plus_open_option(self):
+        """三個垂直方案（質性評量／IEP／SOAP）＋通用三種＋開放選項。
+
+        counseling 在 v3 alpha 併進 soap，靠 aliases 認舊 id（舊設定與舊資料照用）。
+        """
         streams = lib.load_stream_library()["streams"]
         ids = [s["id"] for s in streams]
-        self.assertEqual(ids, ["homeroom", "subject", "case", "iep", "counseling", "custom"])
+        self.assertEqual(ids, ["qualitative", "homeroom", "subject", "case", "iep",
+                               "soap", "custom"])
         self.assertTrue(streams[-1].get("open"), "最後一筆是「不在清單裡」的開放選項")
         by_id = {s["id"]: s for s in streams}
         self.assertEqual(by_id["case"]["scope"], "case")
         self.assertEqual(by_id["subject"]["scope"], "class")
         self.assertIn("科目", [f["name"] for f in by_id["subject"]["fields"]])
         self.assertIn("#IEP", by_id["iep"]["tags"])
+        self.assertIn("counseling", by_id["soap"]["aliases"], "舊 id 要留在 aliases")
+        self.assertEqual(lib.stream_ids(by_id["soap"]), ["soap", "counseling"])
 
 
 class TestNames(unittest.TestCase):

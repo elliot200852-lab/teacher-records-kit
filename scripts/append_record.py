@@ -25,8 +25,15 @@
       --related "students/S-03/2026-09-10" --content-file 草稿.md --source voice \\
       --task-id voice-2026-09-10-001 --sync
 
+  --fields-json 的兩個方便寫法：
+    · 複選欄位（面向這種 multiselect）可以直接給陣列，會用「／」串起來寫進檔案：
+      `--fields-json '{"面向":["頭·思考","手·意志"],"報告維度":"學習態度與能力"}'`
+    · IEP 的「目標編號」一定要是這位學生卡片（data/students/<代號>/card.json）上真的有的
+      目標 id；給了不存在的編號這支會拒寫，並把可用的目標列出來。
+
 參數：--content-file 用 `-` 代表從 stdin 讀。--date 預設今天。
-退出碼：0 成功｜2 參數不合法｜3 目標不在設定裡｜5 正文含名冊真名｜6 檔案不存在｜9 id 斷言失敗
+退出碼：0 成功｜2 參數不合法（含目標編號不存在）｜3 目標不在設定裡｜5 正文含名冊真名｜
+       6 檔案不存在｜9 id 斷言失敗
 """
 import io
 import os
@@ -41,6 +48,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
 
 EXIT_ARGS, EXIT_TARGET, EXIT_PII, EXIT_MISSING, EXIT_ASSERT = 2, 3, 5, 6, 9
+# 複選欄位寫進檔案時的分隔符（`面向：頭·思考／心·意志`）。
+MULTI_SEP = "／"
+# 「這一則掛在哪一條目標下」的欄位名（IEP／早療）。型別 goal 的欄位一律照這個檢查。
+GOAL_FIELD = "目標編號"
 
 
 def bail(code, msg, fix=""):
@@ -114,7 +125,11 @@ def main():
                 bail(EXIT_ARGS, "--kind %s 一定要指定 --stream（記錄類型）。" % a.kind,
                      "可用的類型：%s。例如 `--stream %s`。導師的班級紀錄、個案追蹤、IEP、"
                      "輔導晤談要分開寫，混在一起就分不清楚。" % (names, avail_streams[0]["id"]))
-        if stream not in [s["id"] for s in avail_streams]:
+        # 舊 id 也認（counseling → soap）：找得到就換成設定裡真正的 id。
+        hit = next((s for s in avail_streams if stream in lib.stream_ids(s)), None)
+        if hit:
+            stream = hit["id"]
+        else:
             bail(EXIT_TARGET, "設定裡沒有這種學生記錄類型：%s" % stream,
                  "可用的類型：%s。%s要新增就重跑 `python3 scripts/setup.py`。"
                  % (names, "（--kind class 只能用涵蓋全班的類型。）" if a.kind == "class" else ""))
@@ -162,7 +177,33 @@ def main():
                  "格式像 '{\"期限\":\"2026-09-20\"}'，鍵值都要用雙引號。")
         if not isinstance(fields, dict):
             bail(EXIT_ARGS, "--fields-json 要是一個物件（大括號）。", '例如 \'{"狀態":"進行中"}\'')
-        fields = {str(k): str(v) for k, v in fields.items()}
+        # 複選欄位（multiselect）可以直接給陣列，寫進檔案時用「／」串起來。
+        fields = {str(k): (MULTI_SEP.join(str(x).strip() for x in v if str(x).strip())
+                           if isinstance(v, (list, tuple)) else str(v))
+                  for k, v in fields.items()}
+
+    # ── 閘①之二：目標編號要真的在這位學生的卡片上 ──
+    # IEP 的每一則都掛在某一條學年／學期目標下。填了卡片上沒有的編號，期末產報告時
+    # 那一則就會變成孤兒（哪一條目標都算不到），所以在這裡就擋下來、並把可用的列出來。
+    sdef = lib.find_stream(tabs, t["stream"]) if t.get("stream") else None
+    goal_fields = [f.get("name") for f in ((sdef or {}).get("fields") or [])
+                   if f.get("type") == "goal" and f.get("name")]
+    if GOAL_FIELD not in goal_fields:
+        goal_fields.append(GOAL_FIELD)
+    if a.kind == "students":
+        card = lib.load_card(target_id)
+        goal_ids = [g["id"] for g in card.get("goals") or []]
+        for name in goal_fields:
+            val = (fields.get(name) or "").strip()
+            if not val or val in goal_ids:
+                continue
+            listing = ("；".join("%s＝%s" % (g["id"], g.get("學期目標") or g.get("學年目標") or "（沒寫目標內容）")
+                                 for g in card["goals"])
+                       if goal_ids else "（這位學生的卡片上一條目標都還沒有）")
+            bail(EXIT_ARGS, "%s「%s」不在 %s 的目標清單裡。" % (name, val, target_id),
+                 "可用的目標：%s。目標寫在 %s（範本 templates/card.example.json，"
+                 "網頁上也能建）；改好再寫一次。"
+                 % (listing, os.path.relpath(lib.card_path(target_id), lib.root())))
     tags = lib.norm_tags(a.tags)
     related = lib.parse_related(a.related)
     for r in related:
