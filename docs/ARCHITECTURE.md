@@ -68,13 +68,22 @@
 
 ### 學生記錄再分一層：記錄類型（stream）
 
-學生記錄不是一個平面。導師的日常觀察、科任老師的課堂觀察、個案追蹤、IEP、輔導晤談
-是**五種各自獨立的簿子**，各有自己的欄位、分類詞、與「哪些學生在裡面」。
-這一層叫**記錄類型（`stream`）**：
+學生記錄不是一個平面。期末要寫評語的質性觀察、導師的日常觀察、科任老師的課堂觀察、
+個案追蹤、IEP／早療的目標追蹤、會談紀錄是**各自獨立的簿子**，
+各有自己的欄位、分類詞、與「哪些學生在裡面」。這一層叫**記錄類型（`stream`）**：
 
-- **可選清單**：`config/student-streams.library.json`（`homeroom` / `subject` / `case` /
-  `iep` / `counseling` ＋ 清單外的開放選項）。**這份庫只是選單**，
+- **可選清單**：`config/student-streams.library.json`（`qualitative` / `homeroom` /
+  `subject` / `case` / `iep` / `soap` ＋ 清單外的開放選項 `custom`）。**這份庫只是選單**，
   安裝時列出來讓老師勾，**一種都不預先勾**；改它不影響已經在跑的資料。
+- **舊 id 靠 `aliases` 相容**：v3 alpha 把 `counseling` 併進 `soap`，舊設定寫 `counseling`
+  照樣讀得到（檔名仍照舊 id 走，資料不必搬）。
+- **`vertical`**：`qualitative` / `iep` / `soap` 這三種各掛一個垂直方案 id
+  （見下面「三個垂直方案」），只是標記，不影響資料形狀。
+- **`card`**：一種類型可以宣告它需要學生卡上多帶什麼——`{"goals":true}`（`iep`）、
+  `{"conceptualization":true}`（`soap`）。網頁依這個決定明細頁頂端出不出「目標清單」／「個案概念化」卡。
+- **`fields[].type`**：`text` / `date` / `select` / `multiselect`（寫檔時用「／」串起來）/
+  `goal`（從該生卡片的 `goals` 選一條）。每個欄位都帶一行 `hint`，網頁當表單提示、
+  AI 改寫語音時當骨架。
 - **老師勾了什麼**：`config/tabs.json` 的 `students.streams`，每一筆
   `{id,label,desc,scope,fields,tags,custom}`。
 - **`scope`** 只有兩種：`class`＝名冊上每一位學生都在這個類型裡；
@@ -92,6 +101,42 @@
 
 業務記錄的「業務組」是同一套機制的另一個實例（庫＋勾選＋兩層開放選項），
 差別只在業務組沒有 `scope`、也不牽涉名冊。
+
+### 三個垂直方案（`vertical`）與期末格式（`reportFormat`）
+
+`config/verticals.json` 是**方案庫**：三個方案各帶 `label`、`pain`（一句話痛點）、
+`suggest`（建議的 `streams` / `groups` / `format`）與 `voiceRule`（語音逐字稿要改寫成什麼骨架）。
+安裝精靈在學生段之前先問一句「你最像哪一種？」，**把建議唸出來，一項都不預先勾**
+（`setup.py` 的 `ask_vertical()`；答案檔的鍵是 `vertical`，`"none"` ＝都不是）。
+
+方案在資料上只留兩個標記，都在 `config/tabs.json`：
+
+| 鍵 | 意思 | 誰讀 |
+|---|---|---|
+| `tabs.vertical` | 這位老師最像哪一種（或空字串） | `setup.py` 收尾印摘要；`build_config.py` 鏡像到 `window.KIT.vertical`；網頁的方案卡只加一個「建議」徽章 |
+| `tabs.reportFormat` | 期末的**預設**格式 id | 網頁的「產生期末素材」預選它；`report_pack.py --format` 隨時可以換 |
+
+**方案不是勾選。** 老師勾了什麼仍以 `students.streams` / `business.groups` 為準——
+選了方案卻一種都沒勾，是合法的結果。
+
+`config/report-formats.library.json` 是**格式庫**：一種格式＝
+`{id, label, for:[stream id…], groupBy, dimensions, sections:[{title,hint,length}], rules:[…], audit:[…]}`。
+`build_config.py` 把整份格式庫鏡像進 `window.KIT.reportFormats`，網頁才知道當前記錄類型
+吃得到哪幾個格式。`custom` 多一個 `customFile`，指向老師自己貼的 `config/report-format.custom.json`。
+
+### 學生卡（`data/students/<代號>/card.json` ⇄ `students/<代號>`）
+
+卡片放的是**會被回頭改的底稿**，不是一則一則的記錄（記錄仍然只走 `append_record.py` 寫進 `.md`）：
+
+| 欄位 | 誰用 | 形狀 |
+|---|---|---|
+| `goals[]` | `iep` | `{id, 領域, 學年目標, 學期目標, 評量方式, 評量標準, 期程}`，`id` 就是記錄裡「目標編號」欄填的值 |
+| `conceptualization` | `soap` | 五格：`主訴` / `背景` / `評估假設` / `處遇目標` / `結案標準` |
+
+- **`goal` 型欄位是真的閘**：`append_record.py` 會拿「目標編號」去比對卡片上的 `goals[].id`，
+  對不上就退出碼 2 並列出可用的目標——這是全系統唯一會擋下來的欄位（其餘欄位都只是表單建議）。
+- 範本＝`templates/card.example.json`；安裝時可由答案檔的 `students.cards.<代號>` 帶進來，
+  **卡片已經有內容的那一塊，重跑安裝不會覆蓋**。
 
 ### 雲端（Firestore）
 
@@ -116,7 +161,8 @@ data/roster.csv                   代號,姓名,類型 —— 唯一有真名的
                                   哪幾種 scope:case 的類型，分號分隔（case;iep）
 data/contacts.csv                 （選用）家長信箱
 data/students/<代號>/observations.md    homeroom（沿用 v2 檔名）
-data/students/<代號>/<類型id>.md         其餘每一種類型各一個檔（case.md、iep.md…）
+data/students/<代號>/<類型id>.md         其餘每一種類型各一個檔（qualitative.md、iep.md、soap.md…）
+data/students/<代號>/card.json          學生卡：IEP 的 goals[]、SOAP 的 conceptualization
 data/class/observations.md              班級整體觀察：homeroom
 data/class/<類型id>.md                   其餘每一種 scope:class 類型各一個
 data/courses/<課程id>/records.md
@@ -146,7 +192,7 @@ data/.sync-state.json             上次同步時每個目標有哪些 rid（含
 ```
 
 `stream` 只有 `students` 與 `class` 這兩種記錄會有，而且**必填**（規則擋著）。
-`fields` 業務記錄與有固定欄位的記錄類型（`case`、`iep`、`counseling`、`subject`）都會有。
+`fields` 業務記錄與有固定欄位的記錄類型（`qualitative`、`subject`、`case`、`iep`、`soap`）都會有。
 `related` 是三個分頁串起來的鍵；`rid` 在同一位學生底下是唯一的，
 所以關聯只寫 `students/<代號>/<rid>`，不用也不必指定類型。
 
@@ -171,7 +217,7 @@ data/.sync-state.json             上次同步時每個目標有哪些 rid（含
 ```
 
 - 標題列：`## 日期 [時間] #標籤…`，當天第一則不帶時間。
-- 欄位列（業務檔，以及有固定欄位的記錄類型——`case`、`iep`、`counseling`、`subject`）：
+- 欄位列（業務檔，以及有固定欄位的記錄類型——`qualitative`、`subject`、`case`、`iep`、`soap`）：
   緊接標題，每行 `鍵：值`（全形冒號）。
   **解析器很寬鬆**——任何 `鍵：值` 行都收進 `fields`，就算那個鍵不在該組／該類型設定的欄位裡也照收。
   這是刻意的：`fields` 只是表單建議，不是 schema 閘，**改欄位名不需要 migration**。
@@ -272,6 +318,23 @@ v3 起安全規則允許擁有者刪除記錄（`allow delete: if isOwner();`）
 | **兩邊都改** | **不覆蓋**，印出來讓老師自己決定 |
 | 雲端那則被刪掉（以前同步過、現在不見了） | 從本機檔也刪掉，寫進 `data/audit.jsonl`。但整檔不見／變空就一律不刪 |
 | 任一方向出現名冊真名 | 攔下不同步 |
+
+### 學生卡也是雙向的（`goals` / `conceptualization`）
+
+卡片上的兩塊底稿跟記錄走同一條「不覆蓋」規則（`sync.py` 的 `sync_student_card()`）：
+
+| 情況 | 做法 |
+|---|---|
+| 只有本機 `card.json` 改 | 推上雲端 `students/<代號>` |
+| 只有網頁改（明細頁的「目標清單」／「個案概念化」卡） | 寫回 `data/students/<代號>/card.json` |
+| **兩邊都改** | **不覆蓋**，印出來叫老師打開檔案跟網頁比對後留一邊 |
+
+基準是上次同步時存下來的卡片指紋（`.sync-state.json` 的 `_cards`），所以判斷得出「誰改過」。
+`--dry-run` 也會跑這一段，只是不寫。
+
+**推上去的 PATCH 只帶 `updateMask=["goals","conceptualization"]`。**
+`students/<代號>` 這張卡上還有別的東西（姓名鏡像、網頁自己寫的統計欄位），
+無 mask 的整份 PATCH 會把它們靜默清掉——跟 `roster/main` 要留 `protectedPhrases` 是同一個理由。
 
 ### 名冊第三欄是雙向的
 
@@ -392,12 +455,15 @@ config/business-groups.    ──┤
   library.json             ──┼──►  build_config.py  ──►  site/js/kit-config.js
 config/student-streams.    ──┤                          site/js/firebase-config.js
   library.json             ──┤                          firestore.rules
+config/report-formats.     ──┤
+  library.json             ──┤
 firestore.rules.tmpl       ──┘
 VERSION                    ──┘（版本字串進 window.KIT.version）
 ```
 
-兩份 library 進的是**網頁上「＋ 選擇類型」「＋ 新增業務組」要顯示的選單**；
-老師實際勾了什麼一律看 `config/tabs.json`。
+兩份選單 library（業務組、記錄類型）進的是**網頁上「＋ 選擇類型」「＋ 新增業務組」要顯示的選單**；
+格式庫進的是網頁「產生期末素材 ▾」要列哪幾個格式（`window.KIT.reportFormats`）；
+老師實際勾了什麼一律看 `config/tabs.json`（含 `vertical` 與 `reportFormat` 兩個標記）。
 
 - **三個輸出全部 gitignored，而且永遠由腳本產生。** AI 代理不准手寫——
   手寫規則檔一旦把信箱打錯，資料庫就變成誰都讀不到，或更糟：誰都讀得到。
@@ -468,6 +534,47 @@ VERSION                    ──┘（版本字串進 window.KIT.version）
 
 ---
 
+## 10.5 期末產出：素材包與草稿分工
+
+期末要寫的東西（質性評語、IEP 追蹤報告、個案摘要）是這套系統最後一哩，
+但它**刻意切成兩半**：確定性的那一半給腳本，寫字的那一半給 AI 與老師。
+
+### 腳本只分組，不寫評語
+
+`scripts/report_pack.py --format <格式> --target <代號>|--all` 做四件事，全部是確定性的：
+
+1. 依格式的 `for` 撈該生那幾種記錄類型的紀錄（`--stream` 可以指定，`--from`／`--to` 可以框日期）；
+2. 依 `groupBy` 分組——質性＝報告維度 → 面向 → 課程；IEP＝每目標一表、日期序的達成情形；
+   SOAP＝依會談次數的 S／O／A／P 與風險趨勢；
+3. 附統計與**缺漏提示**（`dimensions` 裡沒有紀錄的分組、零紀錄的目標、缺號的會談都會照實列出來）；
+4. 把格式的 `sections`／`rules`／`audit` 原樣寫成一份草稿指令。
+
+輸出兩個檔到 `exports/`（gitignored）：`<代號>-<格式>-素材包.md` 與 `<代號>-<格式>-prompt.md`；
+`--all`（或 `--target all`）另出一份 `_index.md` 全班總表。
+**它不呼叫任何 LLM、不生成任何一句評語**，所以同一批資料跑幾次結果都一樣。
+
+### AI 寫本文，老師定稿
+
+草稿指令最下面那段固定指令要求：材料只有素材包、每一句都要指得出是哪一則（哪一天）、
+素材包裡沒有的事一個字都不補、缺的段落照實寫「本期未蒐集到紀錄」。
+寫完 AI 要拿 `audit` 清單**逐條自檢並把沒過的列出來**，不准偷偷改掉。
+`waldorf-homeroom` 的「整體感受」那一段更直接寫在規則裡：**由老師自己寫，AI 不代筆。**
+
+網頁端的「產生期末素材 ▾」（明細頁）與「產生全班期末素材 ▾」（一覽頁）做同一件事，
+下載的 .md 就是素材包＋檔尾的 prompt。
+
+### 為什麼這樣分
+
+- **維護成本**：格式一改（學校換表格、法規改段落），只要動 `config/report-formats.library.json`
+  或老師自己的 `config/report-format.custom.json`，腳本一行都不用改；
+  要是把評語生成寫進腳本，每換一種格式就得改程式，而且輸出不可重現。
+- **不代管、不介入的定位**：這套 kit 從不持有老師的金鑰，也不該持有他的判斷。
+  評語是專業判斷與對這個孩子的責任，腳本沒有資格代寫——它只能保證「素材沒有漏、規則有附上」。
+- **定稿規矩**：老師定稿之後那一版就是那一版，AI 不回頭「順手修正」；
+  這跟 §12 的「不做自動評量生成」是同一條線。
+
+---
+
 ## 11. 版本控制
 
 - **`VERSION`** ＝ 這份程式是哪一版（語意化版本：主版本．次版本．修訂）。**唯一的版本來源**。
@@ -507,5 +614,8 @@ VERSION                    ──┘（版本字串進 window.KIT.version）
 ## 12. 這套不做什麼
 
 多租戶、代管、家長端、網頁錄音、行動 App、自動評量生成、作者對老師資料的任何介入。
+
+「不做自動評量生成」是刻意的：`report_pack.py` 只把素材分好組、附上格式骨架與規則，
+**評語本文由老師的 AI 寫、由老師定稿**（見 §10.5）。這條線不會因為方便而讓步。
 
 `export_records.py` 的存在本身就是一個承諾：**你的資料隨時可以整包帶走，不會被鎖在這個 kit 裡。**

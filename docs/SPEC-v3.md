@@ -30,6 +30,7 @@
 ```
 網站（Firestore，老師的 Firebase 專案）
   roster/main                       {students:[{id,name}], protectedPhrases:[]}
+  students/{id}                     卡：{goals:[...]（iep）, conceptualization:{...}（soap）}；本機 data/students/<id>/card.json
   students/{id}/records/{rid}
   class-observations/{rid}
   courses/{courseId}                {title,kind,season,weeks,teacherName,order}
@@ -105,16 +106,17 @@ Google Drive（老師自己的雲端硬碟；folder ID 錨定）
 
 David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀錄、個案紀錄、導師學生紀錄、任課老師學生紀錄要分得清楚。所以學生分頁內再分 **記錄類型（stream）**，每一種各有自己的欄位、分類詞與「哪些學生在裡面」。
 
-- **記錄類型庫** `config/student-streams.library.json`（安裝時勾選，**沒有預設勾任何一種**）：
+- **記錄類型庫** `config/student-streams.library.json`（安裝時勾選，**沒有預設勾任何一種**；正本＝該 JSON，本表只列骨架，欄位細節見 §3.6 與 JSON）：
 
-| id | label | 範圍 scope | 誰用 | 固定欄位 fields | 常用分類詞 tags |
-|---|---|---|---|---|---|
-| `homeroom` | 導師班級學生紀錄 | `class`（全班每位學生） | 導師 | （無） | #課堂 #主課程 #學習態度 #專注意志 #人際 #情緒 #突破 #親師 #生活 |
-| `subject` | 任課老師學生紀錄 | `class` | 科任／任課老師 | 科目 | #課堂 #學習態度 #作業 #專注 #人際 #亮點 #卡點 |
-| `case` | 個案追蹤 | `case`（只有被列入的學生） | 導師／輔導／個管 | 來源、主訴／議題、處遇／介入、追蹤與下次 | #初談 #個別晤談 #家長晤談 #轉介 #通報 #結案 |
-| `iep` | IEP 個案追蹤 | `case` | 特教／導師 | 本期目標、觀察、調整／支持、會議決議 | #IEP #鑑定 #資源班 #巡迴 #個案會議 #轉銜 |
-| `counseling` | 輔導晤談紀錄 | `case` | 輔導老師 | 晤談形式、摘要、評估、下次 | #個別 #團體 #家長 #教師諮詢 #危機 |
-| `custom` | 我的學生紀錄類型不在清單裡 | 開放選項 | — | AI 問四件事後產生 | — |
+| id | label | 範圍 scope | 誰用 | 備註 |
+|---|---|---|---|---|
+| `qualitative` | 質性評量觀察 | `class` | 實驗教育／私校導師（方案①） | 面向／報告維度／課程／證據來源／指標 |
+| `homeroom` | 導師班級學生紀錄 | `class` | 一般導師 | 只有 tags，無固定欄位 |
+| `subject` | 任課老師學生紀錄 | `class` | 科任 | 科目、觀察向度、證據來源 |
+| `case` | 個案追蹤（通用） | `case` | 導師／個管 | 來源、主訴／議題、處遇／介入、追蹤與下次 |
+| `iep` | IEP／早療追蹤 | `case` | 特教／早療（方案②） | 學生卡 goals；目標編號／達成情形／證據／支持策略／下一步／會議決議 |
+| `soap` | SOAP 個案紀錄 | `case` | 諮商／教練／社工（方案③） | 學生卡 conceptualization；S／O／A／P、會談形式、次數、風險評估、下次時間；`aliases:["counseling"]` |
+| `custom` | 我的學生紀錄類型不在清單裡 | 開放選項 | — | AI 問四件事後產生 |
 
 - **記錄形狀**：`students/{id}/records/{rid}` 多一個必填 `stream: "<id>"`；欄位／關聯照 §2.1。規則 `create` 要求 `stream is string && size() > 0`。
 - **本機檔**：每位學生、每種類型一檔 `data/students/<id>/<streamId>.md`（`homeroom` 沿用舊檔名 `observations.md` 以相容 v2）。區塊格式照 §2.2。
@@ -146,13 +148,13 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 | 方案 | 記錄類型 id | 痛點 | 記錄時的引導（fields） | 期末一鍵產出 |
 |---|---|---|---|---|
 | ① 質性評量自動化（實驗教育／私校） | `qualitative`（取代 homeroom 作為華德福建議；homeroom 保留給一般班務） | 不打分數，期末要從零碎筆記回溯寫評語 | `面向`（多選：頭·思考／心·情感／手·意志／社群·人際）、`報告維度`（單選：①行為與自我管理 ②人際互動 ③學習態度與能力 ④內在特質與個人發展 ⑤挑戰與方向）、`課程`（courseId 或科目）、`證據來源`（工作本／課堂觀察／口說／身體／作品／親師）、`指標`（選填：「第N條 可獨立完成｜需輔助完成｜尚無法完成」——情意類永不打等級） | **質性評量素材包**＋評語草稿：`report_pack.py --format waldorf-homeroom`（發展樣貌／客觀描述五維度／整體感受／導師建議約100字）或 `subject-4`（關係／參與／可見的學習證據／下一步；320–450字）或 `custom`（老師貼校方格式） |
-| ② IEP／早療追蹤 | `iep` | 目標達成細節多、評鑑格式繁瑣 | 學生卡多 **`goals[]`**（`{id, 領域, 學年目標, 學期目標, 評量方式, 評量標準, 期程}`；領域＝特教：認知／溝通／行動／情緒行為／社會／生活自理／學業；早療：認知／語言／動作／社會情緒／生活自理）；每則 `目標編號`（從該生 goals 選）、`達成情形`（未開始／初步／部分達成／達成／類化）、`證據`（觀察／作品／測驗／家長回報）、`支持策略`、`下一步` | **IEP 追蹤報告**：`report_pack.py --format iep-tracking` → 每目標一表（目標／評量方式與標準／日期序達成情形／證據／摘要）＋期末總評段；會議紀錄沿用三段式（述說前提／會議重點／日後發展目標） |
+| ② IEP／早療追蹤 | `iep` | 目標達成細節多、評鑑格式繁瑣 | 學生卡多 **`goals[]`**（`{id, 領域, 學年目標, 學期目標, 評量方式, 評量標準, 期程}`；領域＝特教：認知／溝通／行動／情緒行為／社會／生活自理／學業；早療：認知／語言／動作／社會情緒／生活自理）；每則 `目標編號`（從該生 goals 選）、`達成情形`（未開始／初步／部分達成／達成／類化）、`證據`（觀察／作品／測驗／家長回報）、`支持策略`、`下一步`、`會議決議` | **IEP 追蹤報告**：`report_pack.py --format iep-tracking` → 每目標一表（目標／評量方式與標準／日期序達成情形／證據／摘要）＋期末總評段；會議紀錄沿用三段式（述說前提／會議重點／日後發展目標） |
 | ③ 諮商／教練／社工 SOAP | `soap`（取代 counseling） | 會談後要寫 SOAP 或個案紀錄，手寫耗時漏細節 | 個案卡多 **`conceptualization`**（主訴／背景／評估假設／處遇目標／結案標準）；每則 `S 主觀`、`O 客觀`、`A 評估`、`P 計畫`、`會談形式`、`會談次數`、`風險評估`（無／低／中／高）、`下次時間`；每個欄位有一行提示（S＝個案的話與主觀感受；O＝可觀察的行為與事實；A＝專業評估與假設；P＝下一步處遇） | **個案摘要／結案報告**：`report_pack.py --format case-summary` → 個案概念化＋歷程摘要（依次數）＋進展評估＋處遇建議／結案評估 |
 
 - **語音改寫規則**（AGENTS.md §錄音）：逐字稿 → 依方案的欄位骨架改寫（質性評量：每則一個具體事件＋面向＋報告維度；IEP：先對 goals 分段，每段一則、標目標編號與達成情形；SOAP：四段拆分，個案的話進 S、可觀察行為進 O）→ `append_record.py --fields-json`。
 - **素材包與草稿分工**（維護成本最低）：`scripts/report_pack.py` 只做確定性的事——依格式把該生所有記錄分組（報告維度／面向／課程／目標／次數）、附統計、附**校方格式骨架與書寫規則**（稱名不稱全名、人稱「他」、先事實後判斷、每則只一個下一步、禁「不是A而是B」等對比句、禁定型語言）成 `exports/<學生>-素材包.md`＋`-prompt.md`；**評語本文由老師的 AI 代理寫**（AGENTS.md 給它固定流程與檢核清單）；`--all` 全班一包。網頁端「產生期末素材」按鈕做同一件事（下載 .md）。
 - **格式庫** `config/report-formats.library.json`：`waldorf-homeroom`、`subject-4`、`iep-tracking`、`case-summary`、`custom`（老師貼自己學校的格式標題，AI 依樣產）。每個格式＝`{id,label,sections:[{title,hint,length}],rules:[...]}`。
-- **方案庫** `config/verticals.json`：三方案各列「建議記錄類型」「建議業務組」「建議格式」「一句話痛點」，供精靈唸給老師聽；只是建議，不預勾。
+- **方案庫** `config/verticals.json`：三方案（`qualitative-assessment`／`iep-tracking`／`soap-casework`）各列 `label`、`pain`、`suggest{streams,groups,format}`、`voiceRule`（語音改寫規則），供精靈唸給老師聽；只是建議，不預勾。老師選的方案與格式寫進 `config/tabs.json` 頂層 `vertical`／`reportFormat`（answers 鍵 `vertical`／`report_format`）。
 - 類型庫調整：`counseling` 併入 `soap`（保留別名讀舊資料）；`case` 保留為通用個案追蹤；`iep` 依上表擴欄；新增 `qualitative`。
 
 ### 3.4 每頁「這頁需要什麼資料」
@@ -218,7 +220,7 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 | `backup.py` | 本機＋Drive 備份 | zip `data/`＋`export.json`（Firestore 全量）→ `backups/`；**兩種 Drive 模式**（紅隊 #4）：`desktop`（預設）＝把 zip 複製進「Google 雲端硬碟」桌面程式的同步夾 `drive.desktop_dir`（零 OAuth、Windows 也行）；`gws`（進階）＝`gws drive files create --json '{"name":..,"parents":[id]}' --upload <cwd 相對路徑>`（先 `gws drive files get --params '{"fileId":..,"fields":"id,name,trashed"}'` 驗存在且 `trashed=false`，找不到就停、**不自建夾**；上傳後比 md5Checksum）。兩種都寫 `data/backups.jsonl` 與 Firestore `meta/status.lastBackupAt`；保留最近 N 份 |
 | `ledger.py` | 台帳 | 見 §2.3（`--rebuild`、`--check`；`--related` 延後） |
 | `export_records.py` | 匯出取材（Markdown／JSON） | 通用化四種；`--by-tag`、`--related`（把關聯記錄一起帶出）、`--stream`（只匯某一種學生記錄類型） |
-| `report_pack.py` | 期末素材包＋草稿 prompt | 見 §3.6；`--format waldorf-homeroom|subject-4|iep-tracking|case-summary|custom`、`--target <id>|all`、`--stream`；輸出 `exports/` |
+| `report_pack.py` | 期末素材包＋草稿 prompt | 見 §3.6；`--format waldorf-homeroom|subject-4|iep-tracking|case-summary|custom`、`--target <id>|all`（＝`--all`）、`--stream`；輸出 `exports/` |
 | `export_docs.py` | 匯出 Word／PDF | 見 §3.5；`.docx` 標準庫 zipfile、`.pdf` 走 headless Chrome（沒有就給 HTML） |
 | `schedule.sh` | 排程（選用） | 產生 launchd plist（每日 sync、每週 backup）到 `~/Library/LaunchAgents/`，或印 cron 行；`--uninstall`。**失敗要看得見**（紅隊 #11）：網頁頂端讀 `meta/status`，上次同步／備份超過 7 天就顯示紅字 |
 | `parent_email.py`、`pending.py`、`monthly_reminder.py` | 選用 | 沿用 v2 |

@@ -284,11 +284,16 @@ def render_case(recs, card):
                  % (no if no else "?（%d）" % i, rec_date(r),
                     "　%s" % f.get("會談形式") if f.get("會談形式") else ""))
         L.append("")
+        gaps = []
         for k in SOAP_FIELDS:
             v = str(f.get(k, "")).strip()
             if not v:
-                missing.append("%s 第 %s 次" % (rec_date(r), no if no else i))
+                gaps.append(k)
             L.append("- **%s**：%s" % (k, v or "（未留下紀錄）"))
+        # 一次會談只記一筆（缺哪幾段寫在括號裡）——原本是缺一段就 append 一次，
+        # 同一次會談會在統計裡重複出現好幾遍。
+        if gaps:
+            missing.append("%s 第 %s 次（缺 %s）" % (rec_date(r), no if no else i, "／".join(gaps)))
         for k in ("風險評估", "下次時間"):
             if str(f.get(k, "")).strip():
                 L.append("- %s：%s" % (k, f[k]))
