@@ -123,7 +123,7 @@ def mac_plist(job, hour, minute, weekday=None):
 
 
 def mac_uid():
-    return str(os.getuid())
+    return str(os.getuid()) if hasattr(os, "getuid") else "501"     # Windows 上用 TRK_FORCE_OS=mac 渲染 dry-run 時沒有 getuid
 
 
 def mac_install(sync_t, backup_day, backup_t):
