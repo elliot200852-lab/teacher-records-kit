@@ -587,7 +587,7 @@ def targets(kit, tabs, data_root=None):
             stream_label=""):
         out.append({"kind": kind, "id": ident, "stream": stream, "scope": scope,
                     "streamLabel": stream_label, "label": label, "path": path,
-                    "sourceFile": os.path.relpath(path, d),
+                    "sourceFile": os.path.relpath(path, d).replace(os.sep, "/"),   # 會推上雲端，三平台都用 /
                     "records": records, "card": card,
                     "key": "%s/%s%s" % (kind, ident, ("/" + stream) if stream else "")})
 

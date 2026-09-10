@@ -252,7 +252,8 @@ class InstallTools(unittest.TestCase):
                 z.writestr("Release/whisper-cli.exe", b"MZ fake")
                 z.writestr("Release/ggml.dll", b"dll")
                 z.writestr("Release/README.txt", b"hi")
-            url = "file://" + zpath.replace("\\", "/") if not zpath.startswith("/") else "file://" + zpath
+            import pathlib
+            url = pathlib.Path(zpath).as_uri()                 # Windows 是 file:///C:/…，mac 是 file:///…
             tools = os.path.join(d, "tools")
             saved_dl, saved_td, saved_dry = dict(hostos.DOWNLOADS), hostos.tools_dir, install_tools.DRY
             hostos.DOWNLOADS["test-whisper"] = (url, "whisper-cli.exe", "whisper")

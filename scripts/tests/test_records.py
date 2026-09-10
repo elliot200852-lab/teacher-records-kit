@@ -246,10 +246,10 @@ class TestTargets(unittest.TestCase):
 
     def test_paths_and_collections(self):
         tg = self.tg()
-        self.assertTrue(tg["students/S-01/homeroom"]["path"]
+        self.assertTrue(tg["students/S-01/homeroom"]["path"].replace(os.sep, "/")
                         .endswith("data/students/S-01/observations.md"),
                         "導師班級紀錄要沿用 v2 的 observations.md")
-        self.assertTrue(tg["students/S-02/case"]["path"].endswith("data/students/S-02/case.md"))
+        self.assertTrue(tg["students/S-02/case"]["path"].replace(os.sep, "/").endswith("data/students/S-02/case.md"))
         self.assertEqual(tg["students/S-02/case"]["sourceFile"], "students/S-02/case.md")
         self.assertEqual(tg["students/S-01/homeroom"]["records"], "students/S-01/records")
         self.assertEqual(tg["students/S-02/case"]["records"], "students/S-02/records",

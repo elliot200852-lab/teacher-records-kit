@@ -80,7 +80,7 @@ def enable_console():
     """讓 ✓✗ 與中文在 Windows 的 cmd／PowerShell 也印得出來，並開啟 ANSI 顏色。
     每支腳本 import lib 時會自動呼叫一次；重複呼叫無害。"""
     global _console_done
-    if OS != "win" or _console_done:
+    if not sys.platform.startswith("win") or _console_done:      # 看真實平台，不看 TRK_FORCE_OS
         return
     _console_done = True
     try:
