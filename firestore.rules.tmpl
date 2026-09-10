@@ -37,7 +37,9 @@ service cloud.firestore {
         allow read:   if isOwner();
         allow create: if isOwner() && validRid(recordId, request.resource.data.date);
         allow update: if isOwner() && request.resource.data.date == resource.data.date;
-        allow delete: if false;   // 不從前端硬刪
+        // v3：擁有者可以刪除。未成年人的紀錄必須能應家長要求刪除；
+        // 網頁端有二次確認，sync.py 會把刪除傳播到本機檔並記進 data/audit.jsonl。
+        allow delete: if isOwner();
       }
     }
 
@@ -46,7 +48,8 @@ service cloud.firestore {
       allow read:   if isOwner();
       allow create: if isOwner() && validRid(recordId, request.resource.data.date);
       allow update: if isOwner() && request.resource.data.date == resource.data.date;
-      allow delete: if false;   // 不從前端硬刪
+      // v3：擁有者可以刪除（理由同上）
+      allow delete: if isOwner();
     }
 
     // 課程（主課程／科任）── 2026-07-31 加。
@@ -61,8 +64,34 @@ service cloud.firestore {
         allow read:   if isOwner();
         allow create: if isOwner() && validRid(recordId, request.resource.data.date);
         allow update: if isOwner() && request.resource.data.date == resource.data.date;
-        allow delete: if false;   // 不從前端硬刪
+        // v3：擁有者可以刪除。未成年人的紀錄必須能應家長要求刪除；
+        // 網頁端有二次確認，sync.py 會把刪除傳播到本機檔並記進 data/audit.jsonl。
+        allow delete: if isOwner();
       }
+    }
+
+    // 業務記錄（v3 加）── business/{groupId} 是一組業務的卡片
+    // （組名、欄位建議、常用標籤）；記錄放在它底下的 records。
+    // 組的 fields 只是表單建議、不是 schema 閘：欄位名改了不需要 migration，
+    // 所以規則不驗 fields 的內容。
+    match /business/{groupId} {
+      allow read, write: if isOwner();
+
+      // 單則業務記錄：規則與 students/{id}/records 完全同款
+      match /records/{recordId} {
+        allow read:   if isOwner();
+        allow create: if isOwner() && validRid(recordId, request.resource.data.date);
+        allow update: if isOwner() && request.resource.data.date == resource.data.date;
+        // v3：擁有者可以刪除（理由同上）
+        allow delete: if isOwner();
+      }
+    }
+
+    // 狀態與設定鏡像（v3 加）── meta/status 由 sync.py／backup.py 寫，
+    // 網頁頂端讀它顯示「上次同步／上次備份幾天前」；超過七天顯示紅字，
+    // 讓排程靜默死掉這件事看得見。meta/config 是 config/tabs.json 的唯讀鏡像。
+    match /meta/{doc} {
+      allow read, write: if isOwner();
     }
 
     // 代號↔姓名對照（供儀表板顯示真名；僅擁有者）

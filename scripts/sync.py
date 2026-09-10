@@ -1,142 +1,286 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""sync.py — 本機 markdown ⇄ Firestore 雙向同步（四種記錄共用一套邏輯）。
+
+四種目標：學生記錄、班級整體觀察、課程記錄、業務記錄（由 lib.targets 產生）。
+
+規則（每一條都是為了「不要弄丟老師的字」）：
+  · 正向：檔案裡有、雲端沒有（而且以前沒同步過）→ 推上去。
+  · 回寫：雲端那則被網頁改過（editedOnWeb）且本機那則自上次同步後沒動 → 寫回檔案。
+  · 衝突：兩邊都改 → **不覆蓋**，印出來讓老師自己決定。
+  · 前置條件：每個 PATCH 都帶 currentDocument.updateTime；雲端在我們讀完之後又被改過
+    就回 412，當成衝突處理、不重試覆寫（紅隊 #9：沒有這條，老師在手機上打字會被靜默蓋掉）。
+  · 刪除：雲端那則被刪掉（以前同步過、現在不見了）→ 從本機檔案也刪掉，並寫進 data/audit.jsonl。
+    但**整個檔案不見或變成空的時候一律不刪任何東西**——那多半是檔案出事，不是老師要刪。
+  · 回寫前先備份成 `.<檔名>.prev.md`。
+  · 去識別化：正文出現名冊真名就攔下不同步（兩個方向都攔）。
+
+用法：
+  python3 scripts/sync.py                 同步
+  python3 scripts/sync.py --dry-run       只看會發生什麼，不寫任何東西
+  python3 scripts/sync.py --only students/S-03     只同步某一個目標
+  python3 scripts/sync.py --root DIR
+需求：gcloud 以專案擁有者登入（`gcloud auth login`）。
 """
-sync.py — 本機 observations.md  <->  Firestore（雙向、衝突安全）
-  正向：每位學生 <students_dir>/<id>/observations.md 的 ## YYYY-MM-DD 區塊 → Firestore
-  一天多則：當天第一則的區塊標題就是純日期（doc id ＝ 日期）；第二則之後標題帶時間
-    `## 2026-09-10 14:35`，doc id ＝ `2026-09-10-1435`。id 由「日期＋時間」決定，
-    所以在檔案中間插入一則不會讓後面的紀錄改名（用出現順序編號就會，那會讓這支腳本
-    把舊副本當新紀錄再建一次，而規則不准刪 → 永久重複）。
-  回寫：網頁編輯/新增（doc 帶 editedOnWeb）→ 寫回對應檔案區塊（無檔則建檔）
-  衝突：網頁與檔案同一則都改 → 不覆蓋、印出來
-  代號制：內容禁含真名（名冊真名出現即攔下）；姓名只推 roster/main（擁有者可讀）
-用法：sync.py [--dry-run]
-需求：gcloud 以擁有者登入；config.yaml 填好 firebase.project_id 與 records.*
-"""
-import os, re, sys, hashlib, shutil
+import os
+import sys
+import json
+import shutil
+import argparse
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
 
-DRY = "--dry-run" in sys.argv
-sha = lambda t: hashlib.sha256(t.encode()).hexdigest()[:16]
+STATE_FILE = ".sync-state.json"
 
 
-def parse_file(path):
-    lines = open(path, encoding="utf-8").read().split("\n")
-    starts = [i for i, l in enumerate(lines) if lib.DATE_RE.match(l)]
-    blocks = []
-    for k, si in enumerate(starts):
-        ei = starts[k + 1] if k + 1 < len(starts) else len(lines)
-        m = lib.DATE_RE.match(lines[si])
-        date, tm = m.group(1), m.group(2)
-        tags = re.findall(r"#\S+", m.group(3) or "")
-        body = "\n".join(lines[si + 1:ei]).strip()
-        blocks.append({"rid": lib.rid_for(date, tm), "date": date, "time": tm,
-                       "tags": tags, "body": body,
-                       "hash": sha("|".join(tags) + "\n" + body), "start": si, "end": ei})
-    return lines, blocks
+def load_state():
+    p = os.path.join(lib.data_dir(), STATE_FILE)
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
 
 
-def render(date, tm, tags, body):
-    head = "## " + date + ((" " + tm) if tm else "") + ((" " + " ".join(tags)) if tags else "")
-    return [head, ""] + body.split("\n") + [""]
+def save_state(state):
+    os.makedirs(lib.data_dir(), exist_ok=True)
+    with open(os.path.join(lib.data_dir(), STATE_FILE), "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=1)
 
 
-def get_records(base, sid, tok):
-    d = lib.http("GET", base, "students/%s/records" % sid, tok)
-    return {doc["name"].split("/")[-1]: {k: lib.py_value(v) for k, v in doc.get("fields", {}).items()}
-            for doc in d.get("documents", [])}
+def leaks(names, *texts):
+    hits = []
+    for t in texts:
+        hits += lib.find_names(t if isinstance(t, str) else " ".join(map(str, t or [])), names)
+    return sorted(set(hits))
+
+
+def cloud_record(fs):
+    """雲端文件 → 跟本機同形狀的一則記錄。"""
+    return {"date": fs.get("date", ""), "tags": lib.norm_tags(fs.get("tags") or []),
+            "fields": {k: str(v) for k, v in (fs.get("fields") or {}).items()},
+            "related": lib.parse_related(fs.get("related") or []),
+            "body": fs.get("body", "")}
+
+
+def record_body(b, keep=None):
+    """本機一則 → 要寫上雲的欄位（保留雲端原有的 source／taskId）。"""
+    keep = keep or {}
+    out = {"date": b["date"], "tags": b["tags"], "fields": b["fields"],
+           "related": b["related"], "body": b["body"],
+           "contentHash": b["hash"], "editedOnWeb": False, "webEditedAt": None,
+           "source": keep.get("source") or "file"}
+    if keep.get("taskId"):
+        out["taskId"] = keep["taskId"]
+    if keep.get("sourceFile"):
+        out["sourceFile"] = keep["sourceFile"]
+    return out
+
+
+def sync_target(t, base, tok, names, state, dry, notes, counters):
+    key = "%s/%s" % (t["kind"], t["id"])
+    known = set(state.get(key, {}).get("rids") or [])
+    cloud = {rid: (fs, ut) for rid, fs, ut in lib.list_docs(base, t["records"], tok)}
+    lines, blocks = lib.parse_file(t["path"])
+    file_exists = os.path.exists(t["path"])
+    by_rid = {b["rid"]: b for b in blocks}
+
+    pend_push, pend_write, pend_new, pend_del = [], [], [], []
+
+    for b in blocks:
+        hit = leaks(names, b["body"], b["tags"], list(b["fields"].values()))
+        if hit:
+            counters["pii"] += 1
+            notes.append("PII %s %s：檔案裡出現名冊真名（%s）——沒有同步這一則" % (key, b["rid"], "、".join(hit)))
+            continue
+        pair = cloud.get(b["rid"])
+        if pair is None:
+            if b["rid"] in known:
+                pend_del.append(b)               # 以前同步過、現在雲端沒有 → 網頁上被刪了
+            else:
+                pend_push.append((b, None, {}))
+            continue
+        fs, ut = pair
+        if fs.get("editedOnWeb"):
+            if fs.get("contentHash") != b["hash"]:
+                counters["conflict"] += 1
+                notes.append("衝突 %s %s：網頁與本機檔案都改過，兩邊都保留、都沒動" % (key, b["rid"]))
+                continue
+            rec = cloud_record(fs)
+            hit = leaks(names, rec["body"], rec["tags"], list(rec["fields"].values()))
+            if hit:
+                counters["pii"] += 1
+                notes.append("PII %s %s：網頁那一則出現名冊真名（%s）——沒有寫回檔案"
+                             % (key, b["rid"], "、".join(hit)))
+                continue
+            pend_write.append((b, rec, ut))
+        elif fs.get("contentHash") != b["hash"]:
+            pend_push.append((b, ut, fs))
+
+    for rid, (fs, ut) in sorted(cloud.items()):
+        if rid in by_rid:
+            continue
+        rec = cloud_record(fs)
+        hit = leaks(names, rec["body"], rec["tags"], list(rec["fields"].values()))
+        if hit:
+            counters["pii"] += 1
+            notes.append("PII %s %s：網頁那一則出現名冊真名（%s）——沒有寫進檔案" % (key, rid, "、".join(hit)))
+            continue
+        if fs.get("editedOnWeb") or rid not in known:
+            pend_new.append((rid, rec))
+        else:
+            notes.append("本機少了 %s %s（雲端還在）：要刪請在網頁上刪，這裡不動雲端資料" % (key, rid))
+
+    # 整檔遺失／變空的保護：不做任何刪除
+    if pend_del and (not file_exists or not blocks):
+        notes.append("%s 的檔案不見了或變成空的——這一輪不刪任何東西（先確認檔案沒事）" % key)
+        pend_del = []
+
+    counters["push"] += len(pend_push)
+    counters["write"] += len(pend_write)
+    counters["new"] += len(pend_new)
+    counters["delete"] += len(pend_del)
+    if dry:
+        for b, _, _ in pend_push:
+            notes.append("（預演）上傳 %s %s" % (key, b["rid"]))
+        for b, _, _ in pend_write:
+            notes.append("（預演）回寫 %s %s" % (key, b["rid"]))
+        for rid, _ in pend_new:
+            notes.append("（預演）從網頁新增到檔案 %s %s" % (key, rid))
+        for b in pend_del:
+            notes.append("（預演）從檔案刪掉 %s %s（網頁上刪了）" % (key, b["rid"]))
+        return set(by_rid) | set(cloud)
+
+    # ── 改檔案（回寫、網頁新增、網頁刪除）──
+    if pend_write or pend_new or pend_del:
+        if file_exists:
+            d, name = os.path.dirname(t["path"]), os.path.basename(t["path"])
+            shutil.copy2(t["path"], os.path.join(d, "." + name.replace(".md", "") + ".prev.md"))
+        else:
+            os.makedirs(os.path.dirname(t["path"]), exist_ok=True)
+            lines = lib.file_header(t["kind"], t["id"], t["label"]).split("\n")
+        edits = []
+        for b, rec, _ in pend_write:
+            edits.append((b["start"], b["end"],
+                          lib.render_block(b["date"], b["time"], rec["tags"], rec["fields"],
+                                           rec["related"], rec["body"])))
+        for b in pend_del:
+            edits.append((b["start"], b["end"], []))
+        for s, e, new in sorted(edits, key=lambda x: -x[0]):
+            lines[s:e] = new
+        for rid, rec in sorted(pend_new):
+            date = rec["date"] or rid[:10]
+            while lines and lines[-1].strip() == "":
+                lines.pop()
+            lines.append("")
+            lines += lib.render_block(date, lib.time_from_rid(date, rid), rec["tags"],
+                                      rec["fields"], rec["related"], rec["body"])
+        with open(t["path"], "w", encoding="utf-8") as f:
+            f.write("\n".join(lines).rstrip("\n") + "\n")
+
+        # 寫回去之後，把「檔案現在長的樣子」推回雲端並清掉 editedOnWeb 旗標
+        _, nb = lib.parse_file(t["path"])
+        now = {x["rid"]: x for x in nb}
+        for rid in [b["rid"] for b, _, _ in pend_write] + [r for r, _ in pend_new]:
+            x = now.get(rid)
+            if not x:
+                continue
+            fs, ut = cloud.get(rid, ({}, None))
+            try:
+                lib.http("PATCH", base, "%s/%s" % (t["records"], rid), tok,
+                         record_body(x, fs), precondition_update_time=ut, raise_errors=True)
+            except lib.Precondition:
+                counters["conflict"] += 1
+                notes.append("衝突 %s %s：正要清旗標時網頁又改了一次——已保留兩邊，下次再同步" % (key, rid))
+        for b in pend_del:
+            lib.audit({"op": "delete", "kind": t["kind"], "target": t["id"], "rid": b["rid"],
+                       "reason": "雲端已刪，同步刪除本機區塊"})
+
+    # ── 推上雲 ──
+    for b, ut, fs in pend_push:
+        try:
+            lib.http("PATCH", base, "%s/%s" % (t["records"], b["rid"]), tok,
+                     record_body(b, fs), precondition_update_time=ut,
+                     precondition_exists=None if ut else False, raise_errors=True)
+        except lib.Precondition:
+            counters["conflict"] += 1
+            counters["push"] -= 1
+            notes.append("衝突 %s %s：雲端在同步途中被改過——這一則沒上傳" % (key, b["rid"]))
+
+    # ── 卡片摘要（用 updateMask，免得蓋掉網頁上填的課名等欄位）──
+    _, fb = lib.parse_file(t["path"])
+    if t["card"]:
+        summary = {"id": t["id"], "recordCount": len(fb),
+                   "lastRecordDate": max((x["date"] for x in fb), default=""),
+                   "monthsRecorded": sorted({x["date"][:7] for x in fb})}
+        if t["kind"] != "students":
+            summary["label"] = t["label"]
+        lib.http("PATCH", base, t["card"], tok, summary, mask=list(summary.keys()))
+    return ({x["rid"] for x in fb} | set(cloud)) - {b["rid"] for b in pend_del}
 
 
 def main():
-    cfg = lib.load_config()
-    base = lib.fb_base(cfg)
-    roster = lib.load_roster(cfg)          # {id: name}
-    names = [n for n in roster.values() if n]
-    sdir = lib.students_dir(cfg)
+    ap = argparse.ArgumentParser(description="本機 markdown 與 Firestore 雙向同步（衝突不覆蓋）")
+    ap.add_argument("--dry-run", action="store_true", help="只看會發生什麼，不寫任何東西")
+    ap.add_argument("--only", metavar="種類/代號", help="只同步一個目標，例如 students/S-03")
+    ap.add_argument("--quiet", action="store_true", help="沒事就不出聲（排程用）")
+    lib.add_root_arg(ap)
+    a = ap.parse_args()
+    lib.apply_root(a)
+
+    kit = lib.load_kit()
+    tabs = lib.load_tabs()
+    base = lib.fb_base(kit)
     tok = lib.token()
-    fwd = wb = created = conflicts = leaks = 0
-    notes = []
+    names = lib.real_names(kit)
+    state = load_state()
+    tg = lib.targets(kit, tabs)
+    if a.only:
+        tg = [t for t in tg if "%s/%s" % (t["kind"], t["id"]) == a.only]
+        if not tg:
+            lib.die("找不到目標 %s" % a.only,
+                    "格式是 <種類>/<代號>，種類有 students、class、courses、business。"
+                    "跑 `python3 scripts/ledger.py --check --offline` 可以看到所有目標。")
 
-    ids = sorted(set(list(roster.keys()) + (os.listdir(sdir) if os.path.isdir(sdir) else [])))
-    for sid in ids:
-        if not re.match(r".+-\d+$", sid):   # 只認 <prefix>-NN 形態的資料夾/代號
-            continue
-        sdir_i = os.path.join(sdir, sid)
-        path = os.path.join(sdir_i, "observations.md")
-        exists = os.path.exists(path)
-        existing = get_records(base, sid, tok)
-        lines, blocks = parse_file(path) if exists else (None, [])
-        file_rids = {b["rid"] for b in blocks}
-        pend_fwd, pend_wb, pend_new = [], [], []
+    notes, counters = [], {"push": 0, "write": 0, "new": 0, "delete": 0, "conflict": 0, "pii": 0}
+    for t in tg:
+        rids = sync_target(t, base, tok, names, state, a.dry_run, notes, counters)
+        if not a.dry_run:
+            state["%s/%s" % (t["kind"], t["id"])] = {"rids": sorted(rids), "at": lib.now_iso()}
 
-        for b in blocks:
-            if any(nm in (b["body"] + " " + " ".join(b["tags"])) for nm in names):
-                leaks += 1; notes.append("PII %s %s（檔案含真名）" % (sid, b["rid"])); continue
-            fs = existing.get(b["rid"])
-            if fs is None:
-                pend_fwd.append(b); fwd += 1
-            elif fs.get("editedOnWeb"):
-                if fs.get("contentHash") != b["hash"]:
-                    conflicts += 1; notes.append("衝突 %s %s" % (sid, b["rid"])); continue
-                wb_body, wb_tags = fs.get("body", ""), fs.get("tags", [])
-                if any(nm in (wb_body + " " + " ".join(wb_tags)) for nm in names):
-                    leaks += 1; notes.append("PII %s %s（網頁回寫含真名）" % (sid, b["rid"])); continue
-                pend_wb.append((b, wb_body, wb_tags)); wb += 1
-            elif fs.get("contentHash") != b["hash"]:
-                pend_fwd.append(b); fwd += 1
+    roster = lib.load_roster(kit)
+    if not a.dry_run:
+        save_state(state)
+        if roster:
+            # 帶 updateMask：roster/main 上還有 protectedPhrases（§2 的形狀），
+            # 無 mask 的整份 PATCH 會把它靜默清掉。
+            lib.http("PATCH", base, "roster/main", tok,
+                     {"students": [{"id": i, "name": n} for i, n in sorted(roster.items())]},
+                     mask=["students"])
+        lib.http("PATCH", base, "meta/config", tok,
+                 {"version": 3, "tabs": json.dumps(tabs, ensure_ascii=False)},
+                 mask=["version", "tabs"])
+        lib.touch_status(base, tok, "lastSyncAt")
 
-        for rid, fs in existing.items():
-            if rid in file_rids or not fs.get("editedOnWeb"):
-                continue
-            wb_body, wb_tags = fs.get("body", ""), fs.get("tags", [])
-            if any(nm in (wb_body + " " + " ".join(wb_tags)) for nm in names):
-                leaks += 1; notes.append("PII %s %s（網頁新增含真名）" % (sid, rid)); continue
-            pend_new.append({"rid": rid, "date": fs.get("date", rid),
-                             "time": lib.time_from_rid(fs.get("date", rid), rid),
-                             "tags": wb_tags, "body": wb_body}); created += 1
-
-        if DRY:
-            continue
-
-        if pend_wb or pend_new:
-            if not exists:
-                os.makedirs(sdir_i, exist_ok=True)
-                lines = ["---", "id: %s" % sid, "note: 去識別化，禁寫姓名", "---", "", "# %s 觀察" % sid, "", "---", ""]
-            else:
-                shutil.copy2(path, os.path.join(sdir_i, ".observations.prev.md"))
-            for b, body, tags in sorted(pend_wb, key=lambda x: -x[0]["start"]):
-                lines[b["start"]:b["end"]] = render(b["date"], b["time"], tags, body)
-            for n in sorted(pend_new, key=lambda x: x["rid"]):
-                if lines and lines[-1].strip() != "": lines.append("")
-                lines += render(n["date"], n["time"], n["tags"], n["body"])
-            open(path, "w", encoding="utf-8").write("\n".join(lines))
-            _, nb = parse_file(path); byrid = {x["rid"]: x for x in nb}
-            for rid in [b["rid"] for b, _, _ in pend_wb] + [n["rid"] for n in pend_new]:
-                x = byrid.get(rid)
-                if x:
-                    lib.http("PATCH", base, "students/%s/records/%s" % (sid, rid), tok,
-                             {"date": x["date"], "tags": x["tags"], "body": x["body"],
-                              "contentHash": x["hash"], "editedOnWeb": False})
-
-        for b in pend_fwd:
-            lib.http("PATCH", base, "students/%s/records/%s" % (sid, b["rid"]), tok,
-                     {"date": b["date"], "tags": b["tags"], "body": b["body"],
-                      "contentHash": b["hash"], "editedOnWeb": False})
-
-        fb = parse_file(path)[1] if os.path.exists(path) else []
-        lib.http("PATCH", base, "students/%s" % sid, tok,
-                 {"id": sid, "recordCount": len(fb),
-                  "lastRecordDate": max((x["date"] for x in fb), default=""),
-                  "monthsRecorded": sorted({x["date"][:7] for x in fb})})
-
-    if not DRY and roster:
-        lib.http("PATCH", base, "roster/main", tok,
-                 {"students": [{"id": i, "name": n} for i, n in sorted(roster.items())]})
-
-    print("%s同步：forward %d、回寫 %d、新增 %d、衝突 %d、PII 攔截 %d" %
-          ("（DRY-RUN）" if DRY else "", fwd, wb, created, conflicts, leaks))
-    for n in notes:
-        print("  · " + n)
+    line = ("%s同步 %d 個目標：上傳 %d、回寫 %d、從網頁新增 %d、刪除 %d、衝突 %d、真名攔截 %d"
+            % ("（預演）" if a.dry_run else "", len(tg), counters["push"], counters["write"],
+               counters["new"], counters["delete"], counters["conflict"], counters["pii"]))
+    status = {"at": lib.now_iso(), "dryRun": a.dry_run, "targets": len(tg),
+              "counters": counters, "notes": notes}
+    if not a.dry_run:
+        with open(lib.rpath(".sync-last-status"), "w", encoding="utf-8") as f:
+            json.dump(status, f, ensure_ascii=False, indent=1)
+    if not a.quiet or counters["conflict"] or counters["pii"] or notes:
+        print(line)
+        for n in notes:
+            print("  · " + n)
+    if counters["conflict"] or counters["pii"]:
+        print("\n%s衝突與真名攔截都不會自動處理——上面每一則都要你自己看過。%s" % (lib.YELLOW, lib.RESET))
+        print("  衝突：打開那個檔案跟網頁比對，決定留哪一邊，改完再跑一次。")
+        print("  真名：把正文裡的姓名改成代號（真名只放 data/roster.csv）。")
 
 
 if __name__ == "__main__":

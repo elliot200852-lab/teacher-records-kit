@@ -1,0 +1,70 @@
+{
+  "_註解_這個檔是什麼": "免互動安裝用的答案檔。`python3 scripts/setup.py --answers templates/answers.example.json` 會直接照這裡的答案跑完，不問任何問題——測試、重灌、或 AI 代理已經把答案問齊了的時候用。互動安裝不需要這個檔。",
+  "_註解_怎麼用": "複製一份改成你自己的答案（裡面有 email 與專案 id，屬於個資，別放進 git）。",
+
+  "owner_email": "you@example.com",
+  "id_prefix": "S",
+
+  "firebase": {
+    "project_id": "your-firebase-project-id",
+    "api_key": "AIzaSyEXAMPLE-EXAMPLE-EXAMPLE-EXAMPLE",
+    "auth_domain": "your-firebase-project-id.firebaseapp.com",
+    "storage_bucket": "your-firebase-project-id.firebasestorage.app",
+    "messaging_sender_id": "000000000000",
+    "app_id": "1:000000000000:web:0000000000000000000000"
+  },
+
+  "_註解_students": "count＝班級人數，代號會自動生成 S-01…S-NN（前綴看 id_prefix）。也可以改用 ids 明列，例如 [\"S-01\",\"S-02\"]。",
+  "students": {
+    "enabled": true,
+    "count": 3
+  },
+
+  "_註解_courses": "安裝時先建幾門課。id 只能用英數與連字號（會變成資料夾名與雲端文件 id）；title 隨你寫。",
+  "courses": {
+    "enabled": true,
+    "list": [
+      {"id": "main-block", "title": "主課程", "kind": "主課程"},
+      {"id": "handwork", "title": "手工", "kind": "科任"}
+    ]
+  },
+
+  "_註解_business": "groups＝從 config/business-groups.library.json 勾選的組 id。extra_fields＝那一組你自己要加的欄位。extra_tags＝自己要加的分類詞。custom_groups＝清單外的業務（AI 問完四件事之後填這裡）。",
+  "business": {
+    "enabled": true,
+    "groups": ["homeroom", "meetings"],
+    "extra_fields": {
+      "homeroom": [{"name": "聯絡方式", "type": "select", "options": ["電話", "面談", "聯絡簿", "訊息"]}]
+    },
+    "extra_tags": {
+      "homeroom": ["#轉學"]
+    },
+    "custom_groups": [
+      {
+        "id": "club",
+        "label": "社團經營",
+        "desc": "帶社團的紀錄：出席、教了什麼、器材。",
+        "fields": [
+          {"name": "社團名稱", "type": "text"},
+          {"name": "出席人數", "type": "text"},
+          {"name": "下次器材", "type": "text"}
+        ],
+        "tags": ["#社課", "#成果發表", "#器材"],
+        "relate_students": true
+      }
+    ]
+  },
+
+  "_註解_drive": "備份落點。desktop＝複製進 Google 雲端硬碟桌面程式的同步夾（預設，零設定）；gws＝用 googleworkspace-cli 直接上傳（要 backup_folder_id）。",
+  "drive": {
+    "mode": "desktop",
+    "desktop_dir": "~/Library/CloudStorage/GoogleDrive-you@example.com/My Drive/教學紀錄備份",
+    "backup_folder_id": "",
+    "keep_backups": 12
+  },
+
+  "email": {
+    "method": "smtp",
+    "smtp_user": ""
+  }
+}

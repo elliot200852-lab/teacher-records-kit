@@ -1,0 +1,52 @@
+{
+  "_註解_這個檔是什麼": "Teacher Records Kit 的主設定範本。安裝精靈 scripts/setup.py 會照著你的回答產生 config/kit.json（那份被 .gitignore 擋住、不會進 git）。JSON 不能寫註解，所以說明一律放在「_註解_欄位名」這種鍵裡，程式會忽略所有底線開頭的鍵。",
+  "version": 3,
+
+  "_註解_owner_email": "只有這個 Google 帳號能讀寫你的資料（安全規則在伺服器端鎖定本人）。要用能登入 Google 的信箱；學校配發帳號若被管理員鎖住 Cloud Console，改用個人 Gmail。",
+  "owner_email": "you@example.com",
+
+  "_註解_id_prefix": "學生代號前綴。所有紀錄一律寫代號（如 S-01），真名只留在本機名冊 data/roster.csv。想用班級代號當前綴（如 5A）也可以。",
+  "id_prefix": "S",
+
+  "_註解_firebase": "從 Firebase Console 取得：https://console.firebase.google.com → 建專案 → 專案設定（左上齒輪）→ 一般 → 你的應用程式 → 網頁應用程式 →「SDK 設定與配置」選 Config，六個值一一對進來。",
+  "firebase": {
+    "project_id": "your-firebase-project-id",
+    "api_key": "",
+    "_註解_auth_domain": "通常是 <project_id>.firebaseapp.com；若你用 Firebase Hosting 且 iPhone 上登不進去，改成你實際打開網頁的網域（如 <project_id>.web.app）。",
+    "auth_domain": "",
+    "storage_bucket": "",
+    "messaging_sender_id": "",
+    "app_id": ""
+  },
+
+  "_註解_drive": "每週備份要放到你自己的 Google 雲端硬碟。兩種模式：desktop（預設、零設定）＝把 zip 複製進「Google 雲端硬碟」桌面程式的同步資料夾，由它自己上傳；gws（進階）＝用 googleworkspace-cli 直接上傳，要自己備 OAuth 憑證。",
+  "drive": {
+    "mode": "desktop",
+    "_註解_desktop_dir": "desktop 模式用。先在電腦上安裝並登入「Google 雲端硬碟」桌面程式（https://www.google.com/drive/download/），然後在雲端硬碟裡自己建一個資料夾（例如「教學紀錄備份」），路徑通常長這樣。<你的email> 換成你登入的信箱。",
+    "desktop_dir": "~/Library/CloudStorage/GoogleDrive-<你的email>/My Drive/教學紀錄備份",
+    "_註解_backup_folder_id": "gws 模式用。在瀏覽器打開那個 Drive 資料夾，網址 https://drive.google.com/drive/folders/XXXXXXXX 裡的 XXXXXXXX 就是 folder id。desktop 模式留空即可。",
+    "backup_folder_id": "",
+    "_註解_keep_backups": "本機 backups/ 只保留最近幾份 zip（Drive 上的不動）。",
+    "keep_backups": 12
+  },
+
+  "_註解_voice": "錄音轉逐字稿（whisper.cpp，全程在你的電腦上跑，錄音不出本機）。模型檔第一次會自動下載到 ~/.cache/whisper-cpp/，約 1.6GB。",
+  "voice": {
+    "model": "ggml-large-v3-turbo",
+    "lang": "zh"
+  },
+
+  "_註解_email": "選用。只有要寄家長信、每月提醒才需要。method 選 smtp（通用）時，密碼放環境變數 KIT_SMTP_APP_PASSWORD（Google 帳號 → 安全性 → 兩步驟驗證 → 應用程式密碼），絕不要寫進這個檔。",
+  "email": {
+    "method": "smtp",
+    "smtp_user": ""
+  },
+
+  "_註解_parents": "選用。家長通訊錄 CSV（含個資，放 data/ 不進 git）。col_* 是欄位位置，從 1 開始數。",
+  "parents": {
+    "contacts_csv": "data/contacts.csv",
+    "col_id": 1,
+    "col_parent1_email": 2,
+    "col_parent2_email": 3
+  }
+}

@@ -1,204 +1,223 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-export_records.py — 把「全部學生的觀察紀錄 + 全班觀察」從 Firestore 匯出，
-供期末評量取材（可直接餵給 AI 逐生產出評量草稿），或做本地備份。
+"""export_records.py — 把記錄整包匯出：期末取材、換系統、或只是想留一份看得懂的檔案。
 
-單租戶：資料就在你自己的 Firebase 專案頂層（students/、roster/main、class-observations）。
-專案 id 預設讀 config.yaml 的 firebase.project_id，也可用 --project 覆寫。
-讀取走 gcloud 現用帳號（需以專案擁有者 `gcloud auth login`）。
+四種記錄都吃（學生／班級整體／課程／業務）。預設從你的 Firestore 抓（網頁上打的字也會一起
+帶出來）；加 --local 就只讀本機 markdown，不連網。
+
+這支的存在本身是一種保證：你的資料隨時可以整包帶走，不會被鎖在這個 kit 裡。
 
 用法：
-  python3 scripts/export_records.py                       # Markdown 印到畫面
-  python3 scripts/export_records.py --out ~/records.md    # 寫成 Markdown 檔
-  python3 scripts/export_records.py --json                # 結構化 JSON（給程式用）
-  python3 scripts/export_records.py --by-tag              # 依題材（標籤）分組
-  python3 scripts/export_records.py --id S-01             # 只抓某一位學生
-  python3 scripts/export_records.py --split ~/backup      # 備份：每生一資料夾（含 roster.md）
-  python3 scripts/export_records.py --project my-proj     # 覆寫 config 的專案 id
-  python3 scripts/export_records.py --class-code 1A       # 顯示用班級標籤（選用）
+  python3 scripts/export_records.py                          Markdown 印到畫面
+  python3 scripts/export_records.py --out ~/記錄.md          寫成一個 Markdown 檔
+  python3 scripts/export_records.py --kind students          只匯出學生記錄
+  python3 scripts/export_records.py --target S-03            只匯出某一個對象
+  python3 scripts/export_records.py --by-tag                 依標籤分組（逐題材寫評量用）
+  python3 scripts/export_records.py --related                每一則後面附上它關聯到的記錄
+  python3 scripts/export_records.py --json                   結構化 JSON
+  python3 scripts/export_records.py --split ~/備份           每個對象一個資料夾
+  python3 scripts/export_records.py --local                  不連網，只讀本機檔
 """
-import sys, os, json, subprocess, urllib.request, urllib.error
+import os
+import sys
+import json
+import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import lib  # 共用：讀 config.yaml、取 token
+import lib
+
+KIND_LABEL = {"students": "學生記錄", "class": "班級整體觀察",
+              "courses": "課程記錄", "business": "業務記錄"}
 
 
-def die(m): sys.stderr.write("ERROR: " + m + "\n"); sys.exit(1)
+def rec_from_cloud(rid, fs):
+    return {"rid": rid, "date": fs.get("date", "") or rid[:10],
+            "tags": lib.norm_tags(fs.get("tags") or []),
+            "fields": {k: str(v) for k, v in (fs.get("fields") or {}).items()},
+            "related": lib.parse_related(fs.get("related") or []),
+            "body": fs.get("body", "")}
 
 
-def resolve_project(args):
-    if "--project" in args:
-        return args[args.index("--project") + 1]
-    cfg = lib.load_config()                 # 找不到 config.yaml 會在此提示先 cp 範本
-    return lib.project_id(cfg)               # 未填 firebase.project_id 也會提示
+def collect(kit, tabs, local_only):
+    roster = lib.load_roster(kit)
+    tok = None if local_only else lib.token()
+    base = None if local_only else lib.fb_base(kit)
+    out = []
+    for t in lib.targets(kit, tabs):
+        if local_only:
+            _, blocks = lib.parse_file(t["path"])
+            recs = [{"rid": b["rid"], "date": b["date"], "tags": b["tags"],
+                     "fields": b["fields"], "related": b["related"], "body": b["body"]}
+                    for b in blocks]
+        else:
+            recs = [rec_from_cloud(rid, fs) for rid, fs, _ in lib.list_docs(base, t["records"], tok)]
+        recs.sort(key=lambda r: (r.get("date") or "", r["rid"]))
+        label = t["label"]
+        if t["kind"] == "students" and roster.get(t["id"]):
+            label = "%s　%s" % (t["id"], roster[t["id"]])
+        out.append({"kind": t["kind"], "id": t["id"], "label": label, "records": recs})
+    return {"exportedAt": lib.now_iso(), "roster": roster, "targets": out}
 
 
-def token():
-    try:
-        return subprocess.check_output(["gcloud", "auth", "print-access-token"],
-                                       text=True, stderr=subprocess.DEVNULL).strip()
-    except Exception as e:
-        die(f"取不到 gcloud token（先以專案擁有者 `gcloud auth login`）：{e}")
+def index_records(data):
+    """`<kind>/<target>/<rid>` → (目標, 記錄)，給 --related 用。"""
+    idx = {}
+    for t in data["targets"]:
+        for r in t["records"]:
+            idx["%s/%s/%s" % (t["kind"], t["id"], r["rid"])] = (t, r)
+    return idx
 
 
-def _get(url, tok):
-    r = urllib.request.Request(url, headers={"Authorization": f"Bearer {tok}"})
-    try:
-        return json.loads(urllib.request.urlopen(r).read())
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return {}
-        die(f"GET {url} → {e.code}: {e.read().decode()[:200]}")
+def attach_related(data, idx):
+    """--json ＋ --related：每一則多一個 relatedRecords，把關聯到的那幾則整個帶出來。"""
+    for t in data["targets"]:
+        for r in t["records"]:
+            if not r.get("related"):
+                continue
+            out = []
+            for ref in r["related"]:
+                hit = idx.get(ref)
+                if hit:
+                    # 淺拷貝並拿掉 relatedRecords：避免 A↔B 互相關聯時 json.dumps 撞到循環參照。
+                    rec = {k: v for k, v in hit[1].items() if k != "relatedRecords"}
+                    out.append({"ref": ref, "kind": hit[0]["kind"], "target": hit[0]["id"],
+                                "label": hit[0]["label"], "record": rec})
+                else:
+                    out.append({"ref": ref, "missing": True})
+            r["relatedRecords"] = out
 
 
-def dec(v):
-    if v is None: return None
-    for k, f in (("stringValue", str), ("booleanValue", bool), ("timestampValue", str), ("nullValue", lambda x: None)):
-        if k in v: return f(v[k])
-    if "integerValue" in v: return int(v["integerValue"])
-    if "doubleValue" in v: return float(v["doubleValue"])
-    if "arrayValue" in v: return [dec(x) for x in v["arrayValue"].get("values", [])]
-    if "mapValue" in v: return {k: dec(x) for k, x in v["mapValue"].get("fields", {}).items()}
-    return None
+def fmt_record(r, indent=""):
+    head = "%s- **%s**%s" % (indent, r.get("date", ""), (" " + " ".join(r["tags"])) if r["tags"] else "")
+    lines = [head]
+    for k, v in (r.get("fields") or {}).items():
+        lines.append("%s  - %s：%s" % (indent, k, v))
+    body = (r.get("body") or "").strip()
+    if body:
+        for bl in body.split("\n"):
+            lines.append("%s  %s" % (indent, bl))
+    return lines
 
 
-def fields(doc): return {k: dec(x) for k, x in (doc.get("fields") or {}).items()}
-
-
-def list_docs(base, path, tok):
-    out, tokp = [], ""
-    while True:
-        url = f"{base}/{path}?pageSize=300" + (f"&pageToken={tokp}" if tokp else "")
-        res = _get(url, tok)
-        for d in res.get("documents", []):
-            out.append((d["name"].split("/")[-1], fields(d)))
-        tokp = res.get("nextPageToken")
-        if not tokp: break
-    return out
-
-
-def clean_tags(tags):
-    # 讀取端也保險去重／去多餘 #（就算歷史資料有 ##重複也顯示乾淨）
-    seen, out = set(), []
-    for t in (tags or []):
-        t = ("#" + str(t).lstrip("#").strip()) if str(t).strip() else ""
-        if t and t != "#" and t not in seen:
-            seen.add(t); out.append(t)
-    return out
-
-
-def collect(base, tok):
-    roster = fields(_get(f"{base}/roster/main", tok))
-    name_by_id = {s.get("id"): s.get("name") for s in (roster.get("students") or [])}
-    ids = list(name_by_id.keys())
-    if not ids:
-        ids = [sid for sid, _ in list_docs(base, "students", tok)]
-    students = []
-    for sid in sorted(ids):
-        recs = [f for _, f in list_docs(base, f"students/{sid}/records", tok)]
-        recs.sort(key=lambda r: r.get("date") or "")
-        students.append({"id": sid, "name": name_by_id.get(sid, ""), "records": recs})
-    class_obs = [f for _, f in list_docs(base, "class-observations", tok)]
-    class_obs.sort(key=lambda r: r.get("date") or "")
-    return {"students": students, "class_observations": class_obs}
-
-
-def label(cc, sid): return f"{cc + '-' if cc else ''}{sid}"
-
-
-def to_md(data, cc=""):
-    total = sum(len(s["records"]) for s in data["students"])
-    L = [f"# 學生觀察紀錄匯出{('：' + cc) if cc else ''}",
-         f"> {len(data['students'])} 位學生、{total} 則學生紀錄、{len(data['class_observations'])} 則全班觀察。",
-         "> 此檔供撰寫期末評量取材——每位學生一段，含歷次觀察（日期＋標籤＋內容）。", ""]
-    if data["class_observations"]:
-        L.append("## 全班觀察")
-        for r in data["class_observations"]:
-            tg = " ".join(clean_tags(r.get("tags")))
-            L.append(f"- **{r.get('date','')}** {tg}\n  {r.get('body','').strip()}")
+def to_md(data, with_related=False, idx=None):
+    idx = (idx if idx is not None else index_records(data)) if with_related else {}
+    total = sum(len(t["records"]) for t in data["targets"])
+    L = ["# 記錄匯出（%s）" % data["exportedAt"],
+         "> %d 個對象、%d 則記錄。學生一律以代號呈現；名冊對照在最後。" % (len(data["targets"]), total), ""]
+    for kind in ("students", "class", "courses", "business"):
+        ts = [t for t in data["targets"] if t["kind"] == kind]
+        if not ts:
+            continue
+        L.append("## %s" % KIND_LABEL[kind])
+        for t in ts:
+            L.append("\n### %s" % t["label"])
+            if not t["records"]:
+                L.append("_（還沒有記錄）_")
+                continue
+            for r in t["records"]:
+                L += fmt_record(r)
+                if with_related and r.get("related"):
+                    for ref in r["related"]:
+                        hit = idx.get(ref)
+                        if hit:
+                            L.append("    ↳ 關聯 %s（%s）" % (ref, hit[0]["label"]))
+                            L += fmt_record(hit[1], "    ")
+                        else:
+                            L.append("    ↳ 關聯 %s（找不到這一則）" % ref)
         L.append("")
-    L.append("## 學生逐一")
-    for s in data["students"]:
-        L.append(f"\n### {label(cc, s['id'])}　{s['name']}")
-        if not s["records"]:
-            L.append("_（尚無紀錄）_"); continue
-        for r in s["records"]:
-            tg = " ".join(clean_tags(r.get("tags")))
-            L.append(f"- **{r.get('date','')}** {tg}\n  {r.get('body','').strip()}")
+    if data["roster"]:
+        L += ["## 名冊對照（含真名，別把這一段貼到任何公開的地方）", ""]
+        L += ["- %s　%s" % (i, n) for i, n in sorted(data["roster"].items())]
     return "\n".join(L) + "\n"
 
 
-def to_md_by_tag(data, cc=""):
-    """依題材（標籤）分組：每位學生底下把觀察按類別歸類，供逐題材撰寫評量。"""
-    L = [f"# 依題材分類的觀察（供期末評量逐題材論述）{('：' + cc) if cc else ''}",
-         "> 每位學生底下按題材（標籤）歸類；一則多標籤者會出現在各題材下；無標籤者歸「（未分類）」。", ""]
-    for s in data["students"]:
-        L.append(f"### {label(cc, s['id'])}　{s['name']}")
-        if not s["records"]:
-            L.append("_（尚無紀錄）_\n"); continue
+def to_md_by_tag(data):
+    L = ["# 依標籤分類的記錄（%s）" % data["exportedAt"],
+         "> 每個對象底下按標籤歸類；一則有多個標籤就會出現在各標籤下；沒標籤的歸「（未分類）」。", ""]
+    for t in data["targets"]:
+        L.append("### %s　%s" % (KIND_LABEL[t["kind"]], t["label"]))
+        if not t["records"]:
+            L.append("_（還沒有記錄）_\n")
+            continue
         buckets = {}
-        for r in s["records"]:
-            for t in (clean_tags(r.get("tags")) or ["（未分類）"]):
-                buckets.setdefault(t, []).append(r)
-        for t in sorted(buckets, key=lambda x: (x == "（未分類）", x)):
-            L.append(f"- **{t}**（{len(buckets[t])} 則）")
-            for r in buckets[t]:
-                L.append(f"    - {r.get('date','')}：{r.get('body','').strip()}")
+        for r in t["records"]:
+            for tag in (r["tags"] or ["（未分類）"]):
+                buckets.setdefault(tag, []).append(r)
+        for tag in sorted(buckets, key=lambda x: (x == "（未分類）", x)):
+            L.append("- **%s**（%d 則）" % (tag, len(buckets[tag])))
+            for r in buckets[tag]:
+                L.append("    - %s：%s" % (r["date"], (r["body"] or "").strip().replace("\n", " ")))
         L.append("")
     return "\n".join(L) + "\n"
 
 
-def write_split(data, base_dir, cc=""):
-    """備份模式：每位學生一個資料夾 observations.md（去識別化）+ roster.md（代號↔姓名）。
-    一次性從 Firestore 匯出快照，供本地備份／期末取材。回傳 (檔數, 紀錄數)。"""
+def write_split(data, base_dir):
     os.makedirs(base_dir, exist_ok=True)
-    rl = ["# 代號↔姓名（本地備份，含真名——勿進共享 repo、勿上傳）", ""]
-    for s in data["students"]:
-        rl.append(f"- {label(cc, s['id'])}　{s['name']}")
-    open(os.path.join(base_dir, "roster.md"), "w", encoding="utf-8").write("\n".join(rl) + "\n")
     nf = nr = 0
-    for s in data["students"]:
-        sd = os.path.join(base_dir, label(cc, s["id"])); os.makedirs(sd, exist_ok=True)
-        L = [f"# {label(cc, s['id'])} 觀察紀錄（Firestore 備份·去識別化）", ""]
-        for r in s["records"]:
-            tg = " ".join(clean_tags(r.get("tags")))
-            L.append(f"## {r.get('date','')} {tg}".rstrip())
-            L.append((r.get("body", "") or "").strip()); L.append(""); nr += 1
-        open(os.path.join(sd, "observations.md"), "w", encoding="utf-8").write("\n".join(L) + "\n")
+    for t in data["targets"]:
+        d = os.path.join(base_dir, t["kind"], t["id"])
+        os.makedirs(d, exist_ok=True)
+        L = ["# %s：%s" % (KIND_LABEL[t["kind"]], t["label"]), ""]
+        for r in t["records"]:
+            L += lib.render_block(r["date"], lib.time_from_rid(r["date"], r["rid"]),
+                                  r["tags"], r["fields"], r["related"], r["body"])
+            nr += 1
+        with open(os.path.join(d, "records.md"), "w", encoding="utf-8") as f:
+            f.write("\n".join(L) + "\n")
         nf += 1
-    if data["class_observations"]:
-        L = ["# 全班觀察（Firestore 備份）", ""]
-        for r in data["class_observations"]:
-            tg = " ".join(clean_tags(r.get("tags")))
-            L.append(f"## {r.get('date','')} {tg}".rstrip()); L.append((r.get("body", "") or "").strip()); L.append("")
-        open(os.path.join(base_dir, "class-observations.md"), "w", encoding="utf-8").write("\n".join(L) + "\n")
+    if data["roster"]:
+        with open(os.path.join(base_dir, "roster.md"), "w", encoding="utf-8") as f:
+            f.write("# 代號↔姓名（含真名，別放進任何共享的地方）\n\n")
+            for i, n in sorted(data["roster"].items()):
+                f.write("- %s　%s\n" % (i, n))
     return nf, nr
 
 
 def main():
-    args = sys.argv[1:]
-    proj = resolve_project(args)
-    base = f"https://firestore.googleapis.com/v1/projects/{proj}/databases/(default)/documents"
-    tok = token()
-    cc = args[args.index("--class-code") + 1] if "--class-code" in args else ""
-    data = collect(base, tok)
-    if "--id" in args:                          # 只抓某一位學生（如 --id S-01）
-        want = args[args.index("--id") + 1]
-        data["students"] = [s for s in data["students"] if s["id"] == want]
-    if "--split" in args:                       # 備份模式：每生一資料夾寫進 DIR
-        nf, nr = write_split(data, args[args.index("--split") + 1], cc)
-        print(f"✓ 備份完成 → {args[args.index('--split') + 1]}（{nf} 位學生檔、{nr} 則紀錄、含 roster.md）")
+    ap = argparse.ArgumentParser(description="把記錄整包匯出（四種記錄通用）")
+    ap.add_argument("--kind", choices=list(lib.KINDS), help="只匯出某一種記錄")
+    ap.add_argument("--target", help="只匯出某一個對象（代號或組 id）")
+    ap.add_argument("--id", dest="target2", help="--target 的別名（舊版習慣）")
+    ap.add_argument("--by-tag", action="store_true", help="依標籤分組")
+    ap.add_argument("--related", action="store_true", help="每一則後面附上它關聯到的記錄")
+    ap.add_argument("--json", action="store_true", dest="as_json", help="輸出 JSON")
+    ap.add_argument("--split", metavar="目錄", help="每個對象一個資料夾寫出去")
+    ap.add_argument("--out", metavar="檔案", help="寫成檔案而不是印到畫面")
+    ap.add_argument("--local", action="store_true", help="不連網，只讀本機 markdown")
+    lib.add_root_arg(ap)
+    a = ap.parse_args()
+    lib.apply_root(a)
+
+    kit = lib.load_kit()
+    tabs = lib.load_tabs()
+    data = collect(kit, tabs, a.local)
+    # --related 要能跨對象查（篩過之後索引就查不到別的對象了），先用未篩選的全集建索引。
+    rel_idx = index_records(data) if a.related else {}
+    want = a.target or a.target2
+    if a.kind:
+        data["targets"] = [t for t in data["targets"] if t["kind"] == a.kind]
+    if want:
+        data["targets"] = [t for t in data["targets"] if t["id"] == want]
+        if not data["targets"]:
+            lib.die("找不到對象 %s" % want, "代號要跟 data/roster.csv 或設定裡的 id 一樣（例如 S-03）。")
+
+    if a.split:
+        nf, nr = write_split(data, os.path.expanduser(a.split))
+        lib.ok("匯出完成 → %s（%d 個對象、%d 則記錄）" % (a.split, nf, nr))
         return
-    if "--json" in args:
+    if a.as_json:
+        if a.related:
+            attach_related(data, rel_idx)
         text = json.dumps(data, ensure_ascii=False, indent=2)
-    elif "--by-tag" in args:
-        text = to_md_by_tag(data, cc)
+    elif a.by_tag:
+        text = to_md_by_tag(data)
     else:
-        text = to_md(data, cc)
-    if "--out" in args:
-        out = args[args.index("--out") + 1]
-        open(out, "w", encoding="utf-8").write(text); print(f"✓ 已寫出 {out}")
+        text = to_md(data, a.related, rel_idx)
+    if a.out:
+        out = os.path.expanduser(a.out)
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(text)
+        lib.ok("已寫出 %s（%d 字）" % (out, len(text)))
     else:
         print(text)
 

@@ -1,0 +1,84 @@
+{
+  "_註解_這個檔是什麼": "安裝進度。scripts/setup.py 會寫 setup/progress.json（被 .gitignore 擋住）；AI 代理每次接手前先讀它，決定從哪一步繼續，不要把老師已經答過的題目再問一次。",
+  "_註解_欄位": "step＝步驟編號；done＝這一步做完了沒；at＝完成時間（ISO 8601，本機時區）；notes＝這一步的備註或卡住的原因。",
+  "version": 3,
+  "steps": [
+    {
+      "step": 0,
+      "title": "判斷新裝／升級／續裝：讀這個檔與 config/kit.json 決定從哪一步開始",
+      "done": false,
+      "at": null,
+      "notes": ""
+    },
+    {
+      "step": 1,
+      "title": "裝工具：scripts/install_tools.sh，再跑 scripts/doctor.py 逐項健檢",
+      "done": false,
+      "at": null,
+      "notes": ""
+    },
+    {
+      "step": 2,
+      "title": "Google 帳號與 Firebase 專案：建專案、加網頁應用程式、抄六個設定值",
+      "done": false,
+      "at": null,
+      "notes": ""
+    },
+    {
+      "step": 3,
+      "title": "分頁與向度：學生名冊來源、要開幾門課、勾哪些業務組（含自訂欄位與清單外業務）",
+      "done": false,
+      "at": null,
+      "notes": ""
+    },
+    {
+      "step": 4,
+      "title": "產生設定與規則：scripts/build_config.py，再 firebase deploy --only firestore:rules",
+      "done": false,
+      "at": null,
+      "notes": ""
+    },
+    {
+      "step": 5,
+      "title": "上線：firebase deploy --only hosting（或 GitHub Pages／嵌入現有網站）",
+      "done": false,
+      "at": null,
+      "notes": ""
+    },
+    {
+      "step": 6,
+      "title": "學生名單與既有資料匯入：填 data/roster.csv，跑 scripts/sync.py --dry-run 看一次再真跑",
+      "done": false,
+      "at": null,
+      "notes": ""
+    },
+    {
+      "step": 7,
+      "title": "Google Drive 備份夾：老師自己建夾 → 設定 drive.desktop_dir 或 backup_folder_id → doctor 驗",
+      "done": false,
+      "at": null,
+      "notes": ""
+    },
+    {
+      "step": 8,
+      "title": "排程（選用）：scripts/schedule.sh 裝每日同步與每週備份",
+      "done": false,
+      "at": null,
+      "notes": ""
+    },
+    {
+      "step": 9,
+      "title": "錄音試跑一次：丟一個錄音檔進 inbox/ → scripts/transcribe.py --inbox → AI 改寫 → scripts/append_record.py",
+      "done": false,
+      "at": null,
+      "notes": ""
+    },
+    {
+      "step": 10,
+      "title": "驗收清單：doctor 全綠、網頁能登入能新增、ledger.py --check 三處對得上",
+      "done": false,
+      "at": null,
+      "notes": ""
+    }
+  ]
+}

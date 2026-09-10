@@ -1,21 +1,37 @@
 # ════════════════════════════════════════════════════════════════
-# 個資 / 機密 —— 這是 public repo，以下一律「絕不」上傳
+# 個資 / 機密 —— 以下一律「絕不」進 git
 # ════════════════════════════════════════════════════════════════
-# 你的設定（含 email / 專案 id）
+# 你的設定（含 email / 專案 id / Drive 夾 id）；範本是 config/*.example.json
+config/kit.json
+config/tabs.json
+# v2 舊設定（setup.py --upgrade 會把它轉成 config/kit.json）
 config.yaml
+# 安裝進度（含你的答案）
+setup/progress.json
+# 你真實的學生紀錄、名冊、家長通訊錄、台帳、稽核全放這裡
+data/
+# 錄音檔與逐字稿——永不出本機、永不進 git
+inbox/*
+!inbox/.gitkeep
+# 備份 zip 與匯出快照
+backups/
+# 離線預覽產生檔
+preview/
+# 排程與腳本的 log
+logs/
 # SMTP App Password 等密鑰
 .env
-# 你真實的學生紀錄、名冊、家長通訊錄全放這裡
-data/
 # 服務帳號金鑰
 *-key.json
 serviceAccount*.json
-# 你真實的 Firebase 設定（範本是 firebase-config.example.js）
+# 由 build_config.py 產生（含真實 email 與 Firebase 設定）
+site/js/kit-config.js
 site/js/firebase-config.js
-# 你的規則產生檔（{{OWNER_EMAIL}} 已換成真實 email）；正本是 firestore.rules.tmpl
 firestore.rules
 # 已寄/略過紀錄
 .parent-emails-handled.tsv
+# 同步狀態
+.sync-last-status
 # 回寫前的備份
 *.prev.md
 
@@ -27,3 +43,4 @@ node_modules/
 __pycache__/
 *.pyc
 output/
+.firebase/

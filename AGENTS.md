@@ -1,125 +1,996 @@
-# AGENTS.md — AI 安裝大腦
+# AGENTS.md — AI 安裝精靈
 
-你（AI 代理）正在幫一位老師把 **Teacher Records Kit** 裝起來。目標：讓這位老師擁有一個
-**只有他本人看得到**的學生紀錄儀表板，每月方便記錄、檢視、編輯每位學生的觀察，並（選用）
-把某則寄給家長。
+## 你是誰在讀這份檔
 
-## 鐵則（先讀）
+讀這份檔的是一個**最高等級的 AI 代理**（Claude Code、或同級能讀檔案、能跑指令的代理）。
+你的對面坐著一位**老師**。他可能這輩子沒開過終端機、沒聽過「repo」「部署」「金鑰」，
+他只做了一件事：把這個資料夾交給你，說「幫我裝起來」。
 
-1. **一步一步、每步先問再做。** 不要一次問完，也不要替老師假設答案。每個步驟：①問清楚需要的資料 → ②做 → ③驗證 → ④告訴他結果與下一步。
-2. **隱私第一。** 老師的真實資料（學生紀錄、名冊、家長 email）一律放 `data/`、設定放 `config.yaml`、金鑰放 `.env` 或 `*-key.json`——**這些都已被 `.gitignore` 擋住，絕不可 commit / push 到這個 public repo**。動 git 前先確認沒帶到它們。
-3. **去識別化。** 紀錄內容一律用代號（如 `S-01`），不寫真名。真名只存在本機名冊 `data/roster.csv`（gitignored）。
-4. **副作用前先說明。** 部署、寄信、commit 等動作前先講你要做什麼、讓老師確認。
-
-## 先判斷：這是「新裝」還是「升級」？
-
-**如果老師已經有一套在跑的系統**（他說「更新」「升級」「我已經裝過了」，或你在他的資料夾裡
-看到 `config.yaml` / `site/js/firebase-config.js` / `firestore.rules` 已經填好），
-**不要從第 0 步重跑安裝**——跳到下面的「升級路徑」。重跑安裝會問一堆他早就答過的問題，
-也可能覆蓋掉他填好的設定。
-
-只有全新的老師才走第 0 步開始。
+你的工作是把他從「什麼都沒有」帶到「一個只有他自己看得到的教學記錄網站」。
+他負責回答關於他自己的問題（我的信箱、我班上幾個人、我要記哪些業務）；
+**其餘所有事情你做**——包括找路、跑指令、讀錯誤訊息、想辦法。
 
 ---
 
-## 升級路徑（v1 → v2）
+## 鐵則（開工前先讀完，這 9 條全程有效）
 
-v2 改了兩件會影響安全規則的事，所以**光更新網頁檔不夠，規則一定要重新部署**：
-新增了 `courses` 集合（課程紀錄分頁），並放寬了紀錄文件 id 的形狀（同一天可以記很多則）。
-
-照這個順序做，每一步做完告訴老師結果：
-
-1. **拉最新的程式**：`git pull`（或請他重新下載一份，把新的 `site/` 蓋過去）。
-   ⚠️ 只覆蓋 `site/`、`scripts/`、`firestore.rules.tmpl`、文件。
-   **絕對不要動** `config.yaml`、`site/js/firebase-config.js`、`data/`、
-   以及他已經產生好的 `firestore.rules`——那些是他的設定與資料。
-
-2. **重新產生安全規則**：讀 `firestore.rules.tmpl`，把 `{{OWNER_EMAIL}}` 換成
-   `config.yaml` 裡的 `owner_email`（或直接問老師），存成 `firestore.rules`。
-   舊的那份先備份成 `firestore.rules.bak` 再覆蓋。
-
-3. **部署規則**（這一步不能省）：
-   ```
-   firebase deploy --only firestore:rules --project <PROJECT_ID>
-   ```
-   沒裝 CLI 也行：Firebase Console → Firestore → 規則 → 貼上 `firestore.rules` 內容 → 發布。
-
-4. **驗證三件事**（請老師開頁實際點一次，不要只看程式碼）：
-   - 全班一覽的「N 則」與「本月已記／未記」有沒有反映真實數字（v1 的 bug 就是這裡永遠是 0）
-   - 切到「課程紀錄」分頁，能不能建一門課。若顯示「安全規則還沒有 courses 區塊」→ 回第 3 步
-   - 同一位學生、同一天記第二則。若被擋掉並提示規則是舊版 → 回第 3 步
-
-5. **告訴老師：資料不用搬、也不會壞。** 舊紀錄的文件 id 就是日期，新規則照樣接受；
-   `students/{代號}` 上那三個摘要欄位（`recordCount` 等）現在儀表板不再依賴，留著不影響。
-
-升級完就結束，不必再跑第 1～5 步。
+1. **一次只問一題。** 問完等他回答，回答完你做，做完你驗，驗完告訴他結果與下一題。
+   絕對不要一口氣丟五個問題給他，也不要替他假設答案。
+2. **每一題都要附「去哪裡拿」。** 不可以只問「你的 Firebase 專案 ID 是什麼」就沒了。
+   要告訴他去哪個網址、在那裡要達成什麼、怎麼知道自己拿對了。
+3. **不准說「你自己 google 一下」「請參考官方文件」「這個要看你的環境」。**
+   你就是那個要去查、去試、去解決的人。找不到答案就自己讀腳本、跑 `--help`、看錯誤訊息。
+4. **你不手寫任何產生檔。** `firestore.rules`、`site/js/kit-config.js`、
+   `site/js/firebase-config.js`、`config/kit.json`、`config/tabs.json`、`setup/progress.json`
+   ——這些一律由 `python3 scripts/setup.py` 與 `python3 scripts/build_config.py` 產生。
+   手寫規則檔一旦把信箱打錯，他的資料庫就變成「誰都讀不到」或更糟「誰都讀得到」。
+   要改設定就改 `config/kit.json`／`config/tabs.json` 再跑一次 `build_config.py`。
+5. **隱私。** 學生真名只存在 `data/roster.csv` 這一個檔；記錄正文一律寫代號（`S-01`）。
+   錄音檔與逐字稿永遠不出他的電腦。`data/`、`config/kit.json`、`inbox/`、`backups/`、
+   金鑰都已經被 `.gitignore` 擋住——動 git 之前先 `git status` 確認沒帶到它們。
+6. **代號不是匿名。** 跟他說明時要講對：代號的用處是「這些文字可以安心交給 AI 讀、可以匯出、
+   可以備份」，不是「就算外流也認不出是誰」。真正保護資料的是伺服器端的安全規則與他自己的帳號。
+7. **有副作用的動作，做之前先講。** 部署、上線、寄信、刪除、commit——先用一句白話說
+   「我接下來要做 X，做完會變成 Y」，等他點頭。唯讀的檢查不用問（`python3 scripts/doctor.py`，以及各支腳本的 `--dry-run`）。
+8. **先讀 `setup/progress.json`。** 它記著上次裝到哪一步。已經做完的步驟不要重問、不要重跑。
+   這個檔不存在＝全新安裝。判斷方式見「步驟 0」。
+9. **全程繁體中文，不用工程術語跟老師講話。** 對他說「你的網站」不說「hosting」；
+   說「只有你看得到的規定」不說「security rules」；說「把錄音轉成文字」不說「transcribe」。
+   指令你自己跑，不用念給他聽。
 
 ---
 
-## 第 0 步：確認範圍
+## 前置條件（第一件事就是確認這四項）
 
-問老師要哪一種：
-- **核心（最簡單，多數人夠用）**：純網頁儀表板（新增/編輯/檢視，只有他看得到）。只需要一個 Firebase 專案，不用裝任何命令列工具。→ 做第 1、2、3、4 步。
-- **進階（選用）**：再加「本機 markdown 檔同步」「寄家長信」「每月提醒」。需要 `firebase` CLI、`gcloud`（或服務帳號）、Gmail App Password。→ 核心做完再做第 5 步。
+| 項目 | 要求 | 不符合怎麼辦 |
+|---|---|---|
+| 電腦 | **macOS**。腳本的安裝與排程都只寫了 macOS 這條路。 | `[[待確認：Windows 支援]]`——目前 `scripts/install_tools.sh` 在非 macOS 只會印說明、不會安裝。遇到 Windows 使用者，停下來，告訴他這一版還沒支援，別硬裝。 |
+| Google 帳號 | 一個**能自己開 Firebase 專案**的 Google 帳號 | 見下面「學校帳號被鎖住怎麼判斷」 |
+| Homebrew | macOS 的套件管理程式，`install_tools.sh` 靠它 | 沒裝的話，`install_tools.sh` 會停下來並印出安裝指令；照它印的做，官方安裝說明在 https://brew.sh |
+| AI 代理 | 就是你 | — |
 
-也問他：**這個儀表板要獨立成一個網站，還是嵌進他現有的網站？**（影響第 3 步。）
+### 學校帳號被鎖住怎麼判斷
 
-## 第 1 步：Firebase（資料庫 + 登入）
+很多學校配發的 Google 帳號（`老師@某某學校.edu.tw`）被管理員關掉了「自己開專案」的權限。
+**判斷方法（叫老師實際做一次，不要用猜的）**：
 
-1. 問老師的**擁有者 Google email**（之後只有這個帳號能讀寫）。
-2. 引導他到 [Firebase Console](https://console.firebase.google.com)：建立專案（或用現有的）→ 建立 **Firestore Database**（正式模式）→ 在 **Authentication** 啟用 **Google** 登入。
-3. 在專案設定加一個**網頁 App**，取得 web config（apiKey 等）。
-   - ⚠️ **iOS Safari 防坑**：若老師會用 Firebase Hosting 上線（第 3 步 A 的變體 / `<project>.web.app`），建議把 `authDomain` 設成**與 hosting 同源**的網域（如 `<project>.web.app`）。否則 iOS Safari 的跨網域儲存分區會讓 Google 登入壞掉。見 `docs/REPORT.md` Troubleshooting。
-4. 把資料寫進兩個檔（都 gitignored）：
-   - `cp config.example.yaml config.yaml`，填 `owner_email`、`firebase.*`。
-   - `cp site/js/firebase-config.example.js site/js/firebase-config.js`，貼上 web config + `OWNER_EMAIL`。
-5. 驗證：`firebaseConfig.projectId` 與 `OWNER_EMAIL` 都已填、與 config.yaml 一致。
+1. 請他用那個學校帳號登入 https://console.firebase.google.com
+2. 按「建立專案／Create a project」，隨便輸入一個名字，按下一步。
+3. **拿得到「建立專案」按鈕並且真的建得出來** → 這個帳號可以用。
+4. **看到「你的機構不允許建立專案」「請聯絡管理員」或根本沒有建立按鈕** → 這個帳號不行。
 
-## 第 2 步：安全規則（只有他看得到）
+不行的話你要問他：
 
-1. 讀 `firestore.rules.tmpl`，把 `{{OWNER_EMAIL}}` 換成老師的 email，存成 `firestore.rules`。
-2. 部署（需 `firebase` CLI；`npm i -g firebase-tools` + `firebase login`）：
+> 「你學校的帳號被學校管理員鎖住了，沒辦法自己開專案。有兩條路：
+> ①用你自己的個人 Gmail 來裝——資料放在你私人的帳號裡，學校換人、你調校都不影響，
+> 但這份記錄在制度上就是你個人的東西；
+> ②去找學校資訊組請他們幫你開權限——資料掛在學校名下，但你要等他們，而且哪天權限被收回就進不去。
+> 大部分老師選第一條。你要用哪一個信箱？」
+
+他選好之後，**整套安裝從頭到尾都用那一個信箱**：登入 Firebase、設定裡的 `owner_email`、
+之後打開網站登入——三處必須是同一個帳號，不然他會看到「無權檢視」。
+
+---
+
+## 步驟 0：判斷這是新裝、續裝，還是升級
+
+### AI 要問的話（逐字可念）
+
+先不要問他任何事。**先自己看檔案**，看完再開口。
+
+看完之後照結果講其中一句：
+
+- 新裝 → 「我看過了，這台電腦上還沒有你的設定，我們從頭裝。整個過程大概十來個問題，
+  一次問一題，你不確定的可以說『不知道』，我帶你去找。可以開始了嗎？」
+- 續裝 → 「你上次裝到第 N 步（那一步是「……」）。前面答過的我不會再問你一次，
+  我們從第 N 步接著做。」
+- 升級 → 「你電腦上有一套舊版（v2）在跑。我不會重灌，也不會動到你已經記的東西，
+  只把程式換新、設定轉過來。你現有的記錄一則都不會掉。可以嗎？」
+
+### 老師去哪裡拿
+
+這一步不需要他提供任何東西。
+
+### AI 要做的事
+
+```bash
+cat VERSION
+cat setup/progress.json 2>/dev/null || echo "沒有進度檔＝新裝"
+ls config/kit.json config.yaml 2>/dev/null
+```
+
+判斷表：
+
+| 看到什麼 | 這是 | 走哪裡 |
+|---|---|---|
+| 沒有 `setup/progress.json`、沒有 `config/kit.json`、沒有 `config.yaml` | 新裝 | 步驟 1 開始 |
+| 有 `setup/progress.json`，裡面有 `done: false` 的步驟 | 續裝 | 跳到第一個 `done: false` 的步驟 |
+| 有 `config.yaml`（v2 舊設定），沒有 `config/kit.json` | 從 v2 升級 | 跳到本檔最後的「升級路徑 v2 → v3」 |
+| 有 `config/kit.json`，`progress.json` 全部 `done: true` | 已經裝好了 | 別重裝。問他要做什麼（記錄？備份？加業務組？），或跑步驟 10 的驗收清單複查一次 |
+
+`setup/progress.json` 的形狀看 `setup/progress.example.json`（每一步 `step` / `title` / `done` / `at` / `notes`）。
+**這個檔一律由 `setup.py` 寫，你不要手改。**
+
+### 怎麼驗證＋失敗時怎麼辦
+
+驗證＝你能用一句話講出「他現在在第幾步」。
+如果 `progress.json` 壞掉（不是合法 JSON、讀不出來），就當成新裝，並在做完步驟 4 之後由
+`setup.py` 重新寫一份乾淨的——不要自己手補這個檔。
+
+---
+
+## 步驟 1：裝工具
+
+### AI 要問的話（逐字可念）
+
+> 「第一件事是在你的電腦上裝五個小程式，它們是這套系統要用的工具：一個負責跟 Google 的資料庫溝通、
+> 一個負責把網站放上去、一個負責處理錄音檔。全部都是免費的官方工具，裝好之後你不會直接用到它們。
+> 過程中電腦可能會問你要不要輸入開機密碼，那是正常的。我現在開始裝，大概要五到十分鐘，可以嗎？」
+
+如果他問「一定要裝嗎」：
+
+> 「要。這些是系統的地基，不裝的話後面沒辦法把你的網站放上去，也沒辦法把錄音轉成文字。
+> 它們裝在你自己的電腦上，不會傳任何東西出去。」
+
+### 老師去哪裡拿
+
+不用拿東西。如果 Homebrew 沒裝，腳本會停下來告訴他缺什麼——那時候引導他去 https://brew.sh
+複製首頁那一行安裝指令，貼進終端機執行（他不會用終端機的話，你直接幫他跑）。
+
+### AI 要做的事
+
+先空跑一次讓他看清楚會裝什麼（這一步沒有副作用）：
+
+```bash
+bash scripts/install_tools.sh --dry-run
+```
+
+確認之後真的裝：
+
+```bash
+bash scripts/install_tools.sh
+```
+
+備份如果要走進階模式（`gws`，見步驟 7），才加 `--with-gws`：
+
+```bash
+bash scripts/install_tools.sh --with-gws
+```
+
+裝完健檢：
+
+```bash
+python3 scripts/doctor.py
+```
+
+你要讀機器格式的話用 `python3 scripts/doctor.py --json`；沒網路或在測試就加 `--skip-network`。
+
+### 怎麼驗證＋失敗時怎麼辦
+
+- **驗證**：`doctor.py` 印出來的工具那幾項全部是 ✓。此時「設定檔」「產生檔」那幾項還是 ✗ 很正常
+  ——那些要到步驟 4 才會有。
+- 黃色驚嘆號＝選用項目沒裝，不算失敗，可以往下走。
+- **失敗**：`doctor.py` 每一個 ✗ 底下都有一行「→ 怎麼修」。照那一行做，做完再跑一次 `doctor.py`。
+- **同一個修法試兩次還是不過**，不要繼續猜：把那一項的完整訊息念給老師聽，
+  說「這一項卡住了，我先記下來，它只影響○○功能，我們先往下走／或是我們先解決它」，
+  並把原因寫進之後 `setup.py` 產生的進度檔備註（跟老師說一聲即可，你不要手改 progress.json）。
+- **語音模型**（約 1.6GB）第一次要下載，`doctor.py` 會說「還沒下載」——**這不用現在處理**，
+  步驟 9 第一次轉錄時會自動下載。
+
+---
+
+## 步驟 2：Google 帳號與 Firebase 專案
+
+這一步是整套安裝裡老師唯一需要親自動手點畫面的地方。**你陪著他一格一格走。**
+
+### AI 要問的話（逐字可念）
+
+> 「接下來要幫你開一個屬於你自己的資料庫。講白話：Google 免費給每個人一個放資料的空間，
+> 我們去申請一個，你的學生記錄以後就存在那裡。
+> 重點是——**那個空間是掛在你的 Google 帳號底下的**，帳單是你的（一般老師的用量都在免費額度內），
+> 賣你這套東西的人看不到你任何一個字。
+>
+> 第一個問題：**你要用哪個 Google 信箱？** 之後只有這個帳號能打開你的記錄，別人一律看不到。」
+
+（他若給的是學校帳號，先做上面「學校帳號被鎖住怎麼判斷」那一段。）
+
+拿到信箱之後，再問下一題：
+
+> 「請你打開 https://console.firebase.google.com ，用剛剛那個信箱登入。
+> 登入好了跟我說一聲，我再告訴你下一步。」
+
+### 老師去哪裡拿
+
+**網址**：https://console.firebase.google.com
+
+他在那裡要達成**四件事**，你一件一件帶，每件做完確認再下一件：
+
+| # | 要達成什麼 | 怎麼確認他做對了 |
+|---|---|---|
+| 1 | 建立一個新專案（名字隨便取，例如「教學記錄」；「Google Analytics」問到的話關掉，用不到） | 畫面跳進專案首頁，網址長得像 `.../project/教學記錄-a1b2c/overview`，網址裡 `/project/` 後面那一段就是「專案 ID」 |
+| 2 | 建立 **Firestore Database**，模式選**正式版／Production mode**（不要選測試模式，測試模式 30 天後全世界都讀得到） | 看得到一個空的資料庫畫面，上面寫「Start collection」之類的字 |
+| 3 | 在 **Authentication** 裡把 **Google** 這個登入方式打開（Sign-in method → Google → 啟用 → 儲存） | Google 那一列的狀態變成「已啟用／Enabled」 |
+| 4 | 在「專案設定」（左上角齒輪）→「一般」→ 最下面「你的應用程式」→ 加一個**網頁應用程式**（`</>` 圖示），建好之後找到「SDK 設定與配置」選 **Config**，那裡有六個值 | 他看得到一段設定，裡面有 `apiKey`、`authDomain`、`projectId`、`storageBucket`、`messagingSenderId`、`appId` 六行 |
+
+**畫面會改版，不要背死畫面。** 你要記住的是上面「要達成什麼」；找不到按鈕就叫他把整個畫面描述給你聽，
+或請他用畫面上的搜尋框搜「Firestore」「Authentication」「專案設定」。
+
+**六個值請他一次全部貼給你**（這是唯一一次可以一次要六樣東西，因為它們同在一個畫面上）：
+
+> 「那六行請你整段複製貼給我就好，不用一行一行念。裡面沒有密碼，這六個值本來就會出現在網頁原始碼裡，
+> 貼給我是安全的——真正保護你資料的是我們等一下要設定的『只有你看得到』的規定。」
+
+### AI 要做的事
+
+這一步你不寫任何檔案，只是**把六個值收好**，等步驟 4 交給 `setup.py`。
+
+**先處理一個坑：iPhone 上登不進去。**
+如果他之後要用 Firebase Hosting 上線（步驟 5 的預設做法），網站網址會是 `<專案ID>.web.app`，
+但 Console 給的 `authDomain` 預設是 `<專案ID>.firebaseapp.com`。
+兩者不同源，**iOS Safari 的跨網域儲存分區會讓 Google 登入一直失敗**（登入後又跳回未登入）。
+
+所以：**打算用 Firebase Hosting 的話，`authDomain` 填 `<專案ID>.web.app`**，
+而不是 Console 給的 `.firebaseapp.com`。這件事在步驟 4 回答 `setup.py` 的 `authDomain` 那一題時處理。
+（要用 GitHub Pages 或嵌進現有網站的話，`authDomain` 就填他實際打開網頁的那個網域。）
+
+### 怎麼驗證＋失敗時怎麼辦
+
+- **驗證**：六個值都不是空的；`projectId` 跟他 Console 網址裡 `/project/` 後面那一段一模一樣。
+- 「建立專案」按鈕點不下去／說沒有權限 → 回到前置條件的「學校帳號被鎖住怎麼判斷」。
+- Firestore 建立時要他選地區（location）→ 選 `asia-east1`（台灣）或 `asia-northeast1`（東京）都可以，
+  **選了不能改**，但對這套系統沒有實質差別，別讓他卡在這題。
+- 他找不到「SDK 設定與配置」→ 通常是還沒建網頁應用程式。回到第 4 件事。
+
+---
+
+## 步驟 3：三個分頁要記什麼
+
+這一步問的是**他的教學現場**，不是技術。問得越具體，他之後用起來越順。
+這裡問到的答案，步驟 4 會由 `setup.py` 寫進設定；你現在只要問清楚、記下來。
+
+### 3-1 學生記錄
+
+#### AI 要問的話（逐字可念）
+
+> 「第一個分頁是**學生記錄**：一位學生一張卡，卡裡是你對他的觀察——課堂上發生的具體事件、
+> 他當下的樣子、你看見的變化。整班層次的觀察會另外收在『班級整體觀察』。
+>
+> ①**你班上有幾位學生？**（之後隨時可以加，先給個數字就好）
+>
+> ②**學生名單你手上有現成的嗎？**在哪裡——校務系統匯出的檔、Excel、還是紙本？
+>
+> ③記錄裡面**一律不寫真名，只寫代號**（像 S-01、S-02），真名只會存在你自己電腦上的一個名單檔。
+> 代號前綴你要用什麼？預設是 `S`，也可以用班級代號，例如打 `5B` 的話代號就長成 `5B-01`。」
+
+如果他問「為什麼不能寫真名」，照這個口徑回答（**不要說代號＝匿名**）：
+
+> 「兩個理由。一是這些文字之後你會拿給 AI 讀、會匯出、會備份到雲端硬碟，寫代號的話這些動作都可以放心做。
+> 二是萬一你哪天要把某一段貼給同事看，不用先手動塗掉名字。
+> 不過要講清楚：代號不等於匿名——你自己的名單一對照就知道是誰。真正擋住別人看的，
+> 是我們等一下要設定的『只有你的帳號讀得到』那條規定。」
+
+#### 老師去哪裡拿
+
+- **有現成名單**：請他找出來就好（校務系統匯出的 Excel／CSV、或班級座位表）。
+  格式不重要，步驟 6 你會幫他整理成 `data/roster.csv`。
+- **沒有現成名單**：不用勉強。步驟 6 可以只填幾個人先跑起來，剩下之後補。
+- **座號就是代號**：`data/roster.csv` 第一欄可以直接寫座號（`01`、`02`），
+  程式會自動接上前綴變成 `S-01`；也可以直接寫完整代號 `S-01`。
+
+#### AI 要做的事
+
+只做一件事：把「人數」「代號前綴」記下來。
+標籤（`#課堂 #人際 #情緒`…）先用預設那一組，之後要改就改 `config/tabs.json` 再跑 `build_config.py`。
+
+#### 怎麼驗證＋失敗時怎麼辦
+
+驗證＝你能複述「N 位學生，代號 `<前綴>-01` 到 `<前綴>-NN`」，而且他點頭。
+人數他答不出來（例如科任要記三個班）→ 先取一個班的人數裝起來，跟他說之後隨時能加。
+
+---
+
+### 3-2 課程記錄
+
+#### AI 要問的話（逐字可念）
+
+> 「第二個分頁是**課程記錄**：一門課一張卡，記的是課本身——今天講到哪、實際教了什麼、
+> 孩子整體怎麼反應、下次要調整什麼。這一頁跟學生記錄是分開的。
+>
+> ①**你要不要這個分頁？**（大部分導師都會用）
+>
+> ②要的話，**先建哪幾門課？** 一次講一門就好，我一門一門記。
+> 每門課我會問你兩件事：課名，還有它算主課程還是科任。」
+
+（他每講一門，你順便決定一個英文短名——只能用英數與 `-`，會變成資料夾名。
+例如「分數」→ `fractions`，「主課程」→ `main-block`。這個你自己想，不要拿去煩他。）
+
+#### 老師去哪裡拿
+
+不用拿東西，他腦袋裡就有。
+他說不出來 → 建議先建一門「主課程」，跟他說在網頁上隨時能加新的課。
+
+#### AI 要做的事
+
+記下每門課的：課名、種類（主課程／科任／其他）、英文短名。
+
+#### 怎麼驗證＋失敗時怎麼辦
+
+驗證＝把課的清單念一次給他確認。
+英文短名不合法（有中文、空白、底線以外的符號）→ 你自己換一個，不用問他。
+
+---
+
+### 3-3 業務記錄
+
+這一段最花時間，也是這套 kit 跟一般記錄工具最不一樣的地方。**慢慢問，不要跳。**
+
+#### AI 要問的話（逐字可念）
+
+> 「第三個分頁是**業務記錄**：教學以外、但你每天都在處理的那些事——班務、公文、會議、
+> 輔導個案、研習、報帳。一組業務一張卡，每一組要記的欄位不一樣。
+>
+> ①**你要不要這個分頁？**
+>
+> ②要的話，我念一份清單給你，你告訴我哪幾組是你手上真的在跑的線。不用勉強勾，之後隨時能加。」
+
+然後**逐組念**（清單完整內容見 `docs/BUSINESS-GROUPS.md`，正本是 `config/business-groups.library.json`）：
+
+1. 導師班務 — 帶班每天在處理的事：親師溝通、聯絡簿、出缺席、獎懲、班費、午餐
+2. 輔導／個案追蹤 — 個案的晤談與追蹤
+3. 特教／IEP — 特教學生的目標、觀察、課程調整與會議決議
+4. 教務 — 課程計畫、課表、評量、教科書、補救教學、公開授課
+5. 學務 — 生活教育、衛生保健、活動、演練與安全事件
+6. 總務 — 報修、採購、經費請款、場地借用、財產盤點
+7. 公文／行政流程 — 公文、簽呈、調查表、計畫申請、成果報告
+8. 會議紀錄 — 各種會議的出席、決議與待辦
+9. 研習／專業成長 — 研習、共備、觀議課、讀書會、時數與證照
+10. 家長／社區 — 家長會、志工、社區活動、捐贈
+11. 個人待辦／雜項 — 不歸任何處室、但你不想忘記的事
+
+**他每勾一組，你就要接著問這一句（一組一次，不可以省略）：**
+
+> 「這一組本來會問你這幾個欄位：〔把那一組的欄位念出來〕。
+> **還有沒有你自己每次都要記、但上面沒有的欄位？** 沒有的話我們就下一組。」
+
+他說有 → 問三件事：欄位叫什麼名字、是文字還是日期還是「從幾個選項挑一個」、
+（選項類的）可以挑哪些值。
+
+接著也要問分類詞：
+
+> 「這一組常用的分類詞我這邊有〔念幾個〕。**你有沒有自己習慣用的說法要加？**」
+
+十一組念完之後，最後問一次：
+
+> 「還有沒有**上面清單裡完全沒有**的業務，是你想記的？」
+
+有的話，問這**四件事**（缺一不可）：
+
+1. 「這項業務你都叫它什麼？」（組名）
+2. 「每次記的時候，有哪些**固定要填的欄位**？」（一個一個問名稱與型別）
+3. 「你會用哪些**分類詞**去標它？」（可以留白）
+4. 「這件事會不會**跟某位學生或某門課有關**，需要接得起來？」（要不要「關聯」欄）
+
+#### 老師去哪裡拿
+
+他自己的行事曆、公文匣、聯絡簿——就是他每天在處理的東西。
+**他一次講不出來很正常。** 跟他說：
+
+> 「先勾你確定的就好。之後你隨時可以跟我說『我還要記某某』，我幫你加，
+> 已經記的東西一則都不會受影響。」
+
+#### AI 要做的事
+
+把每一組記成這個形狀（步驟 4 交給 `setup.py`）：組 id、組名、欄位清單（名稱＋型別）、
+分類詞清單、是不是自訂的。可以直接寫成 `templates/answers.example.json` 裡
+`business` 那一段的樣子（`groups` / `extra_fields` / `extra_tags` / `custom_groups`）。
+
+#### 怎麼驗證＋失敗時怎麼辦
+
+- 驗證＝把他勾的組與每組的欄位念一次，他點頭。
+- **不要因為欄位「怪」就拒絕。** 欄位只是表單長相的建議，不是規格：他之後在記錄檔裡多寫一行
+  「承辦人分機：2317」也照樣收得進去，不用改設定、不用搬資料。
+- 輔導老師／特教老師特別提醒一句：**個案追蹤放這一組，個案本人的觀察放「學生記錄」分頁**，
+  兩邊用「關聯」接起來（`students/S-03/2026-09-10`）。詳細用法在 `docs/DATA-CHECKLIST.md`。
+
+---
+
+## 步驟 4：產生設定與安全規則
+
+### AI 要問的話（逐字可念）
+
+> 「我把你剛剛回答的東西寫成設定檔，然後產生一份『只有你看得到』的規定，再把那份規定送上你的資料庫。
+> 這一步做完，你的資料庫就會變成：只有你那個 Google 帳號讀得到、寫得進去，其他任何人——
+> 就算他拿到網址、就算他看網頁原始碼——都會被 Google 的伺服器直接擋掉。
+> 我現在開始，可以嗎？」
+
+### 老師去哪裡拿
+
+不用拿東西（他要的六個值在步驟 2 就給你了）。
+
+### AI 要做的事
+
+**A. 跑安裝精靈。** 兩種跑法，挑一種：
+
+- **互動**（老師在旁邊，讓他自己一題一題答）：
+  ```bash
+  python3 scripts/setup.py
+  ```
+- **免互動**（推薦：你已經在步驟 2、3 把答案問齊了，就寫成答案檔，一次跑完）：
+  ```bash
+  cp templates/answers.example.json /tmp/answers.json
+  # 用步驟 2、3 收到的答案改寫 /tmp/answers.json
+  python3 scripts/setup.py --answers /tmp/answers.json
+  ```
+  答案檔的每一個欄位在 `templates/answers.example.json` 裡都有註解。
+  **裝完把 /tmp/answers.json 刪掉**（裡面有他的信箱與專案 ID）。
+
+其他旗標：`--resume`（讀進度續裝）、`--upgrade`（從 v2 轉設定）、
+`--skip-network`（健檢時跳過要連網的項目）、`--skip-doctor`（裝完不跑健檢）、`--root`（裝到別的資料夾，測試用）。
+
+`setup.py` 會做完這些事：寫 `config/kit.json` 與 `config/tabs.json`（舊檔會先備份成 `.bak`）、
+建 `data/` 骨架（**已存在的檔一個都不覆蓋**）、自動呼叫 `build_config.py`、跑一次健檢、
+寫 `setup/progress.json`。
+
+**B. 需要單獨重跑設定產生器時**（例如你手改了 `config/tabs.json` 加一組業務）：
+
+```bash
+python3 scripts/build_config.py            # 產生三個檔
+python3 scripts/build_config.py --check    # 只驗設定合不合法，不寫任何檔
+```
+
+**C. 部署安全規則**（`setup.py` 不會替他部署，這一步一定要你來）：
+
+```bash
+firebase login                                                    # 第一次要在瀏覽器授權
+firebase deploy --only firestore:rules --project <他的專案ID>
+```
+
+**沒有裝 firebase CLI、或 `firebase login` 一直過不了**，改走 Console 貼上法：
+
+1. 你先把產生好的規則印出來：`cat firestore.rules`
+2. 請老師打開 https://console.firebase.google.com → 他的專案 → Firestore Database → 上方「規則／Rules」分頁
+3. 把那一整段**全選刪掉**，貼上你印出來的內容，按「發布／Publish」
+4. 畫面顯示發布成功的時間戳記＝成功
+
+### 怎麼驗證＋失敗時怎麼辦
+
+```bash
+python3 scripts/doctor.py
+```
+
+要通過的關鍵幾項：`設定檔 config/kit.json`、`設定檔 config/tabs.json`、
+`產生檔 site/js/kit-config.js`、`產生檔 site/js/firebase-config.js`、`產生檔 firestore.rules`、
+`owner_email 已填`、`安全規則裡的信箱與設定一致`、`安全規則比設定新`。
+
+- **`安全規則比設定新` 是 ✗** → 你改過設定但沒重跑 `build_config.py`。重跑，然後重新部署。
+- **`build_config.py` 說 owner_email 還是範本值** → 步驟 2 的信箱沒填進去，重跑 `setup.py`。
+- **部署被拒（permission denied）** → `firebase login` 用的帳號跟專案擁有者不是同一個。
+  跑 `firebase logout` 再 `firebase login`，登入時選對帳號。
+- **絕對不要**因為部署失敗就自己去手寫 `firestore.rules`，或把規則改成 `allow read, write: if true`
+  ——那等於把他全班的學生記錄公開在網際網路上。
+
+---
+
+## 步驟 5：把網站放上去
+
+### AI 要問的話（逐字可念）
+
+> 「現在要幫你把網頁放到網路上，這樣你手機、學校電腦、家裡電腦都打得開。
+> 放上去之後**還是只有你登入才看得到內容**——別人打開只會看到『無權檢視』。
+> 預設我會用 Google 自己的免費空間（跟你資料庫同一個專案，不用另外申請、不用付錢）。
+> 我現在放上去，可以嗎？」
+
+如果他說「我已經有自己的班網／個人網站，可以放進去嗎」：
+
+> 「可以，那我改成把它嵌進你現有的網站，入口只有你登入的時候才會出現。
+> 這條路我照 `embed/EMBED-AND-SECURITY.md` 那份說明做。」
+
+### 老師去哪裡拿
+
+不用拿東西。要走 GitHub Pages 那條路才需要他有 GitHub 帳號（https://github.com ）。
+
+### AI 要做的事
+
+**預設：Firebase Hosting。** 這個 repo 裡已經有 `firebase.json`，
+`hosting` 那一段已經設定好了（`public: site`，開站直接進 `dashboard.html`），
+**所以不用跑 `firebase init hosting`**——跑了反而會被問一堆問題、還可能蓋掉現有設定。
+
+```bash
+firebase deploy --only hosting --project <他的專案ID>
+```
+
+跑完終端機會印出網址，長得像 `https://<專案ID>.web.app`。把網址給老師，請他用**手機**打開一次
+（手機是他之後最常用的入口）。
+
+**備選：GitHub Pages。** 把 `site/` 這個資料夾的內容推到一個 repo，開 Pages 指向它。
+注意 `site/js/kit-config.js` 與 `site/js/firebase-config.js` 是 gitignored 的產生檔，
+走這條路要另外把這兩個檔放上去（它們裡面沒有密碼，但有他的信箱，所以那個 repo 要設成 private）。
+
+**第三條：嵌進他現有的網站。** 讀 `embed/EMBED-AND-SECURITY.md` 照做。
+那份說明裡有一個坑講得很清楚：v3 起設定檔是普通 script（`window.KIT`），
+不是 v2 的 ES module（`export const`），照 v2 抄會壞。
+
+### 怎麼驗證＋失敗時怎麼辦
+
+請老師**實際做這三件事**，不要只看程式碼：
+
+1. 用他的帳號登入 → 看得到三個分頁。
+2. 用另一個帳號（或無痕視窗）打開同一個網址 → 顯示「無權檢視」，看不到任何內容。
+3. 用**手機**打開並登入一次。
+
+- **iPhone 上登入後一直跳回未登入** → 就是步驟 2 講的 `authDomain` 坑。
+  改 `config/kit.json` 裡 `firebase.auth_domain` 成他實際打開網頁的網域（Firebase Hosting ＝ `<專案ID>.web.app`），
+  重跑 `python3 scripts/build_config.py`，重新 `firebase deploy --only hosting`。
+- **在 LINE／FB 裡點連結打不開 Google 登入** → 那是 App 內建瀏覽器擋的，
+  網頁會導引他改用 Safari／Chrome。教他把網址加到手機主畫面。
+- **停在「還沒有設定檔」** → `site/js/kit-config.js` 沒被部署上去。重跑 `build_config.py` 再部署。
+- **想確認網頁本身沒壞、又不想動真資料** → 網址後面加 `?demo=1`，它會完全不連資料庫、用假資料跑一遍。
+
+---
+
+## 步驟 6：學生名單與既有資料匯入
+
+### AI 要問的話（逐字可念）
+
+> 「現在把你的學生名單填進去。名單長這樣：一行一位，前面是座號或代號，後面是姓名。
+> **這份名單只會存在你自己這台電腦上**，不會上傳、不會進任何版本控制，
+> 它是整套系統裡唯一有真名的地方。
+>
+> 你手上有現成的名單檔嗎？有的話給我路徑，我幫你轉；沒有的話你直接念，我幫你打。」
+
+如果他已經有一堆舊記錄（Word、Evernote、紙本）：
+
+> 「你以前的記錄要不要一起搬進來？如果是電子檔，你給我檔案，我看一下格式，
+> 一則一則幫你放進正確的位置——**我不會直接改記錄檔，會走系統的寫入通道，
+> 這樣舊記錄的編號不會被打亂**。如果是紙本就先不用，之後想到哪則再補。」
+
+### 老師去哪裡拿
+
+- 校務系統匯出的班級名冊（通常有「匯出 Excel／CSV」按鈕）
+- 座位表、聯絡簿封面、班級群組名單
+- 都沒有 → 他直接念，你打
+
+### AI 要做的事
+
+**A. 名單。** 寫 `data/roster.csv`，格式看 `templates/roster.example.csv`：
+
+```
+編號,姓名
+01,學生甲
+02,學生乙
+```
+
+第一欄可以寫座號（`01`，程式會自動接上前綴變成 `S-01`），也可以直接寫完整代號（`S-01`）。
+第二欄是真名。這個檔是 gitignored 的。
+
+**B. 先預演同步，再真跑：**
+
+```bash
+python3 scripts/sync.py --dry-run     # 只看會發生什麼，不寫任何東西
+python3 scripts/sync.py               # 確認沒問題再真跑
+```
+
+只想同步一個目標時用 `--only`，例如 `python3 scripts/sync.py --only students/S-03`。
+
+**C. 匯入舊記錄。** 一則一則走**唯一的寫入通道**，不要自己編輯 `data/` 底下的 md 檔：
+
+```bash
+python3 scripts/append_record.py --kind students --target S-03 \
+  --date 2026-09-01 --tags "#課堂 #學習態度" --content-file /tmp/一則.md --source file
+```
+
+`--kind` 只有四種：`students`、`class`、`courses`、`business`。
+其他可用旗標：`--time`（指定時間）、`--fields-json`（業務記錄的欄位）、
+`--related`（接到別則記錄，分號分隔）、`--task-id`、`--sync`（寫完順手同步這個目標）、
+`--json`（結果給你讀）、`--allow-names`（放行真名檢查，極少數情況才用，會寫進稽核記錄）。
+`--content-file` 給 `-` 就是從 stdin 讀。
+
+匯入完再跑一次 `python3 scripts/sync.py`。
+
+### 怎麼驗證＋失敗時怎麼辦
+
+- **驗證**：請老師打開網站的學生分頁 → 看得到每一位（有名字、有「N 則」）。
+- `append_record.py` **退出碼 5 ＝ 正文裡出現名冊上的真名**。這是刻意的閘：
+  把那個名字換成代號再寫一次。（真的必須寫真名——例如對象根本不是本班學生——才加 `append_record.py` 的 `--allow-names`。）
+- `append_record.py` 退出碼 3 ＝ `--kind` 加 `--target` 這個對象在設定裡不存在（打錯代號、或那門課還沒建）。
+- 退出碼 9 ＝ 寫入前後的編號對不上，腳本已經自己把檔案還原了，什麼都沒寫壞。把訊息貼給老師看，重試一次。
+- **sync 印出「衝突」** ＝ 同一則在網頁跟本機都改過。它**不會覆蓋任何一邊**，
+  把兩邊念給老師聽，讓他決定留哪個。
+
+---
+
+## 步驟 7：備份到他自己的 Google 雲端硬碟
+
+### AI 要問的話（逐字可念）
+
+> 「最後要幫你設一個保險：每週把你所有記錄打包一份，放到**你自己的** Google 雲端硬碟。
+> 這樣就算電腦壞掉、或哪天資料庫出事，你的東西都還在。
+>
+> 有兩種做法。我建議第一種，因為完全不用設定：
+> **①你電腦上裝『Google 雲端硬碟』那個程式**（就是會在 Finder 側邊欄多出一個雲端硬碟的那個），
+> 然後在雲端硬碟裡開一個資料夾叫『教學紀錄備份』，我把備份丟進去，剩下它自己會上傳。
+> ②進階做法是讓程式直接上傳，但那要你自己去申請一組授權，比較麻煩。
+>
+> 你電腦上裝過『Google 雲端硬碟』嗎？」
+
+### 老師去哪裡拿
+
+**預設（desktop 模式）**：
+
+1. 下載並安裝「Google 雲端硬碟」桌面程式：https://www.google.com/drive/download/
+2. 用**同一個** Google 帳號登入它。
+3. 打開 https://drive.google.com ，在「我的雲端硬碟」建一個資料夾，例如「教學紀錄備份」。
+4. **怎麼確認他做對了**：打開 Finder，側邊欄應該出現「Google Drive」；
+   點進去 → My Drive → 看得到剛剛建的那個資料夾。那個資料夾在他電腦上的完整路徑
+   通常長這樣：`~/Library/CloudStorage/GoogleDrive-<他的信箱>/My Drive/教學紀錄備份`
+
+**進階（gws 模式）**：需要 `googleworkspace-cli`（`bash scripts/install_tools.sh --with-gws`）
+與他自己申請的 OAuth 憑證。資料夾 ID 的拿法：在瀏覽器打開那個 Drive 資料夾，
+網址是 `https://drive.google.com/drive/folders/XXXXXXXX`，`XXXXXXXX` 那一段就是資料夾 ID。
+
+### AI 要做的事
+
+把路徑或資料夾 ID 填進 `config/kit.json` 的 `drive` 區塊（欄位說明看 `config/kit.example.json`）：
+
+```jsonc
+"drive": {
+  "mode": "desktop",                                    // 或 "gws"
+  "desktop_dir": "~/Library/CloudStorage/GoogleDrive-他的信箱/My Drive/教學紀錄備份",
+  "backup_folder_id": "",                               // gws 模式才要填
+  "keep_backups": 12                                    // 本機只留最近 12 份
+}
+```
+
+改完設定一定要重跑產生器：
+
+```bash
+python3 scripts/build_config.py
+python3 scripts/doctor.py
+```
+
+然後實際備份一次：
+
+```bash
+python3 scripts/backup.py
+```
+
+其他旗標：`--local-only`（只做本機 zip，不碰雲端）、`--no-export`（不抓資料庫快照，離線時用）、
+`--quiet`（排程用）。
+
+### 怎麼驗證＋失敗時怎麼辦
+
+- **驗證**：`doctor.py` 裡「Drive 備份資料夾」那一項是 ✓；
+  然後**請老師自己打開 https://drive.google.com 看到那個 zip 檔**——這才是真的驗過。
+- desktop 模式路徑不存在 → 多半是「Google 雲端硬碟」程式沒登入、或資料夾名打錯（中文全形空格是常見兇手）。
+  用 `ls` 把實際路徑列出來對一次。
+- gws 模式找不到資料夾 → 腳本會**停手，不會自己建一個新的**（那會讓備份靜靜地跑到別的地方去）。
+  重新確認資料夾 ID，並確認 `trashed` 不是 true（他有沒有不小心把資料夾丟進垃圾桶）。
+
+---
+
+## 步驟 8：排程（選用）
+
+### AI 要問的話（逐字可念）
+
+> 「要不要讓電腦自動幫你做這兩件事：每天早上把你的記錄同步一次、每週日把資料備份一次？
+> 這樣你就不用記得要跑什麼。
+> 先講一個重點：**排程有可能會靜靜地壞掉**（電腦沒開機、系統擋了權限），所以你的網頁頂端會顯示
+> 『上次同步幾天前・上次備份幾天前』，超過七天就變**紅字**——那才是你真正該相信的東西。
+> 要裝嗎？（不裝也完全沒差，你想跑的時候跟我說一聲我幫你跑。）」
+
+### 老師去哪裡拿
+
+不用拿東西。
+
+### AI 要做的事
+
+先空跑看清楚會裝什麼：
+
+```bash
+bash scripts/schedule.sh --dry-run
+```
+
+真的裝（每天 07:00 同步、每週日 08:00 備份）：
+
+```bash
+bash scripts/schedule.sh
+```
+
+不想用 macOS 排程、想自己用 cron：`bash scripts/schedule.sh --print-cron`（只印兩行，不寫任何檔）。
+之後要移除：`bash scripts/schedule.sh --uninstall`。
+
+### 怎麼驗證＋失敗時怎麼辦
+
+- **不要**只看排程有沒有掛上就說裝好了。**真正的驗證是隔天請老師打開網頁，
+  看頂端「上次同步 X 天前」的數字有沒有更新。**
+- 變紅字 → 排程沒跑成功。先手動跑一次 `python3 scripts/sync.py` 確認手動是好的，
+  再檢查是不是電腦那時候沒開機。
+- 教他一句白話的救援指令：「網頁上那行變紅字的時候，跟你的 AI 說『幫我同步一下』就好。」
+
+---
+
+## 步驟 9：錄音檔試跑一次
+
+**這一步不能省。** 錄音是這套 kit 最省力的入口，但老師不會自己想到要怎麼用——
+你帶他實際走一遍，他之後才會用。
+
+### AI 要問的話（逐字可念）
+
+> 「最後我們試一次錄音。這是這套系統最好用的地方：你不用打字，
+> 上完課、開完會、跟家長談完，拿手機錄一段話丟進來，我幫你整理成記錄。
+>
+> **重要的是：錄音跟轉出來的逐字稿全程都在你這台電腦上，不會傳出去給任何人，包括我。**
+>
+> 現在請你隨便錄一段三十秒的話——講一件今天班上發生的事就好，當作練習。
+> 錄好之後把檔案放進這個資料夾的 `inbox/` 裡，跟我說一聲。」
+
+轉出逐字稿之後：
+
+> 「轉好了。你這段話我看了，要整理成哪一種？①某位學生的記錄 ②某一門課的記錄
+> ③某一組業務的記錄 ④班級整體觀察。」
+
+寫進去之前：
+
+> 「我整理成這樣〔念出來〕，這樣可以嗎？要改哪裡跟我說。」
+
+### 老師去哪裡拿
+
+一支手機。錄音 App 隨便哪一個都行（iPhone 內建的「語音備忘錄」最方便），
+錄完用 AirDrop／隔空投送傳到電腦，拖進 `inbox/`。
+支援的格式：m4a、mp3、wav、mp4、mov、aac、flac、ogg、m4v、caf。
+
+### AI 要做的事
+
+**A. 轉逐字稿**（第一次會下載約 1.6GB 的模型，會顯示進度，之後就不用再下載）：
+
+```bash
+python3 scripts/transcribe.py --inbox
+```
+
+其他旗標：`--keep`（轉完不要把原始錄音搬到 `inbox/done/`）、`--lang`（換語言）、
+`--model`（換模型）、`--no-vad`（語音偵測模型下載不到時）。也可以直接給檔名：
+`python3 scripts/transcribe.py 會議.m4a`。
+
+逐字稿出現在 `inbox/transcripts/<檔名>.md`，原始錄音移到 `inbox/done/`。
+`inbox/` 整個是 gitignored 的——**逐字稿永不出本機**。
+
+**B. 你讀逐字稿，改寫成記錄。** 這一步不在腳本裡，是你的工作。改寫的三個原則：
+
+- **一律用代號**。逐字稿裡老師會直接講學生的名字，你要換成代號（不確定是誰就問他）。
+- **寫具體事件，不要寫評語。** 逐字稿裡的「他今天很棒」要還原成他做了什麼。
+- **口語變書面，但不要美化。** 老師講的事實是什麼就是什麼。
+
+**C. 寫進去**（走唯一寫入通道）：
+
+```bash
+python3 scripts/append_record.py --kind students --target S-03 \
+  --tags "#人際 #情緒" --content-file /tmp/改寫稿.md \
+  --source voice --task-id voice-2026-09-10-001 --sync
+```
+
+業務記錄多帶欄位與關聯：
+
+```bash
+python3 scripts/append_record.py --kind business --target paperwork \
+  --fields-json '{"期限":"2026-09-20","辦理情形":"辦理中"}' \
+  --related "students/S-03/2026-09-10" --content-file /tmp/改寫稿.md --source voice
+```
+
+**D. 同步上去**（沒帶 `--sync` 的話）：
+
+```bash
+python3 scripts/sync.py
+```
+
+### 怎麼驗證＋失敗時怎麼辦
+
+- **驗證**：請老師在**手機上**打開網站，看到剛剛那一則。他看到的那一刻就懂這套系統要幹嘛了。
+- 逐字稿有錯字（人名、專有名詞、台語詞）→ 正常，whisper 就是會錯。**你改寫的時候順手修掉**，
+  不要把錯字原封不動寫進記錄。
+- 轉錄卡住／模型下載失敗 → 檢查網路，重跑 `python3 scripts/transcribe.py --inbox`（已經轉過的不會重轉）。
+  真的下不到 VAD 模型就加 `transcribe.py` 的 `--no-vad`。
+- 被真名閘擋下（退出碼 5）→ 你漏改了一個名字。找出來換成代號。
+
+---
+
+## 步驟 10：驗收清單
+
+**逐項做，逐項回報。** 沒過的不要說「應該沒問題」，直接說哪一項沒過、你要怎麼修。
+
+### AI 要問的話（逐字可念）
+
+> 「都裝好了，我們一起驗收七件事，大概五分鐘。這幾件都是要你自己動手點一下的，
+> 因為我在這邊看『程式沒報錯』不代表你那邊真的能用。」
+
+### 老師去哪裡拿
+
+不用拿東西，但**第 1、2、3、5 項要他自己動手**——他的手機、他的瀏覽器、他的雲端硬碟
+（https://drive.google.com ）。你在這邊看「程式沒報錯」不算驗過。
+
+### AI 要做的事＋怎麼驗證
+
+逐項做、逐項回報：
+
+| # | 驗什麼 | 誰做 | 怎麼算過 |
+|---|---|---|---|
+| 1 | 擁有者登入看得到 | 老師 | 用他的帳號打開網址，看得到三個分頁 |
+| 2 | 別的帳號被拒 | 老師 | 用無痕視窗或另一個 Google 帳號打開同一個網址 → 顯示「無權檢視」，看不到任何內容 |
+| 3 | 三個分頁各新增一則 | 老師 | 學生記錄、課程記錄、業務記錄各手動新增一則，重新整理之後還在 |
+| 4 | 三處對得上 | 你 | `python3 scripts/ledger.py --rebuild` 然後 `python3 scripts/ledger.py --check`，退出碼 0 |
+| 5 | 備份真的有上去 | 老師 | `python3 scripts/backup.py` 跑完，請他打開 https://drive.google.com 看到那個 zip |
+| 6 | 個資沒帶進 git | 你 | `git status` 沒看到 `data/`、`config/kit.json`、`setup/progress.json`、`site/js/*-config.js`、`firestore.rules`、`inbox/`、`backups/`、任何 `*-key.json` |
+| 7 | 健檢全綠 | 你 | `python3 scripts/doctor.py` 必要項目全過（黃色驚嘆號的選用項目可以留著） |
+
+`ledger.py` 其他旗標：`--offline`（不連網，只比本機與備份）、`--json`（給你讀）、`--quiet`。
+
+### 失敗時怎麼辦
+
+- **第 2 項沒過（別的帳號看得到）＝最嚴重的失敗，停下所有事先修這個。**
+  多半是規則沒部署成功，或規則裡的信箱打錯。回步驟 4 的 C，重新部署，再驗一次。
+- 第 4 項退出碼 1 → 印出來的不一致清單會說是哪一種（本機有網站無／網站有本機無／內容不同／備份缺哪些）。
+  先跑 `python3 scripts/sync.py --dry-run` 看看同步能不能補上。
+- 第 6 項有東西不該出現 → **不要 commit**。先看是不是 `.gitignore` 沒生效
+  （檔案在被忽略之前就已經被追蹤過），跟老師講清楚再處理。
+
+最後，把「日常使用」那一節（見下）**當面講給他聽一次**，不要只叫他自己看文件。
+
+---
+
+## 升級路徑 v2 → v3
+
+老師手上是 v2（有 `config.yaml`、沒有 `config/kit.json`）的時候走這裡。**不要重跑新裝流程。**
+
+### AI 要問的話（逐字可念）
+
+> 「你這台電腦上有一套舊版在跑。我幫你換成新版：舊設定我會自動轉過來，
+> **你已經記的東西一則都不會掉、也不用搬**。
+> 新版多了業務記錄分頁、錄音整理、還有備份到你自己的雲端硬碟。
+> 換的過程大概五分鐘，中間你的網站會有一小段時間是舊的樣子，這正常。開始嗎？」
+
+### AI 要做的事
+
+1. **只覆蓋程式與範本，不覆蓋他的東西。** `git pull`，或重新下載一份新的把這些蓋過去：
+   `scripts/`、`site/dashboard.html`、`site/js/*.example.js`、`templates/`、`firestore.rules.tmpl`、
+   `config/*.example.json`、`firebase.json`、文件。
+   **絕對不要覆蓋**：`config/`（`kit.json`、`tabs.json`）、`data/`、`setup/progress.json`、
+   `firestore.rules`、`site/js/kit-config.js`、`site/js/firebase-config.js`、`backups/`、`inbox/`。
+
+2. **轉設定**：
+   ```bash
+   python3 scripts/setup.py --upgrade
    ```
-   firebase deploy --only firestore:rules,firestore:indexes --project <PROJECT_ID>
+   它讀 `config.yaml`，把 `owner_email`、`firebase`、`email` 照搬成 `config/kit.json`，
+   然後自動跑 `build_config.py`。
+   **業務記錄分頁預設是關著的**——之後跟老師確認要不要開，要的話走步驟 3-3 問完，
+   再重跑一次 `python3 scripts/setup.py`。
+
+3. **重新部署安全規則**（v3 加了業務記錄與狀態列的區塊，也改成允許擁有者刪除——**這一步不能省**）：
+   ```bash
+   firebase deploy --only firestore:rules --project <他的專案ID>
    ```
-   （沒裝 CLI 也可在 Firebase Console → Firestore → 規則 貼上 `firestore.rules` 內容後發布。）
-3. 驗證：規則裡的 email 與 `OWNER_EMAIL` 相同；非擁有者讀取會被拒。
 
-## 第 3 步：上線
+4. **重新部署網站**：
+   ```bash
+   firebase deploy --only hosting --project <他的專案ID>
+   ```
 
-**A. 獨立網站（GitHub Pages）**
-- 把 `site/` 推到一個 repo，開 GitHub Pages 指向它，打開 `dashboard.html`。
-- 用擁有者帳號 Google 登入 → 應看到空的儀表板；換別的帳號 → 顯示「無權檢視」。
+5. **先預演再同步**：
+   ```bash
+   python3 scripts/sync.py --dry-run
+   python3 scripts/sync.py
+   ```
 
-**B. 嵌進現有網站** → 改讀 `embed/EMBED-AND-SECURITY.md`，照那份做（放 `dashboard.html` + `firebase-config.js`，並用 `dashboard-nav.js` 注入「只有你看得到」的入口）。
+### 怎麼驗證＋失敗時怎麼辦
 
-## 第 4 步：學生資料
+- 舊的學生記錄與課程記錄**張數一則不少**（請老師自己數一位學生的看看）。
+- 切到業務記錄分頁（如果開了）能建一組、能記一則。
+- 網頁上出現「你的安全規則還是舊版」→ 第 3 步沒做成功，重做。
+- 刪除按不動並說規則是舊版 → 同上，v3 才允許擁有者刪除。
 
-1. 問老師：**已經有學生觀察紀錄了嗎？放在哪？**
-   - 有 → 確認格式（每位學生一個 `## YYYY-MM-DD #tag` 區塊）；協助匯入 Firestore（進階才需腳本，否則他可直接在網頁新增）。
-   - 沒有 → 幫他建立：
-     - 問班級人數、要用什麼代號（預設 `S-01`、`S-02`…）。
-     - 建 `data/roster.csv`（代號,姓名；參考 `templates/roster.example.csv`）——**這檔含真名、gitignored**。
-     - 為每位學生建 `data/students/<代號>/observations.md`（參考 `templates/observation.example.md`）。
-2. **提醒老師哪些還沒做**：列出目前沒有任何紀錄的學生，建議先從幾位開始。
-3. 告訴他：之後要記錄，可直接在**網頁儀表板**點學生「＋新增」，或（進階）寫進本機 `observations.md` 再同步。
-4. 順帶告訴他兩個好用功能：
-   - **題材分類快速鍵**：新增紀錄時，內容框上方有一排 `#標籤` 按鈕，點一下即加入（可改成適合他科目的分類——在 `site/dashboard.html` 的 `CATEGORIES` 陣列）。
-   - **全班觀察紀錄**：全班一覽頁右上「📋 全班觀察紀錄」記錄不針對單一學生的整班層次觀察，資料模型與學生紀錄相同。
+---
 
-## 第 5 步（選用·進階）：本機同步 + 寄家長 + 提醒
+## 日常使用（裝完之後當面講一次給老師聽）
 
-只有老師選了「進階」才做。先 `cp config.example.yaml config.yaml` 填好 `records` / `parents` / `email` 區塊。
+**四件事，講完就好，不要念文件：**
 
-- **本機 ↔ Firestore 雙向同步**：`python3 scripts/sync.py`（需 `gcloud` 以擁有者身分登入：`gcloud auth login`）。把 `observations.md` 鏡像到 Firestore，並把網頁的新增/編輯寫回檔案（衝突不覆蓋）。可用 launchd/cron 每日跑。
-- **寄家長信**：問家長 email 來源 → 填 `data/contacts.csv`（參考 `templates/contacts.example.csv`）+ 設定 `email`（SMTP App Password 放環境變數 `KIT_SMTP_APP_PASSWORD` 或 `.env`）。寄信用 `python3 scripts/parent_email.py --id S-01 --date <日期> --subject ... --body-file ...`；**一律先把改寫稿給老師看、確認才寄**。
-- **待寄提醒**：`python3 scripts/pending.py` 列出有觀察但還沒處理寄家長的紀錄；老師說不用就 `python3 scripts/pending.py --mark <代號> <日期> skip`。
-- **每月提醒**：`python3 scripts/monthly_reminder.py` 把本月未記名單寄給老師。
-- **期末匯出取材**：`python3 scripts/export_records.py`（讀 `config.yaml` 的 `firebase.project_id`，需 `gcloud auth login`）。把全班歷次觀察＋全班觀察匯出成 Markdown，供撰寫期末評量。常用旗標：`--out FILE` 寫檔、`--json` 結構化、`--by-tag` 依題材分組、`--id S-01` 只抓一位、`--split DIR` 逐生備份（含 `roster.md`）。這是「拿資料去寫評量」，唯讀不會動到雲端資料。
+1. **平常就打開網頁記。** 手機、電腦都行。學生分頁點進一位學生「＋新增」；
+   課程分頁點一門課；業務分頁點一組業務。標籤那排按鈕點一下就加上去。
+   全班一覽會標出「本月已記／未記」，一眼看得出誰還沒記。
 
-## 完成檢查
+2. **懶得打字就錄音。** 錄一段丟進 `inbox/`，跟 AI 說「整理成學生記錄／課程記錄／會議紀錄」。
+   AI 會轉成文字、改寫、念給你確認，你點頭它才寫進去。錄音跟逐字稿都不會離開你的電腦。
 
-- [ ] 擁有者登入看得到儀表板；別的帳號被拒。
-- [ ] `config.yaml` / `firebase-config.js` / `data/` / 金鑰都沒被 commit（`git status` 確認）。
-- [ ] 紀錄內容無真名（真名只在 `data/roster.csv`）。
-- [ ] 告訴老師日常怎麼用、（進階）怎麼觸發寄家長。
+3. **月底提醒。** 想知道這個月誰還沒記：
+   `python3 scripts/monthly_reminder.py --dry-run`（先看不寄），確認之後
+   `python3 scripts/monthly_reminder.py` 會把未記名單寄到他自己的信箱。
+   （寄信要先設好 `config/kit.json` 的 `email` 區塊與環境變數 `KIT_SMTP_APP_PASSWORD`。）
+
+4. **期末寫評量的時候取材。**
+   ```bash
+   python3 scripts/export_records.py --out ~/記錄.md          # 全部匯出成一個檔
+   python3 scripts/export_records.py --kind students --target S-03   # 只要某一位
+   python3 scripts/export_records.py --by-tag                 # 依標籤分組，寫某一個題材時好用
+   python3 scripts/export_records.py --related                # 每則後面附上它關聯到的記錄
+   python3 scripts/export_records.py --split ~/備份           # 每個對象一個資料夾
+   python3 scripts/export_records.py --local                  # 不連網，只讀本機檔
+   ```
+   還有 `--json`、`--id`（`--target` 的舊別名）。匯出是唯讀的，不會動到雲端資料。
+
+順帶一提兩支選用的腳本：`python3 scripts/pending.py` 列出「有觀察但還沒決定要不要寄家長」的記錄
+（`--all` 連已處理的也列、`--mark <代號> <日期> skip` 標記不用再提醒）；
+`python3 scripts/parent_email.py --id S-01 --subject "…" --body-file msg.txt`
+把一則改寫成家長語氣寄出去（`--dry-run` 先看、`--draft` 只出稿）——**一律先給老師看稿、他點頭才寄**。
+
+---
+
+## 版本控制與更新
+
+### David（發版的人）要做的
+
+發新版＝三件事一起做，缺一不可：
+
+1. 改 `VERSION`（語意化版本：主版本．次版本．修訂）
+2. 在 `CHANGELOG.md` 加一段，**如果這一版動了 `firestore.rules.tmpl`，那一段要明寫「規則有動，升級後必須重新部署規則」**
+3. `git tag v<版本>`
+
+### 老師（用的人）要做的
+
+更新程式：`git pull`，或重新下載一份 zip。**只覆蓋程式與範本**：
+
+| 可以覆蓋 | 絕對不要覆蓋 |
+|---|---|
+| `scripts/`、`site/dashboard.html`、`site/js/*.example.js`、`templates/`、`config/*.example.json`、`firestore.rules.tmpl`、`firebase.json`、`AGENTS.md`、`README.md`、`docs/` | `config/kit.json`、`config/tabs.json`、`data/`、`setup/progress.json`、`firestore.rules`、`site/js/kit-config.js`、`site/js/firebase-config.js`、`backups/`、`inbox/` |
+
+**更新後一定要跑**（新版的設定產生器可能多產了東西）：
+
+```bash
+python3 scripts/build_config.py
+python3 scripts/doctor.py
+```
+
+**`CHANGELOG.md` 那一版標了「規則有動」的話，還要重新部署規則**：
+
+```bash
+firebase deploy --only firestore:rules --project <他的專案ID>
+```
+
+### 怎麼知道現在是哪一版
+
+- **他手上這份程式是哪一版**：`cat VERSION`（目前 `3.0.0-alpha.1`）。
+- **他的資料庫上一次是用哪一版的規則部署的**：這件事現在**沒有自動偵測**——
+  照 `CHANGELOG.md` 逐版對，或直接重新部署一次規則（重複部署沒有害處）。
+- **網頁上的線索**：頁面上寫著「教學記錄 kit v3」，只看得出主版本是 3，看不出小版本。
+- **規則過舊的即時偵測是有的**：他在網頁上新增或刪除時，如果被舊規則擋下來，
+  畫面會直接告訴他「你的安全規則還是舊版，請重新部署」。看到這句就回步驟 4 的 C。
+
+> **文件與程式同批。** 這份 AGENTS.md 裡出現的每一個指令、每一個旗標、每一個檔名，
+> 都是寫的時候用 `--help` 與 `grep` 對過真的存在的。
+> 你在使用中發現對不上的地方，**以程式為準**，並回報給 David 改文件——不要自己臨場發明指令。
+
+---
+
+## 附錄：這份 kit 有哪些腳本
+
+| 腳本 | 一句話 |
+|---|---|
+| `scripts/setup.py` | 安裝精靈：問完→寫設定→建資料骨架→產生網頁設定與規則→健檢 |
+| `scripts/build_config.py` | 唯一的設定產生器：兩份 JSON 進，三個檔出 |
+| `scripts/doctor.py` | 健檢：逐項告訴你什麼好了、沒好的怎麼修 |
+| `scripts/install_tools.sh` | 在 macOS 上裝齊外部工具 |
+| `scripts/append_record.py` | **唯一被允許寫入記錄檔的通道** |
+| `scripts/sync.py` | 本機 markdown ⇄ 資料庫雙向同步（衝突不覆蓋） |
+| `scripts/transcribe.py` | 錄音 → 本機逐字稿（不出本機） |
+| `scripts/backup.py` | 本機 zip ＋ 上他自己的 Google 雲端硬碟 |
+| `scripts/ledger.py` | 台帳：本機／網站／備份三處對帳 |
+| `scripts/export_records.py` | 整包匯出（期末取材、換系統） |
+| `scripts/schedule.sh` | （選用）每日同步、每週備份的排程 |
+| `scripts/monthly_reminder.py` | （選用）本月未記名單寄給老師自己 |
+| `scripts/parent_email.py` | （選用）把一則改寫稿寄給家長 |
+| `scripts/pending.py` | （選用）列出還沒決定要不要寄家長的記錄 |
+| `scripts/build_preview.py` | 產生單檔離線預覽（給人看示範用） |
+| `scripts/lib.py` | 共用底層，不單獨執行 |
+
+系統怎麼運作、資料長什麼樣、安全怎麼設計 → `docs/ARCHITECTURE.md`。
+每個分頁要準備什麼資料 → `docs/DATA-CHECKLIST.md`。
+業務組庫的完整內容 → `docs/BUSINESS-GROUPS.md`。
+老師自己要讀的入門 → `docs/GUIDE.md`。
