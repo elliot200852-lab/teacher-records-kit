@@ -44,7 +44,7 @@ def dump_json(path, data):
 
 def run(script, *args, **kw):
     cmd = [sys.executable, os.path.join(SCRIPTS, script), *args]
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=300, **kw)
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300, **kw)
 
 
 class TestBuildConfig(unittest.TestCase):

@@ -714,7 +714,7 @@ def save_roster_rows(rows, data_root=None):
     path = roster_path(data_root)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="") as f:
-        w = csv.writer(f)
+        w = csv.writer(f, lineterminator="\n")            # 三個平台都寫 LF（Excel 也吃）
         w.writerow(ROSTER_HEADER.split(","))
         for sid in sorted(rows):
             r = rows[sid] or {}
@@ -746,8 +746,8 @@ class FirestoreError(Exception):
 
 def token(quiet=False):
     """gcloud 的存取權杖。拿不到就 die（除非 quiet=True，那就回 None）。"""
-    rc, out = hostos.run(["gcloud", "auth", "print-access-token"], timeout=60)
-    tok = out.strip().splitlines()[-1].strip() if rc == 0 and out.strip() else ""
+    rc, out, _err = hostos.run(["gcloud", "auth", "print-access-token"], timeout=60, split=True)
+    tok = out.strip().splitlines()[0].strip() if rc == 0 and out.strip() else ""    # 只看 stdout：stderr 常有「有更新可用」的提醒
     if tok:
         return tok
     if quiet:
@@ -906,8 +906,8 @@ def send_email(kit, to_list, subject, body):
         rc, out = hostos.run(["gws", "gmail", "+send", "--to", ",".join(to_list),
                               "--subject", subject, "--body", body], timeout=120)
         if rc == 126:
-            die("這封信的主旨或內文含有 Windows 命令列的特殊字元，走 gws 會被改寫。",
-                "把 config/kit.json 的 email.method 改成 smtp（用應用程式密碼寄），或把 & | < > ^ % ! 引號拿掉。")
+            die("Windows 上走 gws 寄信會經過 cmd.exe，內文的換行與 & | < > ^ % 會被截斷或改寫。",
+                "把 config/kit.json 的 email.method 改成 smtp（用 Gmail 應用程式密碼寄）；Windows 上不支援 gws 寄信。")
         if rc != 0:
             die("gws 寄信失敗（回傳 %s）：%s" % (rc, out.strip()[-200:]),
                 "確認 gws 已登入（gws auth login）；或改用 email.method = smtp。" if rc != 127 else hostos.install_hint("gws"))
@@ -933,5 +933,5 @@ def audit(entry, data_root=None):
     os.makedirs(d, exist_ok=True)
     entry = dict(entry)
     entry.setdefault("at", now_iso())
-    with open(os.path.join(d, "audit.jsonl"), "a", encoding="utf-8") as f:
+    with open(os.path.join(d, "audit.jsonl"), "a", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")

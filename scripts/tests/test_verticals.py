@@ -29,7 +29,7 @@ BANNED_LABELS = ["懶惰", "能力差", "不用心", "問題學生"]
 
 def run(script, *args):
     return subprocess.run([sys.executable, os.path.join(SCRIPTS, script), *args],
-                          capture_output=True, text=True, timeout=300)
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
 
 
 def write(path, text):

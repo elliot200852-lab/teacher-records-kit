@@ -86,12 +86,15 @@ def enable_console():
     try:
         import ctypes
         k = ctypes.windll.kernel32
+        k.GetStdHandle.restype = ctypes.c_void_p
+        k.GetConsoleMode.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+        k.SetConsoleMode.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
         k.SetConsoleOutputCP(65001)                          # 主控台改吃 UTF-8，舊 conhost 才不會印成問號
         k.SetConsoleCP(65001)
         for handle_id in (-11, -12):                         # STD_OUTPUT_HANDLE / STD_ERROR_HANDLE
             handle = k.GetStdHandle(handle_id)
             mode = ctypes.c_uint32()
-            if k.GetConsoleMode(handle, ctypes.byref(mode)):
+            if handle and k.GetConsoleMode(handle, ctypes.byref(mode)):
                 k.SetConsoleMode(handle, mode.value | 0x0004)   # ENABLE_VIRTUAL_TERMINAL_PROCESSING
     except Exception:
         pass
@@ -114,23 +117,22 @@ def color_ok():
 
 
 # ── 該怎麼叫 Python ───────────────────────────────────────────────────────
-def _python_works(argv):
-    """真的跑一次才算數：Windows 的 python3／python 可能只是「開 Microsoft Store」的假殼（App Execution Alias）。"""
-    try:
-        r = subprocess.run([*argv, "-c", "import sys;print(sys.version_info[0])"],
-                           capture_output=True, timeout=20)
-        return r.returncode == 0 and r.stdout.strip().endswith(b"3")
-    except Exception:
-        return False
+def _real_python(name):
+    """Windows 的 python／python3 可能只是「開 Microsoft Store」的假殼（App Execution Alias，住在 WindowsApps）。
+    不跑子行程（每支腳本 import 時都會經過這裡，跑子行程太貴），只看它住哪。"""
+    p = shutil.which(name)
+    return bool(p) and "windowsapps" not in p.lower()
 
 
 def python_cmd():
     """文件裡寫的是 `python3 scripts/…`。回傳這台電腦上真的叫得到 Python 3 的那個寫法。"""
     if OS != "win":
         return "python3"
-    for argv in (["py", "-3"], ["python"], ["python3"]):
-        if shutil.which(argv[0]) and _python_works(argv):
-            return " ".join(argv)
+    if shutil.which("py"):                      # python.org 版一定有 py 啟動器；Store 假殼不會有
+        return "py -3"
+    for name in ("python", "python3"):
+        if _real_python(name):
+            return name
     return "python"
 
 
@@ -179,7 +181,7 @@ EXE_EXTS = (".exe", ".cmd", ".bat", ".com") if OS == "win" else ("",)
 def _known_dirs():
     """PATH 以外、各平台常見的安裝位置（剛裝完、還沒重開終端機時 PATH 往往還沒有它們）。"""
     t = tools_dir()
-    dirs = [os.path.join(t, "whisper"), os.path.join(t, "ffmpeg", "bin"), os.path.join(t, "bin")]
+    dirs = [os.path.join(t, "whisper"), os.path.join(t, "ffmpeg"), os.path.join(t, "bin")]   # install_download 會把執行檔那一層攤平到 tools/<sub>/
     if OS == "win":
         pf = _env("ProgramFiles", r"C:\Program Files")
         pf86 = _env("ProgramFiles(x86)", r"C:\Program Files (x86)")
@@ -223,7 +225,7 @@ def exe(name):
     return None
 
 
-_CMD_META = re.compile(r'[&|<>^%!"\r\n]')
+_CMD_META = re.compile(r"[&|<>^%\r\n]")     # 引號本身安全（不能讓它後面接到 & 之類的才危險）；換行會讓 cmd.exe 截斷
 
 
 def decode_output(data):
@@ -268,25 +270,33 @@ class ToolError(Exception):
     pass
 
 
-def run(cmd, timeout=None, capture=True, cwd=None, input_text=None):
-    """跑一個外部指令，回 (returncode, stdout+stderr)。
-    cmd[0] 先經過 exe()；找不到回 (127, "")，逾時回 (124, "")。
-    Windows 上 .cmd／.bat 會再經過 cmd.exe 解析一次，參數裡有 & | < > ^ % ! 引號或換行會被當指令——
+CMD_GUARD_MSG = ("參數含有 cmd.exe 的特殊字元（& | < > ^ %% 或換行），經 %s 轉手會被重新解析或截斷，已拒絕執行。"
+                 "Windows 上寄信請改 email.method=smtp。")
+
+
+def run(cmd, timeout=None, capture=True, cwd=None, input_text=None, split=False):
+    """跑一個外部指令，回 (returncode, stdout+stderr)；split=True 時回 (returncode, stdout, stderr)。
+    cmd[0] 先經過 exe()；找不到回 127，逾時回 124。
+    Windows 上 .cmd／.bat 會再經過 cmd.exe 解析一次，參數裡有 & | < > ^ % 或換行會被當指令或截斷——
     這種組合直接拒跑（回 126），呼叫端要改走不經 .cmd 的路（例如寄信改 smtp）。"""
+    def _r(rc, out="", err=""):
+        return (rc, out, err) if split else (rc, out + err)
     path = exe(cmd[0])
     if not path:
-        return 127, ""
+        return _r(127)
     args = [str(a) for a in cmd[1:]]
     if OS == "win" and path.lower().endswith((".cmd", ".bat")) and any(_CMD_META.search(a) for a in args):
-        return 126, "參數含有 cmd.exe 的特殊字元（& | < > ^ %% ! 引號、換行），經 %s 轉手會被重新解析，已拒絕執行。" % os.path.basename(path)
+        return _r(126, "", CMD_GUARD_MSG % os.path.basename(path))
     try:
         r = subprocess.run([path, *args], capture_output=capture, timeout=timeout, cwd=cwd,
                            input=input_text.encode("utf-8") if input_text is not None else None)
-        return r.returncode, (decode_output(r.stdout) + decode_output(r.stderr)) if capture else ""
+        if not capture:
+            return _r(r.returncode)
+        return _r(r.returncode, decode_output(r.stdout), decode_output(r.stderr))
     except subprocess.TimeoutExpired:
-        return 124, ""
-    except FileNotFoundError:
-        return 127, ""
+        return _r(124)
+    except OSError as e:                      # 找不到、沒權限、不是可執行檔（Windows 的 exec format）都算跑不起來
+        return _r(127, "", str(e))
 
 
 def refresh_path():
@@ -339,7 +349,10 @@ def _win_fixed_drives():
     try:
         import ctypes
         k = ctypes.windll.kernel32
-        k.SetErrorMode(0x0001 | 0x0002)      # SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX：不要跳「沒有磁片」對話框
+        old = ctypes.c_uint32()
+        k.SetThreadErrorMode(0x0001 | 0x0002, ctypes.byref(old))   # SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX：不要跳「沒有磁片」對話框
+        k.GetDriveTypeW.argtypes = [ctypes.c_wchar_p]
+        k.GetDriveTypeW.restype = ctypes.c_uint32
         mask = k.GetLogicalDrives()
         out = []
         for i in range(26):
@@ -348,6 +361,7 @@ def _win_fixed_drives():
                 continue
             if k.GetDriveTypeW("%s:\\" % letter) == 3:                       # DRIVE_FIXED
                 out.append(letter)
+        k.SetThreadErrorMode(old.value, None)
         return out
     except Exception:
         return []

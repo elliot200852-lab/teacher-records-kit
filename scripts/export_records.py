@@ -175,11 +175,11 @@ def write_split(data, base_dir):
             L += lib.render_block(r["date"], lib.time_from_rid(r["date"], r["rid"]),
                                   r["tags"], r["fields"], r["related"], r["body"])
             nr += 1
-        with open(os.path.join(d, fname), "w", encoding="utf-8") as f:
+        with open(os.path.join(d, fname), "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(L) + "\n")
         nf += 1
     if data["roster"]:
-        with open(os.path.join(base_dir, "roster.md"), "w", encoding="utf-8") as f:
+        with open(os.path.join(base_dir, "roster.md"), "w", encoding="utf-8", newline="\n") as f:
             f.write("# 代號↔姓名（含真名，別放進任何共享的地方）\n\n")
             for i, n in sorted(data["roster"].items()):
                 f.write("- %s　%s\n" % (i, n))

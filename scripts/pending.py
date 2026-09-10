@@ -46,7 +46,7 @@ def main():
 
     if a.mark:
         sid, date, status = a.mark
-        with open(handled_path(), "a", encoding="utf-8") as f:
+        with open(handled_path(), "a", encoding="utf-8", newline="\n") as f:
             f.write("%s\t%s\t%s\t%s\n" % (sid, date, status,
                                           datetime.now().isoformat(timespec="seconds")))
         print("已標記 %s %s ＝ %s" % (sid, date, status))

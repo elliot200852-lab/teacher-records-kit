@@ -309,10 +309,11 @@ def main():
             continue
         hostos.refresh_path()
         ok2, detail2 = present(name, spec)
-        if rc == 0 and not ok2 and spec.get("fallback", {}).get(OS):
+        fb_key = hostos.download_key(spec["fallback"][OS]) if spec.get("fallback", {}).get(OS) else None
+        if rc == 0 and not ok2 and fb_key:
             print("  裝完還是找不到，改用備案下載……")
             try:
-                install_download(hostos.download_key(spec["fallback"][OS]))
+                install_download(fb_key)
             except hostos.ToolError as e:
                 print("  %s✗ %s%s" % (lib.RED, e, lib.RESET))
             hostos.refresh_path()

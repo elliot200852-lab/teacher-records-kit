@@ -27,7 +27,7 @@ ANSWERS = os.path.join(PKG, "templates", "answers.example.json")
 
 def run(script, *args, **kw):
     cmd = [sys.executable, os.path.join(SCRIPTS, script), *args]
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=300, **kw)
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300, **kw)
 
 
 def write(path, text):

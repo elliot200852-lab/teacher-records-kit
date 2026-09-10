@@ -52,7 +52,7 @@ def load_state():
 
 def save_state(state):
     os.makedirs(lib.data_dir(), exist_ok=True)
-    with open(os.path.join(lib.data_dir(), STATE_FILE), "w", encoding="utf-8") as f:
+    with open(os.path.join(lib.data_dir(), STATE_FILE), "w", encoding="utf-8", newline="\n") as f:
         json.dump(state, f, ensure_ascii=False, indent=1)
 
 
@@ -493,7 +493,7 @@ def main():
     status = {"at": lib.now_iso(), "dryRun": a.dry_run, "targets": len(tg),
               "counters": counters, "notes": notes}
     if not a.dry_run:
-        with open(lib.rpath(".sync-last-status"), "w", encoding="utf-8") as f:
+        with open(lib.rpath(".sync-last-status"), "w", encoding="utf-8", newline="\n") as f:
             json.dump(status, f, ensure_ascii=False, indent=1)
     if not a.quiet or counters["conflict"] or counters["pii"] or notes:
         print(line)

@@ -46,7 +46,7 @@ def strip_keyring(txt):
 
 
 def gws_json(args, cwd=None, upload=None, body=None, params=None):
-    cmd = [hostos.exe("gws") or "gws", *args]
+    cmd = ["gws", *args]
     if body is not None:
         cmd += ["--json", json.dumps(body, ensure_ascii=False)]
     if upload is not None:
@@ -54,12 +54,10 @@ def gws_json(args, cwd=None, upload=None, body=None, params=None):
     cmd += ["--format", "json"]
     if params:
         cmd += ["--params", json.dumps(params, ensure_ascii=False)]
-    try:
-        r = subprocess.run(cmd, capture_output=True, cwd=cwd)
-    except FileNotFoundError:
+    rc, out, err = hostos.run(cmd, cwd=cwd, timeout=600, split=True)
+    if rc == 127:
         return None, "找不到 gws 指令"
-    out, err = hostos.decode_output(r.stdout), hostos.decode_output(r.stderr)
-    if r.returncode != 0:
+    if rc != 0:
         return None, strip_keyring(err) + strip_keyring(out)
     txt = strip_keyring(out).strip()
     try:
@@ -214,7 +212,7 @@ def main():
             else:
                 lib.ok("已上傳到 Drive：file id %s（md5 對得上）" % info["fileId"])
 
-    with open(os.path.join(data_root, "backups.jsonl"), "a", encoding="utf-8") as f:
+    with open(os.path.join(data_root, "backups.jsonl"), "a", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     keep = int((kit.get("drive") or {}).get("keep_backups") or 12)

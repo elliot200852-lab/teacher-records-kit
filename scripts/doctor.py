@@ -265,6 +265,10 @@ def check_drive(r, kit, skip_network):
         return
     rc, out = hostos.run(["gws", "drive", "files", "get", "--format", "json",
                           "--params", json.dumps({"fileId": fid, "fields": "id,name,trashed"})], timeout=60)
+    if rc == 126:
+        r.add("drive", "Drive 備份資料夾（gws 模式）", False, "Windows 上這個查詢無法經 gws.cmd 送出",
+              "把 config/kit.json 的 drive.mode 改成 desktop（把 zip 複製進 Google 雲端硬碟同步夾）。")
+        return
     info = {}
     if rc == 0:
         txt = "\n".join(l for l in out.splitlines() if not l.startswith("Using keyring"))

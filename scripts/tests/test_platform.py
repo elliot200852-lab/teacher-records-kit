@@ -86,6 +86,10 @@ class DecodeAndRun(unittest.TestCase):
                 rc, out = hostos.run([fake, "--subject", "A & B"])
                 self.assertEqual(rc, 126)
                 self.assertIn("特殊字元", out)
+                rc, out = hostos.run([fake, "--body", "line1\nline2"])
+                self.assertEqual(rc, 126)
+                rc, out, err = hostos.run([fake, "--params", '{"fileId": "x"}'], split=True)
+                self.assertNotEqual(rc, 126, "引號本身不該被擋（gws --params 的 JSON 要過）")
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
@@ -386,7 +390,7 @@ class LineEndings(unittest.TestCase):
                 continue
             with open(os.path.join(SCRIPTS, f), encoding="utf-8") as fh:
                 for i, line in enumerate(fh, 1):
-                    if re.search(r'open\([^()\n]*"[wa]", encoding="utf-8"\)', line):
+                    if "open(" in line and re.search(r'"[wa]",\s*encoding="utf-8"\)', line) and "newline=" not in line:
                         bad.append("%s:%d" % (f, i))
         self.assertEqual(bad, [])
 
