@@ -141,6 +141,21 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 ### 3.4 每頁「這頁需要什麼資料」
 每個分頁頂端一個可收合說明框，內容來自 `config/tabs.json` 的 `help`（安裝時 AI 依老師的回答寫進去），示範模式顯示預設文案。內容分三行：這頁記什麼／新增前你要準備什麼／AI 可以幫你做什麼（例：「把錄音檔放進 inbox/ 跟 AI 說『整理成課程記錄』」）。
 
+
+### 3.5 一鍵匯出 Word／PDF（David 2026-09-10 追加）
+
+每一位學生、每一個業務組、每一門課程，以及「所有學生」都要能一鍵匯出成 Word 與 PDF。
+
+- **網頁端（零相依、離線可用）**：
+  - 學生明細頁「匯出」→ Word／PDF；可選「只匯出目前類型」或「這位學生全部類型」。
+  - 業務組明細頁、課程明細頁同樣「匯出」→ Word／PDF。
+  - 學生分頁一覽頁「匯出所有學生」→ Word／PDF；可選類型與日期範圍（預設全部）；輸出一份文件、每位學生一節（含名冊姓名＋代號，這是老師自己看的）。
+  - **Word**＝瀏覽器直接組出 `.doc`（Word 相容 HTML，`application/msword`）並下載，不載任何外部函式庫；檔名 `<對象>-<類型>-<日期>.doc`。
+  - **PDF**＝開一個乾淨的列印版面（只有標題、記錄、欄位表；有 `@media print` 樣式）並呼叫 `window.print()`，老師在列印對話框選「儲存為 PDF」；手機上同樣可行。
+  - 排版共用同一個 `renderExportHtml(kind, target, opts)`，Word 與 PDF 只差外殼。
+- **腳本端（正式版、給期末或大量用）**：`scripts/export_docs.py --kind students|courses|business --target <id>|all [--stream X] [--from --to] --docx [--pdf]`：`.docx` 用標準庫 `zipfile` 直接寫最小 OOXML（零相依）；`.pdf` 若機器上有 Chrome／Chromium 就 `--headless --print-to-pdf`，沒有就印「請開 HTML 用瀏覽器儲存為 PDF」。輸出到 `exports/`（gitignored）。
+- 匯出內容一律去識別化正文＋名冊姓名（因為是老師自己用），檔案落地在老師機器；文件與 README 要提醒「匯出檔含真名，別放到公開的地方」。
+
 ## 4. 設定檔（單一產生器、三個輸出）
 
 - `config/kit.json`（**JSON，不再自寫 YAML 解析器**——紅隊 #10）：`owner_email`、`id_prefix`、`firebase{project_id,api_key,auth_domain,storage_bucket,messaging_sender_id,app_id}`、`drive{mode:"desktop"|"gws", desktop_dir, backup_folder_id, keep_backups}`、`voice{model,lang}`、`email{...}`。v2 的 `config.yaml` 由 `setup.py --upgrade` 一次轉成 JSON。
@@ -181,7 +196,8 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 | `transcribe.py` | 錄音 → 逐字稿 | 單檔或 `--inbox`（掃 `inbox/*.m4a|mp3|wav|mp4`）；ffmpeg 轉 16k wav → `whisper-cli -m ~/.cache/whisper-cpp/ggml-large-v3-turbo.bin -l zh`（模型缺就從 Hugging Face 下載並印進度）；輸出 `inbox/transcripts/<檔名>.md`，處理完原檔移到 `inbox/done/`；結尾印「接下來請 AI 讀逐字稿、改寫成○○記錄、再用 append_record.py 寫入」；逐字稿永不出本機。**AI 改寫不在腳本裡**（見 AGENTS.md §錄音） |
 | `backup.py` | 本機＋Drive 備份 | zip `data/`＋`export.json`（Firestore 全量）→ `backups/`；**兩種 Drive 模式**（紅隊 #4）：`desktop`（預設）＝把 zip 複製進「Google 雲端硬碟」桌面程式的同步夾 `drive.desktop_dir`（零 OAuth、Windows 也行）；`gws`（進階）＝`gws drive files create --json '{"name":..,"parents":[id]}' --upload <cwd 相對路徑>`（先 `gws drive files get --params '{"fileId":..,"fields":"id,name,trashed"}'` 驗存在且 `trashed=false`，找不到就停、**不自建夾**；上傳後比 md5Checksum）。兩種都寫 `data/backups.jsonl` 與 Firestore `meta/status.lastBackupAt`；保留最近 N 份 |
 | `ledger.py` | 台帳 | 見 §2.3（`--rebuild`、`--check`；`--related` 延後） |
-| `export_records.py` | 匯出取材 | 通用化四種；`--by-tag`、`--related`（把關聯記錄一起帶出） |
+| `export_records.py` | 匯出取材（Markdown／JSON） | 通用化四種；`--by-tag`、`--related`（把關聯記錄一起帶出） |
+| `export_docs.py` | 匯出 Word／PDF | 見 §3.5；`.docx` 標準庫 zipfile、`.pdf` 走 headless Chrome（沒有就給 HTML） |
 | `schedule.sh` | 排程（選用） | 產生 launchd plist（每日 sync、每週 backup）到 `~/Library/LaunchAgents/`，或印 cron 行；`--uninstall`。**失敗要看得見**（紅隊 #11）：網頁頂端讀 `meta/status`，上次同步／備份超過 7 天就顯示紅字 |
 | `parent_email.py`、`pending.py`、`monthly_reminder.py` | 選用 | 沿用 v2 |
 | `tests/` | 零網路測試 | 區塊解析、rid、欄位列、關聯、ledger rebuild、build_config 輸出、demo store 種子 |

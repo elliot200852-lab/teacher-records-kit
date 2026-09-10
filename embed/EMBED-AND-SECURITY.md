@@ -18,7 +18,10 @@
 1. **先完成第 1、2 步**（Firebase 專案 + 部署 `firestore.rules`，見 `AGENTS.md` / `INSTALL.md`）。
 2. 把這三個檔放進你網站可服務的位置（**三個都要**，缺一個網頁會停在「還沒有設定檔」）：
    - `site/dashboard.html` → 例如你網站的 `/records/dashboard.html`
-   - `site/js/kit-config.js`（`scripts/build_config.py` 產生的那份，分頁與向度都在裡面）
+   - `site/js/kit-config.js`（`scripts/build_config.py` 產生的那份：三個分頁的設定、
+     學生記錄類型（`students.streams`）、業務組、兩份可選清單、以及版本字串都在裡面。
+     改過 `config/tabs.json`（例如加了一種記錄類型）就要重跑 `build_config.py` 並重新放上去，
+     否則網頁上不會出現那一種）
    - `site/js/firebase-config.js`（同樣由 `build_config.py` 產生）
    後兩個都放在 dashboard.html 隔壁的 `js/` 底下（預設就是 `./js/kit-config.js`、`./js/firebase-config.js`）。
 
@@ -47,7 +50,8 @@
 
 ## 驗證
 
-- 用**擁有者帳號**在你網站登入 → 出現「教學記錄」入口 → 點進去看得到三個分頁的資料。
+- 用**擁有者帳號**在你網站登入 → 出現「教學記錄」入口 → 點進去看得到三個分頁的資料，
+  學生分頁頂端出現你勾的那幾種記錄類型。
 - 用**別的帳號 / 無痕視窗** → 看不到入口；就算直接開 `dashboard.html` → 顯示「無權檢視」、讀不到任何資料。
 - 打開瀏覽器主控台（Console）看有沒有 404：少了 `js/kit-config.js` 會停在「還沒有設定檔」，
   少了 `js/firebase-config.js` 則會停在「載入 Firebase 失敗」。
@@ -57,4 +61,7 @@
 ## 進一步鎖緊（選用）
 
 - 在 Firebase Console → Authentication → Settings，限制允許登入的網域。
-- 在 Firestore 規則裡，`owner_email` 只留你一個；要多人協作再逐一加（但這套預設是「單一擁有者」）。
+- 在 Firestore 規則裡，`owner_email` 只留你一個；要多人協作再逐一加（但這套設計是「單一擁有者」）。
+- 規則對學生與班級的紀錄多擋一件事：新增時**必須帶 `stream`（記錄類型）且不得是空字串**，
+  更新時不准改它。所以規則沒重新部署的話，新版網頁在學生分頁按「新增」會被擋下來
+  ——畫面會直接告訴你規則是舊的。
