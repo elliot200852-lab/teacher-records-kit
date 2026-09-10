@@ -295,7 +295,9 @@ def linux_strip(text):
 
 
 def linux_install(sync_t, backup_day, backup_t):
-    if not hostos.exe("crontab"):
+    if not hostos.exe("crontab") and DRY:
+        say_dry("這台電腦目前找不到 crontab；真跑時會要求先裝 cron")
+    elif not hostos.exe("crontab"):
         print("  %s✗ 找不到 crontab%s" % (lib.RED, lib.RESET))
         print("  → 裝 cron（sudo apt-get install -y cron），或改用 --print-cron 自己排到別的排程器。")
         return 1
