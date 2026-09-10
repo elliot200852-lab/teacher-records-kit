@@ -170,6 +170,9 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 - 範本：`config/kit.example.json`、`config/tabs.example.json`、`setup/progress.example.json`。
 - **安裝是確定性的**（紅隊 #3）：`scripts/setup.py` 互動問答（可用 `--answers file.json` 免互動）負責產檔、換規則、自檢；AI 代理只負責解釋題目、幫老師找答案、讀錯誤訊息。規則檔**永遠由腳本產生**，AGENTS.md 禁止 AI 手寫 `firestore.rules`。
 
+### 4.1 「全部勾選、沒有預設」原則（David 2026-09-10）
+安裝精靈對三個分頁都問「要不要」，對學生記錄類型與業務組都列清單讓老師勾，**一個都不預設勾**；`config/tabs.example.json` 只當形狀範本，示範模式的種子資料另外在網頁內。
+
 ## 5. 網站 `site/dashboard.html`
 
 - 單檔、無框架、無建置步驟；Firebase 用 **動態 `import()`** 只在非示範模式載入；設定以傳統 `<script src="js/kit-config.js">` 載入（`window.KIT`）。
@@ -187,7 +190,7 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 | 腳本 | 用途 | 關鍵行為 |
 |---|---|---|
 | `lib.py` | 共用 | 沿用 v2；新增 `parse_block_fields()`（欄位列＋關聯列）、`targets(cfg, tabs)` 產四種目標清單 |
-| `setup.py` | **確定性安裝精靈** | 互動問答（或 `--answers`）→ 寫 `config/kit.json`、`config/tabs.json` → 呼叫 build_config → 跑 doctor；`--upgrade` 把 v2 的 config.yaml 轉過來；`--resume` 讀 `setup/progress.json` 續做 |
+| `setup.py` | **確定性安裝精靈** | 互動問答（或 `--answers`）→ 寫 `config/kit.json`、`config/tabs.json` → 呼叫 build_config → 跑 doctor；`--upgrade` 把 v2 的 config.yaml 轉過來（零預設的唯一例外：自動勾 `homeroom`，否則舊 observations.md 看不見）；`--resume` 讀 `setup/progress.json` 續做；**不部署規則、不標第 4 步**，AI 在 `firebase deploy` 成功後跑 `--mark-step 4 --note ...` |
 | `build_config.py` | 產生三個 gitignored 輸出 | 見 §4；`--check` 只驗不寫 |
 | `doctor.py` | 健檢 | 逐項 ✓／✗：工具在不在、config 齊不齊、gcloud／firebase／gws 登入了沒、Drive 夾 ID 存在且 `trashed=false`、whisper 模型在不在；每個 ✗ 附「怎麼修」與連結；`--json` 給 AI 讀 |
 | `install_tools.sh` | 裝依賴 | macOS：Homebrew → `node`、`firebase-tools`、`google-cloud-sdk`、`gws`、`whisper-cpp`、`ffmpeg`；每步先印「要裝什麼、為什麼」；Windows／Linux 印說明不硬裝 |
@@ -196,7 +199,7 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 | `transcribe.py` | 錄音 → 逐字稿 | 單檔或 `--inbox`（掃 `inbox/*.m4a|mp3|wav|mp4`）；ffmpeg 轉 16k wav → `whisper-cli -m ~/.cache/whisper-cpp/ggml-large-v3-turbo.bin -l zh`（模型缺就從 Hugging Face 下載並印進度）；輸出 `inbox/transcripts/<檔名>.md`，處理完原檔移到 `inbox/done/`；結尾印「接下來請 AI 讀逐字稿、改寫成○○記錄、再用 append_record.py 寫入」；逐字稿永不出本機。**AI 改寫不在腳本裡**（見 AGENTS.md §錄音） |
 | `backup.py` | 本機＋Drive 備份 | zip `data/`＋`export.json`（Firestore 全量）→ `backups/`；**兩種 Drive 模式**（紅隊 #4）：`desktop`（預設）＝把 zip 複製進「Google 雲端硬碟」桌面程式的同步夾 `drive.desktop_dir`（零 OAuth、Windows 也行）；`gws`（進階）＝`gws drive files create --json '{"name":..,"parents":[id]}' --upload <cwd 相對路徑>`（先 `gws drive files get --params '{"fileId":..,"fields":"id,name,trashed"}'` 驗存在且 `trashed=false`，找不到就停、**不自建夾**；上傳後比 md5Checksum）。兩種都寫 `data/backups.jsonl` 與 Firestore `meta/status.lastBackupAt`；保留最近 N 份 |
 | `ledger.py` | 台帳 | 見 §2.3（`--rebuild`、`--check`；`--related` 延後） |
-| `export_records.py` | 匯出取材（Markdown／JSON） | 通用化四種；`--by-tag`、`--related`（把關聯記錄一起帶出） |
+| `export_records.py` | 匯出取材（Markdown／JSON） | 通用化四種；`--by-tag`、`--related`（把關聯記錄一起帶出）、`--stream`（只匯某一種學生記錄類型） |
 | `export_docs.py` | 匯出 Word／PDF | 見 §3.5；`.docx` 標準庫 zipfile、`.pdf` 走 headless Chrome（沒有就給 HTML） |
 | `schedule.sh` | 排程（選用） | 產生 launchd plist（每日 sync、每週 backup）到 `~/Library/LaunchAgents/`，或印 cron 行；`--uninstall`。**失敗要看得見**（紅隊 #11）：網頁頂端讀 `meta/status`，上次同步／備份超過 7 天就顯示紅字 |
 | `parent_email.py`、`pending.py`、`monthly_reminder.py` | 選用 | 沿用 v2 |
@@ -240,9 +243,6 @@ match /meta/{doc} { allow read, write: if isOwner(); }
 
 多租戶／代管、家長端、網頁錄音、行動 App、自動評量生成、David 帳號的任何介入。
 
-
-### 4.1 「全部勾選、沒有預設」原則（David 2026-09-10）
-安裝精靈對三個分頁都問「要不要」，對學生記錄類型與業務組都列清單讓老師勾，**一個都不預設勾**；`config/tabs.example.json` 只當形狀範本，示範模式的種子資料另外在網頁內。
 
 ## 12. 紅隊裁決（2026-09-10，Stage 2）
 

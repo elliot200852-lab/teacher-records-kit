@@ -153,6 +153,39 @@
   .lib-item label > span { flex: 1; min-width: 0; }
   .lib-item .lib-desc { color: #8a8a8a; font-size: .78rem; display: block; margin-top: .15rem; }
   .toolbar { margin-top: 1rem; display: flex; gap: .5rem; flex-wrap: wrap; }
+
+  /* ── 匯出（Word／PDF）：下拉選單、所有學生的小面板、列印覆蓋層 ── */
+  .export-host { position: relative; display: inline-block; }
+  .exp-btn { background: #5a6b8c; }
+  .exp-menu { position: absolute; top: 100%; right: 0; z-index: 30; margin-top: .3rem; min-width: 12rem; max-width: min(19rem, calc(100vw - 2rem));
+              background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.12); padding: .35rem; }
+  .exp-menu button { display: block; width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+                     font: inherit; font-size: .85rem; color: #333; padding: .45rem .6rem; border-radius: 5px; }
+  .exp-menu button:hover { background: #eef4fb; color: #1f5c96; }
+  .exp-menu .exp-sep { border-top: 1px solid #eee; margin: .25rem 0; }
+  .exp-menu .exp-note { font-size: .74rem; color: #999; padding: .2rem .6rem .35rem; line-height: 1.5; }
+  .exp-panel { max-width: 100%; }
+  .exp-panel .exp-streams { display: flex; flex-wrap: wrap; gap: .3rem .8rem; margin-bottom: .5rem; }
+  .exp-panel .exp-streams label, .exp-panel .exp-check { display: inline-flex; align-items: center; gap: .35rem; font-size: .86rem; color: #444; }
+  .exp-panel .exp-range { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .7rem; margin-bottom: .5rem; font-size: .86rem; color: #444; }
+  .exp-panel .exp-range label { display: inline-flex; align-items: center; gap: .3rem; }
+  .exp-panel input[type=date] { width: auto; max-width: 100%; margin-bottom: 0; }
+  .exp-panel input[type=checkbox] { width: auto; margin: 0; flex: none; }
+  .exp-panel .exp-check { margin-bottom: .6rem; }
+
+  #export-print-overlay { position: fixed; inset: 0; z-index: 9999; background: #fff; overflow: auto; padding: 1rem 1.2rem 3rem; }
+  #export-print-overlay .ex-ov-bar { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap;
+                                     background: #fff8dd; border: 1px solid #e8d391; border-radius: 8px; padding: .6rem .8rem;
+                                     margin-bottom: 1rem; font-size: .86rem; color: #7a5b1e; line-height: 1.6; }
+  #export-print-overlay .ex-ov-bar button { padding: .35rem .9rem; border: 1px solid #d9bf7f; background: #fff; color: #7a5b1e;
+                                            border-radius: 4px; cursor: pointer; font: inherit; font-size: .82rem; }
+  @media print {
+    body.exporting > .shell { display: none !important; }
+    body.exporting #export-print-overlay { position: static; padding: 0; }
+    #export-print-overlay .ex-ov-bar { display: none !important; }
+    .trk-export .ex-rec, .trk-export .ex-section { page-break-inside: avoid; break-inside: avoid; }
+    .trk-export .ex-sec-title { page-break-after: avoid; break-after: avoid; }
+  }
   .foot { margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--line); font-size: .78rem; color: #aaa; line-height: 1.8; }
 
   @media (max-width: 480px) {
@@ -230,6 +263,26 @@
             <div style="display:flex;gap:.5rem;flex-wrap:wrap">
               <button class="add-btn" id="add-member-btn" type="button" hidden>＋ 列入學生</button>
               <button class="add-btn" id="open-class-obs" style="background:#5a6b8c" type="button">📋 班級整體觀察</button>
+              <button class="add-btn exp-btn" id="export-all-btn" type="button">匯出所有學生 ▾</button>
+            </div>
+          </div>
+          <!-- 匯出所有學生：一份文件、每位學生一節（含姓名與代號），沒有記錄的也列出來 -->
+          <div id="export-all-panel" class="new-form exp-panel" hidden>
+            <p class="nc-hint">一份文件、每位學生一節（姓名＋代號），沒有記錄的學生也會列一行「（無記錄）」。
+              Word 直接下載；PDF 會開一個列印版面，在列印視窗裡選「儲存為 PDF」。<br>
+              匯出檔含名冊姓名（這是給你自己用的），別放到公開的地方。</p>
+            <div class="exp-streams" id="exp-streams"></div>
+            <div class="exp-range">
+              <label><span>日期從</span><input id="exp-from" type="date"></label>
+              <label><span>到</span><input id="exp-to" type="date"></label>
+              <span class="nc-hint" style="margin:0">兩格都留空＝全部日期</span>
+            </div>
+            <label class="exp-check"><input id="exp-class" type="checkbox"> 含班級整體觀察（放在文件最前面）</label>
+            <div class="editbtns">
+              <button id="exp-word" class="save" type="button">匯出 Word</button>
+              <button id="exp-pdf" class="save exp-btn" type="button">匯出 PDF</button>
+              <button id="exp-cancel" class="cancel" type="button">取消</button>
+              <span id="exp-msg" class="msg"></span>
             </div>
           </div>
           <div id="member-form" class="new-form" hidden>
@@ -279,6 +332,9 @@
         <button class="back-link" id="back" type="button">← 回上一層</button>
         <h2 id="detail-name"></h2>
         <button class="add-btn" id="add-record" type="button">＋ 新增一則記錄</button>
+        <!-- 匯出 ▾（Word／PDF）：學生、班級整體觀察、課程、業務明細共用同一顆，
+             選單內容由 renderExportUI() 依當前明細的種類生出來。 -->
+        <span class="export-host" id="export-host" hidden></span>
       </div>
       <div id="detail-streams" class="stream-mini" hidden></div>
       <div id="add-form" class="add-form" hidden>
@@ -963,6 +1019,7 @@ async function loadStudents(force) {
   currentStreamId = st.id;
   renderStreamBar();
   closeMemberForm();
+  closeExportAllPanel();
   if (studentsByStream[st.id] && !force) { students = studentsByStream[st.id]; renderStudents(); return; }
   gridEl.innerHTML = '<div class="empty-state">載入中…</div>';
   try {
@@ -1518,6 +1575,26 @@ async function suggestRelated() {
     addSuggestion(ref, `${label}${rid ? ' · 最近一則 ' + rid : '（還沒有記錄）'}`);
   }
 }
+// 打完關聯卻沒點建議就按「新增」：打的是完整的 kind/target/rid 就直接收下（不必逼他多點一下），
+// 不是的話提示一次——但不擋第二次，免得他被卡在這裡出不去（他的字比那條關聯重要）。
+let relNagged = false;
+function absorbTypedRelated() {
+  const raw = (relInput.value || '').trim();
+  if (!raw) { relNagged = false; return true; }
+  if (/^(students|class|courses|business)\/[^/]+\/[^/]+$/.test(raw)) {
+    if (pendingRelated.indexOf(raw) === -1) pendingRelated.push(raw);
+    relInput.value = ''; relSugEl.innerHTML = ''; renderRelChips();
+    relNagged = false;
+    return true;
+  }
+  if (!relNagged) {
+    relNagged = true;
+    addMsg.textContent = '關聯還沒加入，點一下上面的建議（或再按一次「新增」就直接存，不加這條關聯）';
+    return false;
+  }
+  relNagged = false;
+  return true;
+}
 function addSuggestion(ref, label) {
   const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
   b.onclick = () => {
@@ -1532,6 +1609,7 @@ function closeAddForm() {
   addForm.hidden = true; addBtn.hidden = false; addMsg.textContent = '';
   pendingRid = pendingRidDate = null;   // 取消／關閉＝這一則不寫了，配過的 id 作廢
   pendingRelated = []; renderRelChips(); relSugEl.innerHTML = ''; relInput.value = '';
+  relNagged = false;
 }
 addBtn.onclick = () => {
   addDate.value = todayStr(); addTags.value = ''; addMsg.textContent = '';
@@ -1549,6 +1627,7 @@ $('add-save').onclick = async (e) => {
   const tags = normalizeTags(addTags.value);
   const fields = readFieldForm();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { addMsg.textContent = '請選日期'; return; }
+  if (!absorbTypedRelated()) return;
   const de = deidentify(addBody.value.trim());
   if (!de.text && !Object.keys(fields).length) { addMsg.textContent = '內容不能空白'; return; }
   btn.disabled = true; addMsg.textContent = '新增中…';
@@ -1710,6 +1789,7 @@ async function openRecords(ctx) {
   $('back').textContent = ctx.backLabel || '← 回上一層';
   addBody.placeholder = ctx.placeholder || '記錄內容（客觀描述具體事件；請用代號、勿寫真名）…';
   renderDetailStreams(ctx);
+  renderExportUI(ctx);
   closeAddForm(); existingRids.clear();
   // 學生／班級記錄一定要屬於某一種記錄類型；一種都還沒選就先不讓新增
   if ((ctx.kind === 'students' || ctx.kind === 'class') && !ctx.stream) addBtn.hidden = true;
@@ -1765,6 +1845,362 @@ function renderDetailStreams(ctx) {
   });
   box.hidden = false;
 }
+
+// ══ 一鍵匯出 Word／PDF ════════════════════════════════════════════════
+// 排版只有一份（renderExportHtml），Word 與 PDF 只差外殼：
+//   Word ＝ Word 相容 HTML（xmlns:o／xmlns:w）包成 application/msword 的 Blob 直接下載成 .doc
+//   PDF  ＝ 開一個乾淨的列印版面（@media print）再 window.print()，老師在對話框選「儲存為 PDF」
+// 零外部函式庫（離線、file:// 也跑得起來）。
+// 內容一律是「去識別化正文＋名冊姓名」——這是老師自己要用的檔（期末寫評量、交個案報告、留存），
+// 所以文件開頭固定提醒：別放到公開的地方。
+const EXPORT_KIND_LABEL = { students: '學生記錄', class: '班級整體觀察', courses: '課程記錄', business: '業務記錄' };
+const EXPORT_WARN = '這份文件含名冊姓名，請只留在自己的電腦或自己的雲端硬碟，不要放到公開的地方。';
+const EXPORT_CSS =
+  '.trk-export{font-family:"Noto Sans TC","微軟正黑體","PingFang TC","Microsoft JhengHei",sans-serif;color:#111;font-size:12pt;line-height:1.7}' +
+  '.trk-export .ex-title{font-size:18pt;font-weight:700;margin:0 0 .3em}' +
+  '.trk-export .ex-meta{font-size:9.5pt;color:#555;margin:0 0 .2em;line-height:1.6}' +
+  '.trk-export .ex-warn{font-size:9pt;color:#8a5a3a;margin:.2em 0 1.2em}' +
+  '.trk-export .ex-section{margin:0 0 1.1em}' +
+  '.trk-export .ex-sec-title{font-size:14pt;font-weight:700;margin:1.1em 0 .2em;border-bottom:1px solid #999;padding-bottom:.15em}' +
+  '.trk-export .ex-sec-note{font-size:9.5pt;color:#666;margin:.1em 0 .5em}' +
+  '.trk-export .ex-empty{color:#666;margin:.3em 0 .9em}' +
+  '.trk-export .ex-rec{margin:0 0 .8em;padding:0 0 .55em;border-bottom:1px dotted #ccc}' +
+  '.trk-export .ex-rec-head{margin:0 0 .25em;font-size:10.5pt;color:#333}' +
+  '.trk-export .ex-date{font-weight:700}' +
+  '.trk-export .ex-stream{margin-left:.6em;font-size:9.5pt;color:#5b4b8a}' +
+  '.trk-export .ex-tag{margin-left:.5em;font-size:9.5pt;color:#2F7AC4}' +
+  '.trk-export .ex-fields{border-collapse:collapse;margin:.2em 0 .4em;font-size:10.5pt}' +
+  '.trk-export .ex-fields th{text-align:left;color:#555;font-weight:600;padding:.1em 1.2em .1em 0;vertical-align:top;white-space:nowrap}' +
+  '.trk-export .ex-fields td{padding:.1em 0;color:#222}' +
+  '.trk-export .ex-rel{font-size:9.5pt;color:#666;margin:.2em 0}' +
+  '.trk-export .ex-body{margin:.2em 0 0}';
+const EXPORT_PRINT_CSS =
+  '@page{size:A4;margin:1.8cm}' +
+  'body{margin:0;padding:1.6cm 1.4cm;background:#fff}' +
+  '.ex-hint{font-family:system-ui,"Noto Sans TC",sans-serif;font-size:10pt;color:#7a5b1e;background:#fff8dd;' +
+  'border:1px solid #e8d391;border-radius:8px;padding:.6em .8em;margin:0 0 1.2em;line-height:1.7}' +
+  '.ex-hint button{font:inherit;font-size:9.5pt;padding:.3em .8em;border:1px solid #d9bf7f;background:#fff;color:#7a5b1e;border-radius:4px;cursor:pointer}' +
+  '@media print{.ex-hint{display:none}body{padding:0}' +
+  '.trk-export .ex-rec,.trk-export .ex-section{page-break-inside:avoid;break-inside:avoid}' +
+  '.trk-export .ex-sec-title{page-break-after:avoid;break-after:avoid}}';
+
+function exportStamp() { const d = new Date(); return ymd(d) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+function safeFileName(s) {
+  return String(s == null ? '' : s).replace(/[\/\\:*?"<>|]/g, '-').replace(/[\x00-\x1f]+/g, ' ')
+    .replace(/\s+/g, ' ').trim().slice(0, 120) || '匯出';
+}
+// 名冊姓名＋代號。includeName === false 時只留代號（要拿去給別人看的時候用）。
+function studentLabel(id, includeName) {
+  const n = nameOf(id);
+  return (includeName !== false && n && n !== id) ? `${n}（${id}）` : String(id);
+}
+function nl2br(s) { return esc(s || '').replace(/\r?\n/g, '<br>'); }
+// opts.streams：類型 id 陣列，或 'all'／不給＝全部類型（不過濾）
+function exportStreamIds(opts) {
+  const s = opts && opts.streams;
+  if (!s || s === 'all') return null;
+  const arr = [].concat(s).filter(Boolean);
+  return arr.length ? arr : null;
+}
+async function exportRecordsOf(kind, target, ids, from, to) {
+  let list = [];
+  try { list = await store.listRecords(kind, target); } catch (err) { console.error(err); }
+  return list.filter(r => {
+    if ((kind === 'students' || kind === 'class') && ids && ids.indexOf(recStream(r)) === -1) return false;
+    const d = r.date || '';
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  }).sort((a, b) => String(a.rid || '').localeCompare(String(b.rid || '')));   // 由舊到新，讀起來是一條時間線
+}
+function exportFieldsTable(fields) {
+  const keys = Object.keys(fields || {}).filter(k => fields[k] !== '' && fields[k] != null);
+  if (!keys.length) return '';
+  return '<table class="ex-fields">' + keys.map(k =>
+    `<tr><th>${esc(k)}</th><td>${esc(fields[k])}</td></tr>`).join('') + '</table>';
+}
+function exportRecordHtml(r, showStream) {
+  const head = [`<span class="ex-date">${esc((r.date || '') + ridTimeLabel(r.rid, r.date))}</span>`];
+  if (showStream) head.push(`<span class="ex-stream">${esc(streamLabel(recStream(r)))}</span>`);
+  (r.tags || []).forEach(t => head.push(`<span class="ex-tag">${esc(t)}</span>`));
+  const rel = (r.related || []).length
+    ? `<p class="ex-rel">關聯：${(r.related || []).map(x => esc(relLabel(x))).join('、')}</p>` : '';
+  return `<div class="ex-rec">
+      <p class="ex-rec-head">${head.join('')}</p>
+      ${exportFieldsTable(r.fields)}
+      ${rel}
+      <div class="ex-body">${nl2br(r.body || '')}</div>
+    </div>`;
+}
+function exportSectionHtml(sec, showStream) {
+  const body = sec.records.length
+    ? sec.records.map(r => exportRecordHtml(r, showStream)).join('')
+    : '<p class="ex-empty">（無記錄）</p>';
+  return `<section class="ex-section">
+      <h2 class="ex-sec-title">${esc(sec.heading)}</h2>
+      ${sec.note ? `<p class="ex-sec-note">${esc(sec.note)}</p>` : ''}
+      ${body}
+    </section>`;
+}
+
+// 匯出的正本：kind ∈ students|class|courses|business；students 的 target 可以是 'all'。
+// 回傳 { html, title, name（檔名不含副檔名）, total }
+async function buildExport(kind, target, opts) {
+  opts = opts || {};
+  const ids = exportStreamIds(opts);
+  const from = opts.from || '', to = opts.to || '';
+  const includeName = opts.includeName !== false;
+  const kindLabel = EXPORT_KIND_LABEL[kind] || kind;
+  const sections = [];
+  let objectLabel = String(target || ''), streamText = '', showStream = false;
+
+  if (kind === 'students') {
+    showStream = !ids || ids.length > 1;
+    streamText = ids ? ids.map(streamLabel).join('、') : '全部類型';
+    const roster = rosterStudents.length ? rosterStudents : students;
+    const list = (target === 'all')
+      ? roster.map(s => s.id).slice().sort((a, b) => String(a).localeCompare(String(b)))
+      : [target];
+    objectLabel = (target === 'all') ? `所有學生（${list.length} 位）` : studentLabel(target, includeName);
+    if (target === 'all' && opts.includeClass) {
+      sections.push({ heading: '班級整體觀察', note: '', records: await exportRecordsOf('class', 'main', ids, from, to) });
+    }
+    for (const id of list) {
+      sections.push({ heading: studentLabel(id, includeName), note: '', records: await exportRecordsOf('students', id, ids, from, to) });
+    }
+  } else if (kind === 'class') {
+    showStream = !ids || ids.length > 1;
+    streamText = ids ? ids.map(streamLabel).join('、') : '全部類型';
+    objectLabel = '班級整體觀察';
+    sections.push({ heading: '班級整體觀察', note: '', records: await exportRecordsOf('class', 'main', ids, from, to) });
+  } else if (kind === 'courses') {
+    const c = courses.find(x => x.id === target) || { id: target, title: target };
+    objectLabel = c.title || c.id;
+    const note = [c.season, c.weeks, c.teacherName].filter(Boolean).join('・');
+    sections.push({ heading: objectLabel, note, records: await exportRecordsOf('courses', target, null, from, to) });
+  } else if (kind === 'business') {
+    const g = groups.find(x => x.id === target) || { id: target, label: target };
+    objectLabel = g.label || g.id;
+    sections.push({ heading: objectLabel, note: g.desc || '', records: await exportRecordsOf('business', target, null, from, to) });
+  }
+
+  const total = sections.reduce((n, s) => n + s.records.length, 0);
+  const meta = ['對象：' + objectLabel];
+  if (kind === 'students' || kind === 'class') meta.push('記錄類型：' + streamText);
+  meta.push('日期範圍：' + ((from || to) ? `${from || '最早'} ～ ${to || '最新'}` : '全部'));
+  meta.push('共 ' + total + ' 則');
+  meta.push('匯出時間：' + exportStamp());
+  meta.push('版本：' + (KIT_VERSION || '未知'));
+
+  // 班級整體觀察的種類名與對象名是同一個詞，別讓標題變成「班級整體觀察：班級整體觀察」
+  const title = (kind === 'class') ? kindLabel : `${kindLabel}：${objectLabel}`;
+  const html = `<div class="trk-export">
+    <h1 class="ex-title">${esc(title)}</h1>
+    <p class="ex-meta">${meta.map(esc).join('　｜　')}</p>
+    <p class="ex-warn">${esc(EXPORT_WARN)}</p>
+    ${sections.map(s => exportSectionHtml(s, showStream)).join('')}
+  </div>`;
+
+  const namePart = (kind === 'students' || kind === 'class')
+    ? (streamText || '全部類型') : kindLabel;
+  const name = safeFileName(`${objectLabel}-${namePart}-${todayStr()}`);
+  return { html, title, name, total };
+}
+// 規格 §3.5 的共用排版介面：回傳一段乾淨 HTML（Word 與 PDF 都吃這一段）
+async function renderExportHtml(kind, target, opts) { return (await buildExport(kind, target, opts)).html; }
+
+function exportWordShell(title, inner) {
+  return '<html xmlns:o="urn:schemas-microsoft-com:office:office" ' +
+    'xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
+    '<head><meta charset="utf-8"><title>' + esc(title) + '</title>' +
+    '<style>@page{size:A4;margin:2cm}body{font-family:"Noto Sans TC","微軟正黑體","PingFang TC",sans-serif}' +
+    EXPORT_CSS + '</style></head><body>' + inner + '</body></html>';
+}
+function exportPrintShell(title, inner) {
+  return '<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<title>' + esc(title) + '</title><style>' + EXPORT_CSS + EXPORT_PRINT_CSS + '</style></head><body>' +
+    '<p class="ex-hint">要存成 PDF：在列印視窗把「目的地／印表機」選成<strong>「儲存為 PDF」</strong>' +
+    '（手機是「列印」→ 左下角分享 →「儲存到檔案」）。沒有自動跳出列印視窗的話按這裡：' +
+    '<button type="button" onclick="window.print()">開啟列印視窗</button></p>' + inner + '</body></html>';
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.rel = 'noopener'; a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  // 立刻 revoke 會讓部分瀏覽器來不及開始下載；留幾秒再收。
+  setTimeout(() => { try { a.remove(); } catch (_) {} try { URL.revokeObjectURL(url); } catch (_) {} }, 5000);
+}
+
+// 被擋掉 window.open 時的備援：同一頁蓋一層乾淨版面，列印時只印這一層。
+function printOverlay(title, inner) {
+  const old = $('export-print-overlay');
+  if (old) old.remove();
+  const box = document.createElement('div');
+  box.id = 'export-print-overlay';
+  box.innerHTML =
+    '<div class="ex-ov-bar"><span>瀏覽器擋掉了新視窗，所以直接在這一頁排好了。' +
+    '按「開啟列印視窗」後，在列印對話框把印表機選成「儲存為 PDF」。</span>' +
+    '<button type="button" class="ex-ov-print">開啟列印視窗</button>' +
+    '<button type="button" class="ex-ov-close">關閉</button></div>' +
+    '<div class="ex-ov-body">' + inner + '</div>';
+  document.body.appendChild(box);
+  document.body.classList.add('exporting');
+  const close = () => { box.remove(); document.body.classList.remove('exporting'); };
+  box.querySelector('.ex-ov-close').onclick = close;
+  box.querySelector('.ex-ov-print').onclick = () => { try { window.print(); } catch (_) {} };
+  setTimeout(() => { try { window.print(); } catch (_) {} }, 300);
+}
+
+// 開列印視窗：手機 Safari 也吃這一套（window.open 之後 document.write）。
+function openPrintWindow(title, inner) {
+  const html = exportPrintShell(title, inner);
+  let w = null;
+  try { w = window.open('', '_blank'); } catch (_) { w = null; }
+  if (!w || !w.document) { printOverlay(title, inner); return false; }
+  try {
+    const doc = w.document;
+    if (typeof doc.open === 'function') doc.open();
+    doc.write(html);
+    if (typeof doc.close === 'function') doc.close();
+  } catch (err) {
+    console.error(err);
+    printOverlay(title, inner);
+    return false;
+  }
+  let fired = false;
+  const fire = () => {
+    if (fired) return;
+    fired = true;
+    try { if (typeof w.focus === 'function') w.focus(); } catch (_) {}
+    try { if (typeof w.print === 'function') w.print(); } catch (_) {}
+  };
+  try { w.onload = fire; } catch (_) {}
+  setTimeout(fire, 350);
+  return true;
+}
+
+// 兩個對外動作。msg 是可選的訊息列（沒有就只在主控台留紀錄）。
+async function exportWord(kind, target, opts, msg) {
+  if (msg) msg.textContent = '產生 Word 中…';
+  const out = await buildExport(kind, target, opts);
+  downloadBlob(new Blob(['\ufeff', exportWordShell(out.title, out.html)], { type: 'application/msword' }), out.name + '.doc');
+  if (msg) msg.textContent = `已下載 ${out.name}.doc（共 ${out.total} 則）`;
+  return out;
+}
+async function exportPdf(kind, target, opts, msg) {
+  if (msg) msg.textContent = '產生列印版面中…';
+  const out = await buildExport(kind, target, opts);
+  openPrintWindow(out.title, out.html);
+  if (msg) msg.textContent = `已開列印版面（共 ${out.total} 則）——在列印視窗選「儲存為 PDF」。`;
+  return out;
+}
+
+// ── 明細頁的「匯出 ▾」──────────────────────────────────────────────
+let exportMenuEl = null;
+function closeExportMenu() { if (exportMenuEl) { exportMenuEl.hidden = true; } }
+document.addEventListener('click', (e) => {
+  const host = $('export-host');
+  if (exportMenuEl && !exportMenuEl.hidden && host && !host.contains(e.target)) closeExportMenu();
+});
+function renderExportUI(ctx) {
+  const host = $('export-host');
+  if (!host) return;
+  host.innerHTML = ''; exportMenuEl = null;
+  if (!ctx || !EXPORT_KIND_LABEL[ctx.kind]) { host.hidden = true; return; }
+  host.hidden = false;
+
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'add-btn exp-btn'; btn.textContent = '匯出 ▾';
+  const menu = document.createElement('div');
+  menu.className = 'exp-menu'; menu.hidden = true;
+  exportMenuEl = menu;
+
+  const note = document.createElement('p');
+  note.className = 'exp-note';
+  note.textContent = 'Word 直接下載；PDF 會開列印版面，在裡面選「儲存為 PDF」。';
+
+  const item = (label, run) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = label;
+    b.onclick = async () => {
+      b.disabled = true;
+      const keep = b.textContent;
+      b.textContent = '產生中…';
+      try { await run(); } catch (err) { console.error(err); alert('匯出失敗：' + errText(err)); }
+      b.textContent = keep; b.disabled = false;
+      closeExportMenu();
+    };
+    menu.appendChild(b);
+    return b;
+  };
+
+  if (ctx.kind === 'students') {
+    const one = { streams: ctx.stream ? [ctx.stream] : 'all' };
+    const stName = ctx.stream ? streamLabel(ctx.stream) : '目前類型';
+    item(`Word・只匯出「${stName}」`, () => exportWord('students', ctx.target, one));
+    item('Word・這位學生全部類型', () => exportWord('students', ctx.target, { streams: 'all' }));
+    const sep = document.createElement('div'); sep.className = 'exp-sep'; menu.appendChild(sep);
+    item(`PDF・只匯出「${stName}」`, () => exportPdf('students', ctx.target, one));
+    item('PDF・這位學生全部類型', () => exportPdf('students', ctx.target, { streams: 'all' }));
+  } else {
+    const opts = ctx.kind === 'class' ? { streams: ctx.stream ? [ctx.stream] : 'all' } : {};
+    item('匯出 Word（.doc）', () => exportWord(ctx.kind, ctx.target, opts));
+    item('匯出 PDF（列印）', () => exportPdf(ctx.kind, ctx.target, opts));
+  }
+  menu.appendChild(note);
+
+  btn.onclick = (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; };
+  host.appendChild(btn); host.appendChild(menu);
+}
+
+// ── 學生一覽頁的「匯出所有學生 ▾」小面板 ──────────────────────────
+const exportAllPanel = $('export-all-panel'), exportAllBtn = $('export-all-btn'), expMsg = $('exp-msg');
+function exportPanelStreams() {
+  return [...$('exp-streams').querySelectorAll('input[type=checkbox]:checked')].map(c => c.value);
+}
+function openExportAllPanel() {
+  const box = $('exp-streams');
+  box.innerHTML = '';
+  STREAMS.forEach(st => {
+    const lab = document.createElement('label');
+    lab.innerHTML = `<input type="checkbox" value="${esc(st.id)}"${st.id === currentStreamId ? ' checked' : ''}> ${esc(st.label || st.id)}`;
+    box.appendChild(lab);
+  });
+  if (!STREAMS.length) box.innerHTML = '<span class="nc-hint" style="margin:0">還沒有任何記錄類型。</span>';
+  $('exp-from').value = ''; $('exp-to').value = '';
+  $('exp-class').checked = false;
+  expMsg.textContent = '';
+  exportAllPanel.hidden = false;
+  exportAllBtn.hidden = true;
+}
+function closeExportAllPanel() { exportAllPanel.hidden = true; exportAllBtn.hidden = false; expMsg.textContent = ''; }
+if (exportAllBtn) exportAllBtn.onclick = openExportAllPanel;
+if ($('exp-cancel')) $('exp-cancel').onclick = closeExportAllPanel;
+function exportAllOpts() {
+  const picked = exportPanelStreams();
+  return {
+    streams: picked.length ? picked : 'all',
+    from: ($('exp-from').value || '').trim(),
+    to: ($('exp-to').value || '').trim(),
+    includeClass: $('exp-class').checked,
+    includeName: true,
+  };
+}
+async function runExportAll(which, btn) {
+  btn.disabled = true;
+  try {
+    const opts = exportAllOpts();
+    if (which === 'word') await exportWord('students', 'all', opts, expMsg);
+    else await exportPdf('students', 'all', opts, expMsg);
+  } catch (err) { console.error(err); expMsg.textContent = '匯出失敗：' + errText(err); }
+  btn.disabled = false;
+}
+if ($('exp-word')) $('exp-word').onclick = (e) => runExportAll('word', e.currentTarget);
+if ($('exp-pdf')) $('exp-pdf').onclick = (e) => runExportAll('pdf', e.currentTarget);
 
 // ══ hash 路由 ════════════════════════════════════════════════════════
 // #students #students/<類型> #courses #business #class #class/<類型>

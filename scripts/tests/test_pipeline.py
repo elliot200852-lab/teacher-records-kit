@@ -572,6 +572,71 @@ class TestSyncRosterStreams(unittest.TestCase):
         self.assertTrue(any("S-09" in n for n in notes))
 
 
+class TestSyncWriteCards(unittest.TestCase):
+    """卡片摘要（學生卡／課程卡／業務組卡）：只推統計、PATCH 帶前置條件、412 當衝突。
+
+    守的是同一件事——課名／組名是老師在網頁上打的字，腳本不准用 config 的舊名字蓋回去。
+    """
+
+    def setUp(self):
+        self.orig = (lib.get_doc, lib.http)
+
+    def tearDown(self):
+        lib.get_doc, lib.http = self.orig
+
+    def call(self, exists=True, precondition=False):
+        import sync
+        calls, notes = [], []
+        lib.get_doc = lambda base, path, tok, **kw: \
+            (({"label": "網頁上改過的組名"}, "t9") if exists else (None, None))
+
+        def fake_http(m, base, path, tok, body=None, **kw):
+            calls.append({"path": path, "body": body, "mask": kw.get("mask"),
+                          "ut": kw.get("precondition_update_time"),
+                          "exists": kw.get("precondition_exists")})
+            if precondition:
+                raise lib.Precondition(path)
+            return {}
+        lib.http = fake_http
+        cards = {"business/meetings": {"id": "meetings", "kind": "business",
+                                       "label": "會議紀錄", "dates": ["2026-09-01", "2026-09-04"],
+                                       "streams": {}},
+                 "students/S-02": {"id": "S-02", "kind": "students", "label": "S-02（個案追蹤）",
+                                   "dates": ["2026-09-05"], "streams": {"case": 1}}}
+        sync.write_cards(cards, "base", "tok", notes)
+        return {c["path"]: c for c in calls}, notes
+
+    def test_does_not_push_label_over_web(self):
+        calls, notes = self.call(exists=True)
+        card = calls["business/meetings"]
+        self.assertNotIn("label", card["mask"], "組名以網頁為準，不該進 updateMask")
+        self.assertNotIn("title", card["mask"] or [])
+        self.assertEqual(sorted(card["mask"]),
+                         ["id", "lastRecordDate", "monthsRecorded", "recordCount"])
+        self.assertEqual(card["body"]["recordCount"], 2)
+        self.assertEqual(card["body"]["lastRecordDate"], "2026-09-04")
+        self.assertEqual(calls["students/S-02"]["body"]["streamCounts"], {"case": 1})
+        self.assertEqual(notes, [])
+
+    def test_patch_carries_precondition(self):
+        calls, _ = self.call(exists=True)
+        for path, c in calls.items():
+            with self.subTest(path=path):
+                self.assertEqual(c["ut"], "t9", "PATCH 要帶讀到的 updateTime")
+
+    def test_new_card_is_created_with_label(self):
+        """卡片還不存在時才補一次名字（填空白，不是覆寫）——並且帶 exists=false。"""
+        calls, _ = self.call(exists=False)
+        self.assertEqual(calls["business/meetings"]["body"]["label"], "會議紀錄")
+        self.assertIs(calls["business/meetings"]["exists"], False)
+        self.assertIsNone(calls["business/meetings"]["ut"])
+
+    def test_412_is_a_note_not_an_overwrite(self):
+        calls, notes = self.call(exists=True, precondition=True)
+        self.assertEqual(len(notes), 2, notes)
+        self.assertTrue(all("衝突 卡片" in n for n in notes), notes)
+
+
 class TestSyncWebAdditions(unittest.TestCase):
     """網頁上臨時加的記錄類型／業務組：只提醒，不自動改 config。"""
 
@@ -599,7 +664,7 @@ class TestSyncWebAdditions(unittest.TestCase):
 
 class TestHelpAndHygiene(unittest.TestCase):
     SCRIPTS = ["setup.py", "build_config.py", "doctor.py", "sync.py", "append_record.py",
-               "transcribe.py", "backup.py", "ledger.py", "export_records.py",
+               "transcribe.py", "backup.py", "ledger.py", "export_records.py", "export_docs.py",
                "parent_email.py", "pending.py", "monthly_reminder.py"]
 
     def test_help_runs(self):

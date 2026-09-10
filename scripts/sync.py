@@ -238,8 +238,20 @@ def sync_target(t, base, tok, names, state, dry, notes, counters, cards):
     return ({x["rid"] for x in fb} | set(cloud)) - {b["rid"] for b in pend_del}
 
 
-def write_cards(cards, base, tok):
-    """把累加好的卡片摘要寫回去（用 updateMask，免得蓋掉網頁上填的課名等欄位）。"""
+def write_cards(cards, base, tok, notes=None):
+    """把累加好的卡片摘要寫回去（學生卡、課程卡、業務組卡）。
+
+    兩條規則，理由都是「不要弄丟老師在網頁上打的字」：
+      · **只推統計欄位**：recordCount／lastRecordDate／monthsRecorded／streamCounts（＋id）。
+        課名（courses.title）與組名（business.label）**以網頁為準**，不進 updateMask——
+        老師在網頁上把「主課程」改成「五年級主課程」之後，腳本不該用 config/tabs.json
+        的舊名字把它改回去。唯一的例外是這張卡雲端還沒有（下面 exists=false 的建立情境），
+        那時候帶一次 label 只是把空白填起來，沒有覆寫任何人的字。
+      · **PATCH 一律帶前置條件**（紅隊 #9）：先 get_doc 拿 updateTime，PATCH 帶
+        currentDocument.updateTime；讀完之後網頁又改過就回 412 → 記一筆衝突、不重試覆寫。
+        卡片沒有「兩邊都改」的問題（統計是算出來的），但 412 代表我們手上的 updateTime
+        已經過期，硬寫下去等於用舊快照蓋新文件。
+    """
     for path, c in sorted(cards.items()):
         dates = [d for d in c["dates"] if d]
         summary = {"id": c["id"], "recordCount": len(c["dates"]),
@@ -247,9 +259,17 @@ def write_cards(cards, base, tok):
                    "monthsRecorded": sorted({d[:7] for d in dates})}
         if c["kind"] == "students":
             summary["streamCounts"] = c["streams"]     # 哪一種類型各幾則
-        else:
-            summary["label"] = c["label"]
-        lib.http("PATCH", base, path, tok, summary, mask=list(summary.keys()))
+        fields, ut = lib.get_doc(base, path, tok)
+        if fields is None and c["kind"] != "students":
+            summary["label"] = c["label"]              # 只有「這張卡還不存在」才補名字
+        try:
+            lib.http("PATCH", base, path, tok, summary, mask=list(summary.keys()),
+                     precondition_update_time=ut,
+                     precondition_exists=None if ut else False, raise_errors=True)
+        except lib.Precondition:
+            if notes is not None:
+                notes.append("衝突 卡片 %s：網頁在同步途中改過這張卡——這次沒更新它的統計"
+                             "（記錄本身已經同步好了），下次同步會再算一次" % path)
 
 
 def sync_roster(kit, base, tok, state, dry, notes):
@@ -396,12 +416,15 @@ def main():
             state[t["key"]] = {"rids": sorted(rids), "at": lib.now_iso()}
 
     if not a.dry_run:
-        write_cards(cards, base, tok)
+        write_cards(cards, base, tok, notes)
     roster_streams = sync_roster(kit, base, tok, state, a.dry_run, notes)
     check_web_additions(tabs, base, tok, notes)
     if not a.dry_run:
         state["_roster"] = {"streams": roster_streams, "at": lib.now_iso()}
         save_state(state)
+        # meta/config 與 meta/status 不帶前置條件：這兩份文件裡的欄位只有腳本會寫
+        # （version／dataVersion／tabs 是本機 config 的唯讀鏡像，lastSyncAt 是同步時間戳），
+        # 網頁只讀不改，所以沒有「蓋掉老師的字」這回事，最後寫的那次就是對的。
         lib.http("PATCH", base, "meta/config", tok,
                  {"version": lib.version(), "dataVersion": lib.DATA_VERSION,
                   "tabs": json.dumps(tabs, ensure_ascii=False)},

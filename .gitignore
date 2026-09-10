@@ -16,6 +16,8 @@ inbox/*
 !inbox/.gitkeep
 # 備份 zip 與匯出快照
 backups/
+# 一鍵匯出的 Word／PDF／HTML（含名冊真名，永遠不進 git）
+exports/
 # 離線預覽產生檔
 preview/
 # 排程與腳本的 log

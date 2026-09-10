@@ -31,7 +31,12 @@
   老師自己的 `config.yaml` 仍放 repo 根目錄）。
 - 安全規則：新增 `business/**`、`meta/**`；擁有者可刪除（配合個資法刪除請求）。
 - 設定檔改 JSON（`config/kit.json`、`config/tabs.json`），移除自寫 YAML 解析器。
-- 同步回寫加 `currentDocument.updateTime` 前置條件，不再靜默覆蓋網頁上剛改的字。
+- **一鍵匯出 Word／PDF**（網頁端 .doc＋列印；腳本端 `export_docs.py` 真 .docx＋Chrome PDF）：
+  每一位學生、每一門課程、每一個業務組、班級整體觀察與「所有學生」都能一鍵出文件；腳本端 `.docx`
+  用標準庫 zipfile 直接寫最小 OOXML（零相依），`.pdf` 借本機 Chrome headless 印，沒有 Chrome 就
+  留下排版好的 HTML 讓老師自己列印成 PDF。輸出在 `exports/`（已加進 `.gitignore`，因為含名冊真名）。
+- 同步回寫加 `currentDocument.updateTime` 前置條件，不再靜默覆蓋網頁上剛改的字；卡片摘要（課程卡／
+  業務組卡／學生卡）同樣先讀 updateTime 再帶前置條件，而且只推統計欄位——課名與組名以網頁為準。
 - 設計正本：`docs/SPEC-v3.md`（含紅隊裁決）。
 
 ## v2 — 2026-07-31、v1 — 2026-07-14
