@@ -127,6 +127,9 @@ jobs:
       # （以前這裡是 `if ($LASTEXITCODE -ne 0) { ...; exit 0 }`，等於 doctor 怎麼壞都不會被發現。）
       - name: doctor must pass every offline-required item
         shell: python
+        env:
+          PYTHONIOENCODING: utf-8      # runner 的 stdout 是 cp1252，印 doctor 的中文會 UnicodeEncodeError
+          PYTHONUTF8: "1"
         run: |
           import json, os, subprocess, sys
           root = os.path.join(os.environ["RUNNER_TEMP"], "trk")

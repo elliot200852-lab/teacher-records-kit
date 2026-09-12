@@ -273,8 +273,11 @@ def run_agent(argv, timeout):
         kw["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     else:
         kw["start_new_session"] = True
+    # 子行程的主控台在 Windows 上預設是 cp1252／cp950，代理印回報裡的中文會直接 UnicodeEncodeError；
+    # 逼它用 UTF-8（Python 子行程認 PYTHONIOENCODING／PYTHONUTF8，node 本來就是 UTF-8）。
+    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
     p = subprocess.Popen(argv, cwd=lib.PKG, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                         stdin=subprocess.DEVNULL, **kw)
+                         stdin=subprocess.DEVNULL, env=env, **kw)
     try:
         out, _ = p.communicate(timeout=timeout)
         return p.returncode, (out or b"").decode("utf-8", "replace")

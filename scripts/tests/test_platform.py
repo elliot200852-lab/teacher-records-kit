@@ -409,6 +409,8 @@ class Bootstrap(unittest.TestCase):
         self.assertTrue(os.access(self.SH, os.X_OK), "bootstrap.sh 要可執行")
 
     def test_shell_script_parses(self):
+        if hostos.OS == "win":
+            self.skipTest("bootstrap.sh 不是給 Windows 跑的；System32 的 bash.exe 是 WSL 殼，-n 也會回 1")
         r = subprocess.run(["bash", "-n", self.SH], capture_output=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stderr.decode("utf-8", "replace"))
 
