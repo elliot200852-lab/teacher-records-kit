@@ -60,7 +60,7 @@ class TestBuildConfig(unittest.TestCase):
         self.assertEqual(tabs["students"]["streams"], [], "範本不該預設勾任何記錄類型")
         self.assertEqual(tabs["business"]["groups"], [], "範本不該預設勾任何業務組")
         self.assertEqual(sorted(tabs["students"]["help"]), ["ai", "prepare", "what"])
-        r = run("build_config.py", "--check")
+        r = run("build_config.py", "--check", "--allow-placeholders")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
     def test_check_lists_what_is_chosen(self):
@@ -97,7 +97,7 @@ class TestBuildConfig(unittest.TestCase):
                 self.assertIn("→", r.stderr)
 
     def test_generates_three_files(self):
-        r = run("build_config.py", "--root", self.tmp)
+        r = run("build_config.py", "--root", self.tmp, "--allow-placeholders")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         kitjs = os.path.join(self.tmp, "site", "js", "kit-config.js")
         fbjs = os.path.join(self.tmp, "site", "js", "firebase-config.js")
@@ -128,6 +128,100 @@ class TestBuildConfig(unittest.TestCase):
         self.assertIn("window.OWNER_EMAIL", fb)
         self.assertNotIn("export ", fb, "firebase-config.js 不能是 module")
         self.assertNotIn("{{OWNER_EMAIL}}", read(rules))
+
+    def _kit(self, **over):
+        os.makedirs(os.path.join(self.tmp, "config"), exist_ok=True)
+        kit = {"owner_email": "TEACHER@example.com", "id_prefix": "S",
+               "firebase": {"project_id": "real-project", "api_key": "AIzaKEY",
+                            "auth_domain": "", "storage_bucket": "b",
+                            "messaging_sender_id": "1", "app_id": "a"}}
+        kit.update(over)
+        dump_json(os.path.join(self.tmp, "config", "kit.json"), kit)
+        dump_json(os.path.join(self.tmp, "config", "tabs.json"),
+                  {"students": {"enabled": True, "streams": []},
+                   "courses": {"enabled": True, "list": []},
+                   "business": {"enabled": False, "groups": []}})
+        return kit
+
+    def test_hostile_owner_email_cannot_reach_the_rules(self):
+        """`x'||true||'…@…` 混進規則的單引號字串裡，isOwner() 就變成恆真＝誰都寫得進資料庫。"""
+        self._kit(owner_email="x'||true||'y@example.com")
+        r = run("build_config.py", "--root", self.tmp)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("owner_email", r.stderr)
+        self.assertIn("→", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "firestore.rules")),
+                         "擋下來的設定不該產生任何檔")
+        for bad in ("a\\'b@example.com", 'a"b@example.com', "a b@example.com"):
+            with self.subTest(email=bad):
+                self._kit(owner_email=bad)
+                self.assertEqual(run("build_config.py", "--root", self.tmp).returncode, 1)
+
+    def test_owner_email_is_lowercased_in_all_three_outputs(self):
+        self._kit()
+        r = run("build_config.py", "--root", self.tmp)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        rules = read(os.path.join(self.tmp, "firestore.rules"))
+        kitjs = read(os.path.join(self.tmp, "site", "js", "kit-config.js"))
+        fbjs = read(os.path.join(self.tmp, "site", "js", "firebase-config.js"))
+        self.assertIn("teacher@example.com", rules)
+        self.assertNotIn("TEACHER@example.com", rules + kitjs + fbjs)
+        self.assertIn('"ownerEmail": "teacher@example.com"', kitjs)
+        self.assertIn('window.OWNER_EMAIL = "teacher@example.com"', fbjs)
+
+    def test_auth_domain_defaults_to_web_app(self):
+        """Console 給的 .firebaseapp.com 跟網頁不同源，iPhone 上會一直登不進去。"""
+        self._kit()
+        self.assertEqual(run("build_config.py", "--root", self.tmp).returncode, 0)
+        fbjs = read(os.path.join(self.tmp, "site", "js", "firebase-config.js"))
+        self.assertIn('"authDomain": "real-project.web.app"', fbjs)
+        kit = self._kit()
+        kit["firebase"]["auth_domain"] = "records.example.org"
+        dump_json(os.path.join(self.tmp, "config", "kit.json"), kit)
+        self.assertEqual(run("build_config.py", "--root", self.tmp).returncode, 0)
+        self.assertIn('"authDomain": "records.example.org"',
+                      read(os.path.join(self.tmp, "site", "js", "firebase-config.js")),
+                      "填了就要照填的（GitHub Pages／嵌入現有站）")
+
+    def test_placeholders_are_a_hard_error(self):
+        """範本值產得出檔又 exit 0 的話，老師與 AI 會以為裝好了，其實網頁連不上任何資料庫。"""
+        self._kit(owner_email="you@example.com")
+        r = run("build_config.py", "--root", self.tmp)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("→", r.stderr)
+        self.assertNotIn("下一步", r.stdout)
+        r = run("build_config.py", "--root", self.tmp, "--allow-placeholders")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("!", r.stdout, "--allow-placeholders 時要降成提醒，不是靜靜放過")
+
+    def test_placeholder_firebase_values_are_a_hard_error(self):
+        kit = self._kit()
+        kit["firebase"]["project_id"] = "your-firebase-project-id"
+        dump_json(os.path.join(self.tmp, "config", "kit.json"), kit)
+        self.assertEqual(run("build_config.py", "--root", self.tmp).returncode, 1)
+        kit["firebase"]["project_id"] = "real-project"
+        kit["firebase"]["api_key"] = ""
+        dump_json(os.path.join(self.tmp, "config", "kit.json"), kit)
+        self.assertEqual(run("build_config.py", "--root", self.tmp).returncode, 1)
+
+    def test_bad_course_id_is_refused(self):
+        """課程 id 會變成資料夾名（data/courses/<id>/）——`../../oops` 會寫到 data/ 外面去。"""
+        os.makedirs(os.path.join(self.tmp, "config"), exist_ok=True)
+        dump_json(os.path.join(self.tmp, "config", "kit.json"),
+                  {"owner_email": "t@example.com", "firebase": {}})
+        for courses, why in [
+            ([{"id": "../../oops", "title": "壞的"}], "id 有路徑符號"),
+            ([{"id": "主課程", "title": "中文 id"}], "id 不是英數"),
+            ([{"id": "main", "title": "一"}, {"id": "main", "title": "二"}], "id 重複"),
+            ([{"id": "", "title": "沒有 id"}], "少了 id"),
+        ]:
+            with self.subTest(why=why):
+                dump_json(os.path.join(self.tmp, "config", "tabs.json"),
+                          {"students": {"enabled": False}, "business": {"enabled": False},
+                           "courses": {"enabled": True, "list": courses}})
+                r = run("build_config.py", "--root", self.tmp, "--check")
+                self.assertEqual(r.returncode, 1, why + "：應該擋下來")
+                self.assertIn("→", r.stderr)
 
     def test_bad_config_fails_with_reason(self):
         os.makedirs(os.path.join(self.tmp, "config"))
@@ -195,7 +289,7 @@ class TestSetupEndToEnd(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(self.tmp, "data", "students", sid, "case.md")),
                              sid + " 沒被列入個案追蹤，不該有 case.md")
         roster = read(os.path.join(self.tmp, "data", "roster.csv")).strip().splitlines()
-        self.assertEqual(roster[0], "代號,姓名,類型")
+        self.assertEqual(roster[0].lstrip("\ufeff"), "代號,姓名,類型")
         self.assertIn("S-02,,case", roster)
         self.assertIn("S-01,,", roster)
         case_head = read(os.path.join(self.tmp, "data", "students", "S-02", "case.md"))
@@ -207,7 +301,11 @@ class TestSetupEndToEnd(unittest.TestCase):
                     "setup/progress.json"):
             self.assertTrue(os.path.exists(os.path.join(self.tmp, rel)), "缺 " + rel)
         pg = load_json(os.path.join(self.tmp, "setup", "progress.json"))
-        self.assertEqual(len(pg["steps"]), 11)
+        # 0–10 是原本的安裝步驟，11 是選用的「無頭交辦」（setup.STEP_TITLES 是正本）
+        self.assertEqual(len(pg["steps"]), 12)
+        self.assertEqual(pg["steps"][11]["title"], "無頭交辦（選用）")
+        self.assertTrue(pg["steps"][11]["done"],
+                        "答案檔沒開無頭交辦，第 11 步就該標成完成（備註寫沒有開）")
         self.assertFalse(pg["steps"][4]["done"],
                          "第 4 步含 firebase deploy，安裝精靈不部署，所以不能標成完成")
         self.assertIn("規則尚未部署", pg["steps"][4]["notes"])
@@ -284,9 +382,82 @@ class TestSetupEndToEnd(unittest.TestCase):
             self.assertEqual(kit["owner_email"], "teacher@example.com")
             self.assertEqual(kit["id_prefix"], "5A")
             self.assertEqual(kit["firebase"]["project_id"], "old-project")
-            self.assertEqual(kit["firebase"]["auth_domain"], "old-project.firebaseapp.com")
+            self.assertEqual(kit["firebase"]["auth_domain"], "old-project.web.app",
+                             "預設要用 Firebase Hosting 的網址，.firebaseapp.com 在 iPhone 上登不進去")
         finally:
             shutil.rmtree(tmp2, ignore_errors=True)
+
+    def test_upgrade_carries_the_parents_section(self):
+        """v2 的家長通訊錄欄位位置不搬過來的話，升級後 parent_email.py 會抓錯欄。"""
+        tmp2 = tempfile.mkdtemp(prefix="trk-upgrade2-")
+        try:
+            write(os.path.join(tmp2, "config.yaml"),
+                  'owner_email: "teacher@example.com"\n'
+                  'firebase:\n'
+                  '  project_id: "old-project"\n'
+                  'parents:\n'
+                  '  contacts_csv: "data/我的通訊錄.csv"\n'
+                  '  col_id: 2\n'
+                  '  col_parent1_email: 5\n'
+                  '  col_parent2_email: 6\n')
+            r = run("setup.py", "--upgrade", "--root", tmp2, "--skip-network", "--skip-doctor")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            parents = load_json(os.path.join(tmp2, "config", "kit.json"))["parents"]
+            self.assertEqual(str(parents["col_id"]), "2")
+            self.assertEqual(str(parents["col_parent1_email"]), "5")
+            self.assertEqual(str(parents["col_parent2_email"]), "6")
+            self.assertEqual(parents["contacts_csv"], "data/我的通訊錄.csv")
+        finally:
+            shutil.rmtree(tmp2, ignore_errors=True)
+
+
+class TestSetupRerunKeepsHandEdits(unittest.TestCase):
+    """重跑安裝＝在現有設定上疊答案。安裝精靈沒問到的區塊（email／voice／parents／drive）
+    是老師手填的，用範本值蓋回去等於默默把他的寄信設定與備份夾清掉。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="trk-rerun-")
+        self.answers = os.path.join(PKG, "templates", "answers.example.json")
+        r = run("setup.py", "--answers", self.answers, "--root", self.tmp,
+                "--skip-network", "--skip-doctor")
+        assert r.returncode == 0, r.stdout + r.stderr
+        kit = load_json(os.path.join(self.tmp, "config", "kit.json"))
+        kit["email"] = {"method": "smtp", "smtp_user": "teacher@example.com"}
+        kit["parents"] = {"contacts_csv": "data/contacts.csv", "col_id": 2,
+                          "col_parent1_email": 5, "col_parent2_email": 6}
+        kit["voice"] = {"model": "ggml-medium", "lang": "yue"}
+        kit["drive"]["desktop_dir"] = os.path.join(self.tmp, "我的備份夾")
+        dump_json(os.path.join(self.tmp, "config", "kit.json"), kit)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_rerun_keeps_hand_edited_sections(self):
+        answers = load_json(self.answers)
+        answers.pop("email", None)                    # 這一輪的答案沒提到寄信與備份夾
+        answers.pop("drive", None)
+        path = os.path.join(self.tmp, "answers2.json")
+        dump_json(path, answers)
+        r = run("setup.py", "--answers", path, "--root", self.tmp,
+                "--skip-network", "--skip-doctor")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        kit = load_json(os.path.join(self.tmp, "config", "kit.json"))
+        self.assertEqual(kit["email"]["smtp_user"], "teacher@example.com")
+        self.assertEqual(kit["parents"]["col_parent1_email"], 5)
+        self.assertEqual(kit["voice"]["model"], "ggml-medium")
+        self.assertEqual(kit["drive"]["desktop_dir"], os.path.join(self.tmp, "我的備份夾"))
+
+    def test_answers_still_win_over_the_old_file(self):
+        answers = load_json(self.answers)
+        answers["email"] = {"method": "gws", "smtp_user": ""}
+        path = os.path.join(self.tmp, "answers3.json")
+        dump_json(path, answers)
+        r = run("setup.py", "--answers", path, "--root", self.tmp,
+                "--skip-network", "--skip-doctor")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        kit = load_json(os.path.join(self.tmp, "config", "kit.json"))
+        self.assertEqual(kit["email"]["method"], "gws")
+        self.assertEqual(kit["parents"]["col_id"], 2, "沒回答到的區塊仍然留著")
 
 
 class TestAppendAndLedger(unittest.TestCase):
@@ -639,6 +810,184 @@ class TestSyncWriteCards(unittest.TestCase):
         self.assertTrue(all("衝突 卡片" in n for n in notes), notes)
 
 
+class TestSyncStateOnlyRemembersTheCloud(unittest.TestCase):
+    """同步狀態（data/.sync-state.json）只能記「雲端真的有的那些紀錄 id」。
+
+    記成「本機每一則」的話，被真名閘攔下、被前置條件擋下而沒上傳的那幾則，
+    下一輪會被當成「以前同步過、現在雲端沒有」＝網頁上刪了，於是**把老師本機的區塊刪掉**。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="trk-state-")
+        self.old_root = lib.root()
+        lib.set_root(self.tmp)
+        self.orig = (lib.list_docs, lib.http, lib.get_doc)
+        self.path = os.path.join(self.tmp, "data", "students", "S-01", "observations.md")
+        os.makedirs(os.path.dirname(self.path))
+        write(self.path,
+              "# S-01\n\n## 2026-09-01\n\n乾淨的一則。\n\n## 2026-09-02\n\n測試丙今天很專心。\n")
+        self.t = {"kind": "students", "id": "S-01", "stream": "homeroom", "scope": "class",
+                  "streamLabel": "導師班級學生紀錄", "label": "S-01（導師班級學生紀錄）",
+                  "path": self.path, "sourceFile": "students/S-01/observations.md",
+                  "records": "students/S-01/records", "card": None,
+                  "key": "students/S-01/homeroom"}
+
+    def tearDown(self):
+        lib.list_docs, lib.http, lib.get_doc = self.orig
+        lib.set_root(self.old_root)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def call(self, http):
+        import sync
+        lib.list_docs = lambda base, path, tok, **kw: []      # 雲端還是空的
+        lib.http = http
+        notes, counters, cards = [], dict.fromkeys(
+            ("push", "write", "new", "delete", "conflict", "pii"), 0), {}
+        rids = sync.sync_target(self.t, "base", "tok", ["測試丙"], {}, False,
+                                notes, counters, cards)
+        return rids, notes, counters
+
+    def test_dry_run_still_accumulates_the_card(self):
+        """預演也要累加卡片摘要，否則 `--dry-run` 永遠印不出卡片那一段會發生什麼。"""
+        import sync
+        lib.list_docs = lambda base, path, tok, **kw: []
+        lib.http = lambda *a, **kw: {}
+        notes, counters, cards = [], dict.fromkeys(
+            ("push", "write", "new", "delete", "conflict", "pii"), 0), {}
+        t = dict(self.t, card="students/S-01")
+        sync.sync_target(t, "base", "tok", [], {}, True, notes, counters, cards)
+        self.assertIn("students/S-01", cards)
+        self.assertEqual(cards["students/S-01"]["streams"], {"homeroom": 2})
+        self.assertTrue(any("預演" in n for n in notes), notes)
+
+    def test_pii_blocked_record_is_not_remembered(self):
+        rids, notes, counters = self.call(lambda *a, **kw: {})
+        self.assertEqual(counters["pii"], 1, notes)
+        self.assertEqual(rids, {"2026-09-01"},
+                         "被真名閘攔下的那一則沒上雲，不可以寫進同步狀態")
+
+    def test_record_that_failed_its_precondition_is_not_remembered(self):
+        def boom(*a, **kw):
+            raise lib.Precondition("students/S-01/records")
+        rids, notes, counters = self.call(boom)
+        self.assertEqual(rids, set(), "沒推成功的一則不可以寫進同步狀態")
+        self.assertEqual(counters["conflict"], 1)
+        self.assertEqual(counters["push"], 0)
+
+    def test_next_run_does_not_delete_the_blocked_record(self):
+        """接著跑第二輪：狀態是上一輪的結果，本機那兩則都必須原封不動。"""
+        import sync
+        rids, _, _ = self.call(lambda *a, **kw: {})
+        notes, counters, cards = [], dict.fromkeys(
+            ("push", "write", "new", "delete", "conflict", "pii"), 0), {}
+        # 第二輪的雲端就是第一輪推上去的那一則（PII 那一則從來沒上去過）
+        _, blocks = lib.parse_file(self.path)
+        clean = [b for b in blocks if b["rid"] == "2026-09-01"][0]
+        lib.list_docs = lambda base, path, tok, **kw: [
+            ("2026-09-01", {"date": "2026-09-01", "stream": "homeroom", "tags": [],
+                            "fields": {}, "related": [], "body": clean["body"],
+                            "contentHash": clean["hash"], "editedOnWeb": False}, "t1")]
+        lib.http = lambda *a, **kw: {}
+        sync.sync_target(self.t, "base", "tok", ["測試丙"],
+                         {self.t["key"]: {"rids": sorted(rids)}}, False, notes, counters, cards)
+        self.assertEqual(counters["delete"], 0, notes)
+        self.assertIn("測試丙", read(self.path))
+        self.assertIn("乾淨的一則", read(self.path))
+
+
+class TestSyncStatusFields(unittest.TestCase):
+    """meta/status 不能只寫時間戳：有衝突、有真名攔截的那一輪也會更新時間，
+    網頁於是顯示綠燈，而老師其實有幾則沒上去。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="trk-status-")
+        self.old_root = lib.root()
+        self.orig = (lib.load_kit, lib.load_tabs, lib.token, lib.targets,
+                     lib.get_doc, lib.list_docs, lib.http)
+
+    def tearDown(self):
+        (lib.load_kit, lib.load_tabs, lib.token, lib.targets,
+         lib.get_doc, lib.list_docs, lib.http) = self.orig
+        lib.set_root(self.old_root)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_sync_writes_counts_and_last_error(self):
+        import sync
+        calls = []
+        lib.load_kit = lambda *a, **kw: {"owner_email": "t@example.com",
+                                         "firebase": {"project_id": "p"}}
+        lib.load_tabs = lambda *a, **kw: {"students": {"enabled": False},
+                                          "courses": {"enabled": False},
+                                          "business": {"enabled": False}}
+        lib.token = lambda *a, **kw: "tok"
+        lib.targets = lambda *a, **kw: []
+        lib.get_doc = lambda base, path, tok, **kw: (None, None)
+        lib.list_docs = lambda base, path, tok, **kw: []
+        lib.http = lambda m, base, path, tok, body=None, **kw: calls.append((path, body)) or {}
+        argv = sys.argv
+        sys.argv = ["sync.py", "--root", self.tmp, "--quiet"]
+        try:
+            sync.main()
+        finally:
+            sys.argv = argv
+        status = dict(calls)["meta/status"]
+        self.assertIn("lastSyncAt", status)
+        self.assertEqual(status["lastSyncConflicts"], 0)
+        self.assertEqual(status["lastSyncPii"], 0)
+        self.assertEqual(status["lastError"], "")
+
+
+class TestBackupStatusFields(unittest.TestCase):
+    """備份上不了雲端硬碟時，網頁狀態列要說得出原因——不能只更新「上次備份時間」。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="trk-bkstatus-")
+        os.makedirs(os.path.join(self.tmp, "data", "students", "S-01"))
+        write(os.path.join(self.tmp, "data", "students", "S-01", "observations.md"),
+              "# S-01\n\n## 2026-09-01\n\n一則。\n")
+        self.old_root = lib.root()
+        self.orig = (lib.load_kit, lib.load_tabs, lib.token, lib.http)
+
+    def tearDown(self):
+        lib.load_kit, lib.load_tabs, lib.token, lib.http = self.orig
+        lib.set_root(self.old_root)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_backup(self, drive_ok):
+        import backup
+        calls = []
+        lib.load_kit = lambda *a, **kw: {"owner_email": "t@example.com",
+                                         "firebase": {"project_id": "p"},
+                                         "drive": {"mode": "desktop", "keep_backups": 3,
+                                                   "desktop_dir": os.path.join(self.tmp, "gdrive")}}
+        lib.load_tabs = lambda *a, **kw: {"students": {"enabled": True},
+                                          "courses": {"enabled": False},
+                                          "business": {"enabled": False}}
+        lib.token = lambda *a, **kw: "tok"
+        lib.http = lambda m, base, path, tok, body=None, **kw: calls.append((path, body)) or {}
+        orig = (backup.collect_export, backup.to_desktop)
+        backup.collect_export = lambda kit, tabs: ({"records": []}, "")
+        backup.to_desktop = (lambda kit, zip_path: ({"path": "x"}, "")) if drive_ok \
+            else (lambda kit, zip_path: (None, "找不到同步資料夾"))
+        argv = sys.argv
+        sys.argv = ["backup.py", "--root", self.tmp, "--quiet"]
+        try:
+            backup.main()
+        finally:
+            sys.argv = argv
+            backup.collect_export, backup.to_desktop = orig
+        return dict(calls).get("meta/status")
+
+    def test_drive_failure_lands_in_last_error(self):
+        status = self.run_backup(drive_ok=False)
+        self.assertIn("lastBackupAt", status)
+        self.assertIn("找不到同步資料夾", status["lastError"])
+
+    def test_success_clears_last_error(self):
+        status = self.run_backup(drive_ok=True)
+        self.assertEqual(status["lastError"], "")
+
+
 class TestSyncWebAdditions(unittest.TestCase):
     """網頁上臨時加的記錄類型／業務組：只提醒，不自動改 config。"""
 
@@ -662,6 +1011,53 @@ class TestSyncWebAdditions(unittest.TestCase):
         self.assertEqual(len(notes), 2, notes)
         self.assertTrue(any("小老師制" in n and "config/tabs.json 沒有" in n for n in notes))
         self.assertTrue(any("社團" in n for n in notes))
+
+
+class TestParentEmail(unittest.TestCase):
+    """家長信：--draft 一定不寄；代號比對不能假設「前綴裡沒有數字」。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="trk-parent-")
+        os.makedirs(os.path.join(self.tmp, "config"))
+        os.makedirs(os.path.join(self.tmp, "data"))
+        dump_json(os.path.join(self.tmp, "config", "kit.json"),
+                  {"owner_email": "t@example.com", "id_prefix": "6B",
+                   "firebase": {"project_id": "p"},
+                   "email": {"method": "smtp", "smtp_user": "t@example.com"},
+                   "parents": {"contacts_csv": "data/contacts.csv", "col_id": 1,
+                               "col_parent1_email": 2, "col_parent2_email": 3}})
+        write(os.path.join(self.tmp, "data", "contacts.csv"),
+              "座號,家長1,家長2\n01,a@example.com,b@example.com\n02,c@example.com,\n")
+        self.body = write(os.path.join(self.tmp, "msg.txt"), "今天他主動幫忙搬桌子。\n")
+        self.env = dict(os.environ, TRK_ROOT=self.tmp)
+        self.env.pop("KIT_SMTP_APP_PASSWORD", None)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def call(self, *args):
+        return run("parent_email.py", "--id", "6B-01", "--subject", "課堂觀察",
+                   "--body-file", self.body, *args, env=self.env)
+
+    def test_prefix_with_a_digit_still_matches_the_contact_row(self):
+        """id_prefix = 6B 時，「只留數字」會把 6B-01 算成 601，通訊錄怎麼比都比不到。"""
+        r = self.call("--dry-run")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("2 位家長", r.stdout)
+        self.assertNotIn("a@example.com", r.stdout, "stdout 一律遮罩 email")
+
+    def test_draft_with_smtp_never_sends(self):
+        """以前這裡會掉下去真的把信寄出去——老師以為只是出稿，信已經到家長信箱了。"""
+        r = self.call("--draft")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("沒有寄出", r.stdout)
+        self.assertIn("今天他主動幫忙搬桌子。", r.stdout)
+        drafts = [f for f in os.listdir(os.path.join(self.tmp, "exports"))]
+        self.assertTrue(drafts, "草稿要落地成檔案")
+        text = read(os.path.join(self.tmp, "exports", drafts[0]))
+        self.assertIn("今天他主動幫忙搬桌子。", text)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, ".parent-emails-handled.tsv")),
+                         "沒寄出去就不該記進已寄台帳")
 
 
 class TestHelpAndHygiene(unittest.TestCase):

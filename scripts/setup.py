@@ -56,6 +56,7 @@ STEP_TITLES = [
     "排程（選用）",
     "錄音檔試跑一次",
     "驗收清單",
+    "無頭交辦（選用）",
 ]
 
 
@@ -202,6 +203,17 @@ def ask_extra_tags(ask, indent, label, tags):
     return tags
 
 
+def merge_over(base, over):
+    """把 over 疊在 base 上（dict 逐層合併，其他型別直接取 over 的值）。"""
+    out = dict(base or {})
+    for k, v in (over or {}).items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = merge_over(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
 # ── v2 config.yaml → v3 kit.json ────────────────────────────────────────
 def read_legacy_yaml(path):
     """極簡 YAML 讀取，只為了把 v2 的 config.yaml 轉成 JSON——之後不再用 YAML。"""
@@ -275,33 +287,76 @@ def gather(ask, answers, existing_kit):
     stream_library = lib.load_stream_library()
     lib_streams = [s for s in stream_library.get("streams", []) if not s.get("open")]
 
-    ask.say("\n── 第 2 步：你的 Google 帳號與 Firebase 專案 ──")
-    ask.say("這套系統整個裝在你自己的 Firebase 專案裡：資料是你的、帳單是你的（一般用量在免費額度內），")
-    ask.say("賣你這套 kit 的人看不到你的任何資料。")
-    owner = ask.text("① 你要用哪個 Google 信箱登入（只有這個帳號讀得到資料）",
+    ask.say("\n── 第 2 步：資料要放哪裡 ──")
+    # 這是全部問題裡最先問的一題：答 local 的話，下面那六個 Firebase 值整段不會問。
+    db_mode = (a.get("mode") or existing_kit.get("mode") or "").strip().lower()
+    if ask.interactive:
+        ask.say("先決定一件事：這套系統要不要上雲端。兩種都完整可用，差別只在「有沒有手機網頁」。")
+        mi = ask.pick(
+            "⓪ 你的紀錄要放哪裡",
+            ["雲端（cloud）——開一個你自己的 Firebase 專案。手機上有一頁網頁可以隨手記，"
+             "電腦與網頁雙向同步。資料在你自己的帳號裡，一般用量免費，但要申請專案、填六個設定值。",
+             "只放這台電腦（local）——完全不碰雲端：沒有 Firebase、沒有網頁、沒有帳單、沒有要填的值。"
+             "紀錄就是 data/ 底下的 md 檔，全部透過 AI 代理與腳本操作"
+             "（備份、匯出、期末素材包、家長信、錄音轉逐字稿都照常）。"],
+            0 if db_mode != "local" else 1)
+        db_mode = ["cloud", "local"][mi]
+        if db_mode == "local":
+            ask.say("   好——本機模式。等一下跟 Firebase 有關的題目（那六個設定值）全部跳過。")
+            ask.say("   哪天想改用手機網頁：跟你的 AI 說一聲重跑一次安裝、這一題改選雲端就好，既有紀錄不會動。")
+    db_mode = db_mode if db_mode in lib.MODES else "cloud"
+    local = db_mode == "local"
+
+    ask.say("\n── 第 2 步之二：你的 Google 帳號%s ──" % ("" if local else "與 Firebase 專案"))
+    if local:
+        ask.say("本機模式沒有登入這回事。這個信箱只用來認你的「Google 雲端硬碟」備份資料夾，")
+        ask.say("以及寄家長信時當寄件人——它不會被送到任何地方。")
+    else:
+        ask.say("這套系統整個裝在你自己的 Firebase 專案裡：資料是你的、帳單是你的（一般用量在免費額度內），")
+        ask.say("賣你這套 kit 的人看不到你的任何資料。")
+    owner = ask.text("① 你要用哪個 Google 信箱%s" % ("（備份與寄信用）" if local else
+                                                     "登入（只有這個帳號讀得到資料）"),
                      default=a.get("owner_email") or existing_kit.get("owner_email") or "",
                      where="就是你平常登入 Google 的信箱。學校帳號若被管理員鎖住 Cloud Console，改用個人 Gmail。",
                      allow_empty=False,
-                     check=lambda s: None if re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", s) else "格式要像 someone@gmail.com。")
+                     # 字元集跟 build_config.EMAIL_RE 同一套：那個值會被插進安全規則的
+                     # 字串字面值裡，引號與反斜線一律不收。
+                     check=lambda s: None if re.match(
+                         r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", s.strip())
+                     else "格式要像 someone@gmail.com（只能有英數與 . _ % + -）。")
+    # 一律轉小寫：規則檔、kit-config.js、doctor 的比對三處必須一模一樣
+    owner = owner.strip().lower()
 
     fb_a = a.get("firebase") or {}
     fb_old = existing_kit.get("firebase") or {}
-    ask.say("\n② 接下來六個值都在同一個畫面：%s → %s" % (CONSOLE, WEBCFG_PATH))
-    ask.say("   還沒有專案的話先在 %s 按「建立專案」，建好後加一個「網頁應用程式」。" % CONSOLE)
     fb = {}
-    for key, label, hint in [
+    if local:
+        # 本機模式：不問、也不編。舊設定裡有值就原封不動留著（哪天改回 cloud 不必重打），
+        # 沒有就留空字串——build_config 在本機模式不驗這一區，也不會產生 firebase-config.js。
+        fb = {k: "" for k in ("project_id", "api_key", "auth_domain",
+                              "storage_bucket", "messaging_sender_id", "app_id")}
+        fb.update({k: v for k, v in (fb_old or {}).items() if v})
+        fb.update({k: v for k, v in (fb_a or {}).items() if v})
+        ask.say("\n② （本機模式，跳過 Firebase 的六個設定值。）")
+    else:
+        ask.say("\n② 接下來六個值都在同一個畫面：%s → %s" % (CONSOLE, WEBCFG_PATH))
+        ask.say("   還沒有專案的話先在 %s 按「建立專案」，建好後加一個「網頁應用程式」。" % CONSOLE)
+    for key, label, hint in ([] if local else [
         ("project_id", "專案 ID（projectId）", "Console 網址列 /project/<這一段>"),
         ("api_key", "API 金鑰（apiKey）", "%s" % WEBCFG_PATH),
-        ("auth_domain", "authDomain", "通常是 <專案ID>.firebaseapp.com"),
+        ("auth_domain", "authDomain", "留白＝用 <專案ID>.web.app（Firebase Hosting 的網址；"
+                                      "iPhone 上用 .firebaseapp.com 會登不進去）"),
         ("storage_bucket", "storageBucket", "通常是 <專案ID>.firebasestorage.app"),
         ("messaging_sender_id", "messagingSenderId", "一串數字，同一個畫面"),
         ("app_id", "appId", "1:xxx:web:xxx，同一個畫面"),
-    ]:
+    ]):
         fb[key] = ask.text("   %s" % label,
                            default=fb_a.get(key, fb_old.get(key, "")),
                            where=hint, allow_empty=True)
     if not fb.get("auth_domain") and fb.get("project_id"):
-        fb["auth_domain"] = "%s.firebaseapp.com" % fb["project_id"]
+        # 預設 .web.app＝這份 kit 實際部署的網址（Firebase Hosting）。Console 給的
+        # .firebaseapp.com 跟網頁不同源，iPhone 上會一直登不進去。
+        fb["auth_domain"] = "%s.web.app" % fb["project_id"]
 
     ask.say("\n── 第 3 步：三個分頁要記什麼 ──")
     ask.say("三個分頁、每一種記錄類型、每一組業務都由你自己勾——一個都不預設幫你打勾。")
@@ -317,8 +372,13 @@ def gather(ask, answers, existing_kit):
             n = ask.text("④ 班上有幾位學生（之後可以再加）", default="0",
                          where="只要人數；姓名等一下填在 data/roster.csv。",
                          check=lambda s: None if s.isdigit() else "請輸入數字。")
-        n = int(n or 0)
-        student_ids = ["%s-%02d" % (prefix.rstrip('-'), i) for i in range(1, n + 1)]
+        try:
+            n = int(n or 0)
+        except (TypeError, ValueError):
+            lib.die("學生人數要是數字（收到 %r）。" % (n,),
+                    "答案檔的 students.count 請填阿拉伯數字，例如 25；"
+                    "要明列代號就改用 students.ids（例如 [\"S-01\",\"S-02\"]）。")
+        student_ids = ["%s-%0*d" % (prefix.rstrip('-'), lib.ID_WIDTH, i) for i in range(1, n + 1)]
 
     # 三個垂直方案：先問「你最像哪一種」，唸出建議（不預勾），再照原本流程逐項勾。
     vertical, suggest = ask_vertical(ask, a, (lib.load_verticals().get("verticals") or []))
@@ -333,7 +393,7 @@ def gather(ask, answers, existing_kit):
         chosen_sids = list(st_a.get("streams") or [])
         if ask.interactive:
             ask.say("   學生記錄不能混在一起——導師的班級紀錄、任課老師的觀察、個案追蹤、")
-            ask.say("   IEP、輔導晤談各是一種「記錄類型」，各有自己的欄位與分類詞。")
+            ask.say("   IEP、會談紀錄（SOAP）各是一種「記錄類型」，各有自己的欄位與分類詞。")
             idx = ask.multi("   勾選你要的記錄類型（可複選；一種都不勾也可以）",
                             ["%s〔%s〕%s — %s" % (s["label"],
                                                   "全班每一位" if s.get("scope") == "class" else "只有列入的學生",
@@ -519,15 +579,17 @@ def gather(ask, answers, existing_kit):
     # Drive
     ask.say("\n── 第 7 步：備份要放到你自己的 Google 雲端硬碟 ──")
     d_a = a.get("drive") or {}
-    mode = d_a.get("mode") or "desktop"
+    d_old = existing_kit.get("drive") or {}          # 重跑安裝時沿用上次設好的備份夾
+    mode = d_a.get("mode") or d_old.get("mode") or "desktop"
     if ask.interactive:
         mi = ask.pick("⑧ 備份怎麼上雲端硬碟",
                       ["把 zip 複製進「Google 雲端硬碟」桌面程式的同步資料夾（推薦，零設定）",
                        "用 googleworkspace-cli 直接上傳（進階，要自己備 OAuth 憑證）"], 0)
         mode = ["desktop", "gws"][mi]
-    default_dir = d_a.get("desktop_dir") or hostos.drive_desktop_hint(owner)
+    default_dir = (d_a.get("desktop_dir") or d_old.get("desktop_dir")
+                   or hostos.drive_desktop_hint(owner))
     desktop_dir = default_dir
-    folder_id = d_a.get("backup_folder_id", "")
+    folder_id = d_a.get("backup_folder_id", d_old.get("backup_folder_id", ""))
     if mode == "desktop":
         desktop_dir = ask.text("   備份資料夾路徑", default=default_dir,
                                where="先安裝並登入「Google 雲端硬碟」桌面程式 "
@@ -538,15 +600,78 @@ def gather(ask, answers, existing_kit):
                              where="打開那個資料夾，網址 .../folders/XXXX 的 XXXX 就是 ID。",
                              allow_empty=False)
 
+    # ── 無頭交辦（選用；只有雲端模式有）──
+    h_a = a.get("headless") or {}
+    h_old = lib.headless_cfg(existing_kit)
+    headless_on = bool(h_a.get("enabled", h_old["enabled"]))
+    h_agent = (h_a.get("agent") or h_old["agent"] or "").strip().lower()
+    h_uid = ((h_a.get("line") or {}).get("owner_user_id")
+             or h_old["line"]["owner_user_id"] or "").strip()
+    ask.say("\n── 第 11 步：無頭交辦（選用）──")
+    if local:
+        headless_on = False
+        ask.say("（本機模式沒有這一項：LINE 的訊息要有一個收得到的地方，那就是雲端。")
+        ask.say("  哪天改成雲端模式，重跑一次安裝就會問你要不要。）")
+    else:
+        ask.say("這一項是：你在手機上對「自己的 LINE 官方帳號」講一段話或打一行字，")
+        ask.say("電腦醒著的時候自動把它整理成一則紀錄，你完全不用打開終端機、不用開網頁。")
+        ask.say("要先知道的三件事：")
+        ask.say("  · 要去 LINE Developers 免費開一個 Messaging API 頻道（大約十分鐘，AI 會帶你走）。")
+        ask.say("  · Firebase 專案要升到 Blaze（隨用隨付）方案——這個用量幾乎一定是 0 元，")
+        ask.say("    但 Firebase 規定要綁一張信用卡。不想綁卡就不要開這一項，其他功能完全不受影響。")
+        ask.say("  · 語音只會經過你自己的 Firebase 專案；逐字稿在你自己的電腦上跑，錄音不會給任何第三方。")
+        if ask.interactive:
+            headless_on = ask.yes("⑨ 要不要開「無頭交辦」（LINE 語音／文字 → 自動變成紀錄）", False)
+        if headless_on:
+            found = hostos.agent_clis_found()
+            labels = ["%s%s" % (hostos.AGENT_CLIS[n]["label"],
+                                "（這台電腦上找得到）" if found.get(n) else "（這台電腦上還沒裝）")
+                      for n in hostos.AGENT_ORDER]
+            if ask.interactive:
+                ai = ask.pick("   要叫哪一支 AI 代理來整理？（要是你已經裝好、也登入過的那一支）",
+                              labels,
+                              hostos.AGENT_ORDER.index(h_agent) if h_agent in hostos.AGENT_ORDER
+                              else next((i for i, n in enumerate(hostos.AGENT_ORDER) if found.get(n)), 0))
+                h_agent = hostos.AGENT_ORDER[ai]
+                h_uid = ask.text("   配對碼（LINE userId；還沒有就直接按 Enter，之後再補）",
+                                 default=h_uid,
+                                 where="用手機把你的官方帳號加為好友、隨便傳一句話給它，"
+                                       "它會回你「配對碼：Uxxxx…」。"
+                                       "也可以之後在電腦上跑 `%s scripts/headless.py --pair`。" % lib.PY)
+            h_agent = h_agent or "claude"
+            if not h_uid:
+                ask.say("   （還沒配對沒關係——配對完成前 relay 只會回配對碼，不會收件。")
+                ask.say("    拿到之後填進 config/kit.json 的 headless.line.owner_user_id，")
+                ask.say("    跑 `%s scripts/build_config.py` 再跑一次 `%s scripts/headless.py --once`。）"
+                        % (lib.PY, lib.PY))
+
     kit = json.loads(json.dumps(lib._strip_comments(kit_ex)))  # 以範本為底，保留所有預設欄位
-    kit.update({"version": 3, "owner_email": owner, "id_prefix": prefix.rstrip("-"), "firebase": fb})
+    # 重跑安裝＝在現有設定上疊答案，不是從範本重蓋一份：安裝精靈沒問到的區塊
+    # （email.smtp_user、voice、parents 的欄位位置…）老師是手填進 config/kit.json 的，
+    # 用範本值蓋回去等於默默把他的寄信設定清掉。
+    kit = merge_over(kit, existing_kit or {})
+    kit.update({"version": 3, "mode": db_mode, "owner_email": owner,
+                "id_prefix": prefix.rstrip("-"), "firebase": fb})
+    # 無頭交辦：金鑰**永遠不寫進這個檔**，只寫「環境變數叫什麼名字」。
+    old_line = (existing_kit.get("headless") or {}).get("line") or {}
+    kit["headless"] = {
+        "enabled": bool(headless_on),
+        "tool": "line",
+        "agent": h_agent if headless_on else "",
+        "timeout_sec": int(h_a.get("timeout_sec") or h_old["timeout_sec"]),
+        "line": {
+            "channel_secret_env": old_line.get("channel_secret_env") or "KIT_LINE_CHANNEL_SECRET",
+            "channel_token_env": old_line.get("channel_token_env") or "KIT_LINE_CHANNEL_TOKEN",
+            "owner_user_id": h_uid,
+        },
+    }
     kit["drive"] = {"mode": mode, "desktop_dir": desktop_dir,
                     "backup_folder_id": folder_id,
-                    "keep_backups": int(d_a.get("keep_backups", kit.get("drive", {}).get("keep_backups", 12)))}
-    if a.get("email"):
-        kit["email"] = dict(kit.get("email") or {}, **a["email"])
-    if a.get("voice"):
-        kit["voice"] = dict(kit.get("voice") or {}, **a["voice"])
+                    "keep_backups": int(d_a.get("keep_backups",
+                                                (kit.get("drive") or {}).get("keep_backups", 12)))}
+    for key in ("email", "voice", "parents"):
+        if a.get(key):
+            kit[key] = dict(kit.get(key) or {}, **a[key])
 
     tabs = json.loads(json.dumps(lib._strip_comments(tabs_ex)))
     tabs["version"] = 3
@@ -574,6 +699,17 @@ def build_data(kit, tabs, student_ids, members=None, cards=None):
     made = []
     members = members or {}
     cards = cards or {}
+    # 先驗 id 再建任何資料夾：id 會變成 data/ 底下的路徑，`../x` 這種一定要在碰檔案系統之前擋下
+    # （build_config 也會驗，但它跑在建骨架之後，來不及）。
+    bad = [x for x in
+           [c.get("id") for c in ((tabs.get("courses") or {}).get("list") or [])]
+           + [g.get("id") for g in ((tabs.get("business") or {}).get("groups") or [])]
+           + [st.get("id") for st in ((tabs.get("students") or {}).get("streams") or [])]
+           + list(student_ids) + list(members.keys()) + list(cards.keys())
+           if not valid_id(x)]
+    if bad:
+        lib.die("這些 id 不合法，不建資料夾：%s" % "、".join(str(b) for b in bad),
+                "id 只能用英數與 - _（會變成 data/ 底下的路徑與雲端文件名）。改掉再跑一次。")
     d = lib.data_dir()
     os.makedirs(d, exist_ok=True)
 
@@ -749,6 +885,9 @@ def main():
             "id_prefix": old.get("id_prefix", "S"),
             "firebase": old.get("firebase", {}),
             "email": old.get("email", {}),
+            # v2 也有家長通訊錄的欄位位置（col_id／col_parent1_email／col_parent2_email）——
+            # 不搬過來的話升級之後 parent_email.py 會用預設欄位位置抓錯欄。
+            "parents": old.get("parents", {}),
             # v2 的學生觀察檔就是 data/students/<代號>/observations.md，
             # 也就是 v3 的「導師班級學生紀錄」這一種類型——先勾它，舊資料才看得見。
             "students": {"enabled": True, "count": 0, "streams": ["homeroom"]},
@@ -758,7 +897,7 @@ def main():
         }
         print("讀到 v2 設定：%s（owner_email、firebase、email 會照搬）" % old_path)
         print("學生記錄先勾「導師班級學生紀錄」一種（＝v2 的 observations.md）；")
-        print("要個案追蹤、IEP、輔導晤談這些類型，之後跟 AI 說一聲重跑一次安裝就好。")
+        print("要個案追蹤、IEP、會談紀錄（SOAP）這些類型，之後跟 AI 說一聲重跑一次安裝就好。")
         print("業務記錄分頁預設先關著——之後跟 AI 說「我要開業務記錄」再重跑一次安裝就好。")
 
     ask = Asker(answers)
@@ -782,6 +921,13 @@ def main():
 
     made = build_data(kit, tabs, student_ids, members, cards)
     lib.ok("資料骨架：新建 %d 個檔（已存在的一個都沒動）" % len(made))
+    print("  資料庫模式：%s" % ("local——只放這台電腦，沒有 Firebase、沒有網頁、沒有帳單"
+                                if lib.is_local(kit) else
+                                "cloud——你自己的 Firebase 專案＋手機網頁"))
+    if lib.headless_on(kit):
+        print("  無頭交辦：開（LINE → %s）%s"
+              % (lib.headless_cfg(kit)["agent"],
+                 "" if lib.headless_cfg(kit)["line"]["owner_user_id"] else "，還沒配對"))
     if tabs.get("vertical"):
         v = lib.find_vertical(tabs["vertical"])
         print("  方案：%s（期末預設格式 %s；只是預設，report_pack.py --format 隨時可換）"
@@ -804,7 +950,10 @@ def main():
         print("  學生 %d 位（%s…）；姓名等你填進 data/roster.csv（那是唯一有真名的檔，"
               "第三欄是個案型類型列入誰）" % (len(student_ids), student_ids[0]))
 
-    rc = run("build_config.py")
+    # --allow-placeholders：免互動安裝（答案檔、CI、測試）常常拿範本值把流程跑完，
+    # 那種情境要看得到提醒但不該讓安裝中斷；真正的把關在老師自己跑
+    # `python3 scripts/build_config.py`（不加旗標＝範本值直接 exit 1）與 doctor.py。
+    rc = run("build_config.py", "--allow-placeholders")
     if rc != 0:
         write_progress({0, 3})
         lib.die("產生網頁設定與規則失敗（build_config.py 回傳 %d）。" % rc,
@@ -818,18 +967,44 @@ def main():
 
     # 第 4 步＝「產生設定與規則」，包含 firebase deploy——那一半不是這支腳本做的，
     # 所以這裡不標 done，只記一行備註。部署完由 AI 代理跑 `setup.py --mark-step 4`。
+    local = lib.is_local(kit)
     done = {0, 2, 3}
     if student_ids:
         done.add(6)
-    write_progress(done, notes={4: "設定已產生，規則尚未部署"})
+    notes = {4: "設定已產生，規則尚未部署"}
+    if local:
+        # 本機模式沒有 Firebase 專案、沒有規則要部署、沒有網站要上線——
+        # 那三步不是「還沒做」，是這台電腦上根本不存在。標成完成並寫明原因，
+        # 不然 AI 代理接手時會看到三個未完成，然後開始帶老師去申請 Firebase。
+        done |= {2, 4, 5}
+        notes.update({2: "本機模式，略過", 4: "本機模式，略過", 5: "本機模式，略過"})
+    if not lib.headless_on(kit):
+        done.add(11)
+        notes[11] = "本機模式，略過" if local else "沒有開無頭交辦"
+    write_progress(done, notes=notes)
 
     print("\n%s安裝精靈跑完了。%s接下來：" % (lib.GREEN, lib.RESET))
+    if local:
+        print("  本機模式：沒有要部署的東西，也沒有網頁。")
+        print("  1. 填名單：data/roster.csv（代號,姓名,類型）")
+        print("  2. 記一則試試看：跟你的 AI 說「幫我記一則」，它會用 "
+              "`%s scripts/append_record.py` 寫進 data/" % lib.PY)
+        print("  3. 備份夾對不對：`%s scripts/doctor.py`" % lib.PY)
+        print("  4. 備份跑一次：`%s scripts/backup.py`" % lib.PY)
+        print("  （哪天想要手機網頁：跟 AI 說一聲重跑安裝、第一題改選雲端，既有紀錄不會動。）")
+        print("進度記在 setup/progress.json（AI 代理接手前先讀它）。")
+        return
     pid = (kit.get("firebase") or {}).get("project_id") or "<你的專案id>"
     print("  1. 部署安全規則：firebase deploy --only firestore:rules --project %s" % pid)
     print("     部署成功後標記進度：%s scripts/setup.py --mark-step 4" % lib.PY)
     print("  2. 上線：firebase deploy --only hosting --project %s" % pid)
     print("  3. 填名單：data/roster.csv（代號,姓名,類型），然後 `%s scripts/sync.py --dry-run` 看一次" % lib.PY)
     print("  4. 備份夾對不對：`%s scripts/doctor.py`" % lib.PY)
+    if lib.headless_on(kit):
+        print("  5. 無頭交辦（第 11 步）：照 docs/HEADLESS.md 開 LINE 頻道、設兩個環境變數，再")
+        print("     firebase deploy --only storage --project %s" % pid)
+        print("     firebase deploy --only functions:line-relay --project %s" % pid)
+        print("     最後 `%s scripts/headless.py --status` 應該說「配對：好了」。" % lib.PY)
     if doctor_rc:
         print("\n%s健檢有項目沒過（上面 ✗ 的部分）——照每一項的「→」修完再往下。%s" % (lib.YELLOW, lib.RESET))
     print("進度記在 setup/progress.json（AI 代理接手前先讀它）。")

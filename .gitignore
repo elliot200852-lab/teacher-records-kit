@@ -4,6 +4,8 @@
 # 你的設定（含 email / 專案 id / Drive 夾 id）；範本是 config/*.example.json
 config/kit.json
 config/tabs.json
+# setup.py 重跑時留下的舊設定備份（一樣含 email 與 Firebase 設定）
+config/*.bak
 # v2 舊設定（老師從 v2 升上來時放在 repo 根目錄，setup.py --upgrade 會把它轉成
 # config/kit.json）。v2 的格式長什麼樣看 docs/legacy-config.example.yaml。
 config.yaml
@@ -39,6 +41,7 @@ serviceAccount*.json
 site/js/kit-config.js
 site/js/firebase-config.js
 firestore.rules
+storage.rules
 # 已寄/略過紀錄
 .parent-emails-handled.tsv
 # 同步狀態

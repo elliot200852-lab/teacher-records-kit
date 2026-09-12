@@ -138,7 +138,9 @@ def _load_json(path, what, fix):
     if not os.path.exists(path):
         die("找不到 %s：%s" % (what, path), fix)
     try:
-        with open(path, encoding="utf-8") as f:
+        # utf-8-sig：Windows 的記事本與 Excel 存出來的 JSON 前面會多一個 BOM，
+        # 用 utf-8 讀會在第一個字元就炸掉（而老師看到的檔案內容明明是對的）。
+        with open(path, encoding="utf-8-sig") as f:
             return _strip_comments(json.load(f))
     except json.JSONDecodeError as e:
         die("%s 不是合法的 JSON（第 %d 行第 %d 欄：%s）" % (what, e.lineno, e.colno, e.msg),
@@ -220,6 +222,48 @@ def load_custom_format():
                       "照 templates/report-format.custom.example.json 的格式寫。")
 
 
+# ── 兩個可選：資料庫模式與無頭交辦 ──────────────────────────────────────
+# 這兩個開關跟三個分頁一樣是「老師自己勾、零預設」，正本都在 config/kit.json。
+MODES = ("cloud", "local")
+HEADLESS_TOOLS = ("line",)
+HEADLESS_TIMEOUT_DEFAULT = 1800      # 秒：AI 代理跑一則交辦最多多久（超過就連子孫行程一起殺）
+
+
+def mode(kit):
+    """資料庫模式：cloud＝自己的 Firebase 專案＋手機網頁；local＝完全不碰雲端，只有 data/*.md。
+
+    沒寫（v3.0.0-alpha.4 之前的設定）一律當 cloud——那是原本的行為，升級不能默默改掉。
+    """
+    m = (kit.get("mode") or "cloud").strip().lower()
+    return m if m in MODES else "cloud"
+
+
+def is_local(kit):
+    return mode(kit) == "local"
+
+
+def headless_cfg(kit):
+    """無頭交辦設定（正規化過，一定有全部的鍵）。沒設就是「沒開」。"""
+    h = dict(kit.get("headless") or {})
+    line = dict(h.get("line") or {})
+    return {
+        "enabled": bool(h.get("enabled")),
+        "tool": (h.get("tool") or "line").strip().lower(),
+        "agent": (h.get("agent") or "").strip().lower(),
+        "timeout_sec": int(h.get("timeout_sec") or HEADLESS_TIMEOUT_DEFAULT),
+        "line": {
+            "channel_secret_env": (line.get("channel_secret_env") or "KIT_LINE_CHANNEL_SECRET").strip(),
+            "channel_token_env": (line.get("channel_token_env") or "KIT_LINE_CHANNEL_TOKEN").strip(),
+            "owner_user_id": (line.get("owner_user_id") or "").strip(),
+        },
+    }
+
+
+def headless_on(kit):
+    """無頭交辦開著嗎。本機模式沒有雲端可以收件，一律當關著。"""
+    return bool(headless_cfg(kit)["enabled"]) and not is_local(kit)
+
+
 def project_id(kit):
     pid = (kit.get("firebase") or {}).get("project_id", "")
     if not pid or pid.startswith("your-"):
@@ -242,6 +286,18 @@ def fb_base(kit):
             % project_id(kit))
 
 
+def storage_bucket(kit):
+    """Cloud Storage 的 bucket 名（無頭交辦的錄音放那裡）。沒填就照 Firebase 現在的預設推。"""
+    fb = kit.get("firebase") or {}
+    b = (fb.get("storage_bucket") or "").strip()
+    if b:
+        return b.replace("gs://", "").rstrip("/")
+    return "%s.firebasestorage.app" % project_id(kit)
+
+
+ID_WIDTH = 2                       # 代號的數字補到幾位（S-03、6B-01）
+
+
 def id_prefix(kit):
     """代號前綴，正規化成不帶連字號（S-01 的 S）。"""
     return (kit.get("id_prefix") or "S").rstrip("-") or "S"
@@ -249,7 +305,7 @@ def id_prefix(kit):
 
 def student_id(kit, n):
     """把座號／序號變成代號：3 → S-03。"""
-    return "%s-%02d" % (id_prefix(kit), int(n))
+    return "%s-%0*d" % (id_prefix(kit), ID_WIDTH, int(n))
 
 
 # ── 記錄區塊 ────────────────────────────────────────────────────────────
@@ -396,7 +452,7 @@ def parse_file(path):
     """整個 md 檔 → (lines, blocks)。block 多帶 start/end 行號，供原地替換。"""
     if not os.path.exists(path):
         return [], []
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8-sig") as f:        # 帶 BOM 的 md（記事本存的）也讀得到
         lines = f.read().split("\n")
     starts = [i for i, l in enumerate(lines) if DATE_RE.match(l)]
     blocks = []
@@ -412,7 +468,7 @@ def parse_file(path):
 def file_header(kind, ident, label="", stream_label=""):
     """新建一個記錄檔時的檔頭（取 templates/ 的範本，砍掉範例區塊）。
 
-    學生／班級的檔頭依記錄類型的範圍換範本：`scope:case` 的類型（個案追蹤、IEP、輔導晤談）
+    學生／班級的檔頭依記錄類型的範圍換範本：`scope:case` 的類型——個案追蹤、IEP、會談紀錄（SOAP）——
     用 case-records.example.md（有欄位列說明），其餘用 observation.example.md。
     """
     tpl = {"students": "observation.example.md",
@@ -434,7 +490,7 @@ def file_header(kind, ident, label="", stream_label=""):
 
 
 # ── 學生記錄類型（stream）────────────────────────────────────────────────
-# 學生分頁再分「記錄類型」：導師班級學生紀錄、任課老師學生紀錄、個案追蹤、IEP、輔導晤談…
+# 學生分頁再分「記錄類型」：導師班級學生紀錄、任課老師學生紀錄、個案追蹤、IEP、會談紀錄（SOAP）…
 # 每一種各有自己的欄位、分類詞與「哪些學生在裡面」（scope）。安裝時全部由老師勾選，沒有預設。
 SCOPES = ("class", "case")
 LEGACY_STREAM = {"id": "homeroom", "label": "導師班級學生紀錄", "scope": "class",
@@ -586,7 +642,13 @@ def targets(kit, tabs, data_root=None):
       · business  ← tabs.business.groups 勾選的組
 
     同一位學生的所有類型共用 Firestore 集合 `students/<id>/records`，靠文件裡的
-    `stream` 欄位分流；本機則是一種類型一個檔。
+    `stream` 欄位分流；本機則是一種類型一個檔。班級整體觀察也一樣——每一種 class 型
+    類型共用 `class-observations`。
+
+    **這代表文件 id（＝rid）只在單一檔案裡唯一是不夠的**：同一天在兩種類型各記一則，
+    兩邊都會取到 `2026-09-10` 這個 id，推上雲端時後到的那一則撞成 ALREADY_EXISTS。
+    取號的地方（`append_record.next_rid`）因此要把「同集合的兄弟檔」一起算進來——
+    文件 id 維持「＝日期（＋時間）」，安全規則與網頁新增的那條路才不用跟著改。
     """
     d = data_root or data_dir()
     out = []
@@ -678,11 +740,15 @@ ROSTER_HEADER = "代號,姓名,類型"
 
 
 def load_roster_rows(kit=None, data_root=None):
-    """data/roster.csv（代號,姓名,類型）→ {代號: {"name": 姓名, "streams": [類型 id…]}}。
+    """data/roster.csv（代號,姓名,類型,…）→ {代號: {"name", "streams", "extra"}}。
 
     第三欄是「這位學生列入哪些個案型記錄類型」，分號分隔（例如 `case;iep`），可以空著；
     `scope:class` 的類型（導師班級、任課老師）不必列，它們自動包含名冊全部學生。
     姓名還沒填也照樣收——名冊常常先有代號、名字慢慢補。
+    第四欄之後是老師自己加的欄位（學號、性別、家長信箱…），原樣收進 extra 再原樣寫回去。
+
+    代號一律補零到 ID_WIDTH 位：老師手打的 `S-1` 跟程式產生的 `S-01` 必須是同一個人，
+    不然那一列的姓名對不上，PII 閘與網頁顯示都會靜靜地漏掉他。
     """
     path = roster_path(data_root)
     prefix = id_prefix(kit or {})
@@ -696,17 +762,23 @@ def load_roster_rows(kit=None, data_root=None):
             first = row[0].strip()
             if i == 0 and not re.search(r"\d", first):
                 continue                                   # 標頭列
-            if re.match(r"^\D+-\d+$", first):
-                sid = first
+            m = re.match(r"^(\D+)-0*(\d+)$", first)
+            if m:
+                sid = "%s-%s" % (m.group(1), m.group(2).zfill(ID_WIDTH))
             else:
                 num = re.sub(r"\D", "", first)
                 if not num:
                     continue
-                sid = "%s-%s" % (prefix, num.zfill(2))
+                sid = "%s-%s" % (prefix, num.lstrip("0").zfill(ID_WIDTH))
             name = row[1].strip() if len(row) > 1 else ""
             streams = [s.strip() for s in re.split(r"[;；,，]", row[2]) if s.strip()] \
                 if len(row) > 2 else []
-            out[sid] = {"name": name, "streams": streams}
+            if sid in out:
+                # 靜默覆蓋等於少掉一位學生（兩列寫成 S-1 與 S-01 是最常見的寫法）
+                err("data/roster.csv 有重複的代號 %s（第 %d 列蓋掉了前面那一列）" % (sid, i + 1),
+                    "打開 data/roster.csv，把重複的那一列刪掉或改成別的代號"
+                    "（`S-1` 與 `S-01` 是同一個代號）。")
+            out[sid] = {"name": name, "streams": streams, "extra": list(row[3:])}
     return out
 
 
@@ -719,15 +791,28 @@ def load_roster(kit=None, data_root=None):
 
 
 def save_roster_rows(rows, data_root=None):
-    """把 {代號: {name, streams}} 寫回 data/roster.csv（三欄、代號排序、含表頭）。"""
+    """把 {代號: {name, streams, extra}} 寫回 data/roster.csv（代號排序、含表頭）。
+
+    **只重寫前三欄**：第四欄之後是老師自己加的欄位（學號／性別／家長信箱…），
+    連同表頭上多出來的欄位名一起原樣保留——同步回寫第三欄不該把它們洗掉。
+    寫 utf-8-sig（BOM）：名冊是唯一老師會用 Excel 打開的檔，沒有 BOM 的話
+    zh-TW 版 Excel 會把中文姓名讀成亂碼。
+    """
     path = roster_path(data_root)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="") as f:
+    header = ROSTER_HEADER.split(",")
+    if os.path.exists(path):
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            first = next(csv.reader(f), [])
+        if first and not re.search(r"\d", (first[0] or "").strip()):
+            header = header + list(first[3:])             # 表頭多出來的欄位名照原樣留著
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f, lineterminator="\n")            # 三個平台都寫 LF（Excel 也吃）
-        w.writerow(ROSTER_HEADER.split(","))
+        w.writerow(header)
         for sid in sorted(rows):
             r = rows[sid] or {}
-            w.writerow([sid, r.get("name", ""), ";".join(r.get("streams") or [])])
+            w.writerow([sid, r.get("name", ""), ";".join(r.get("streams") or [])]
+                       + list(r.get("extra") or []))
     return path
 
 
@@ -945,11 +1030,15 @@ def send_email(kit, to_list, subject, body):
     pw = os.environ.get("KIT_SMTP_APP_PASSWORD", "")
     if not user or not pw:
         die("寄信需要 config/kit.json 的 email.smtp_user，加上環境變數 KIT_SMTP_APP_PASSWORD。",
-            "應用程式密碼在 Google 帳號 → 安全性 → 兩步驟驗證 → 應用程式密碼；"
-            "拿到後 `export KIT_SMTP_APP_PASSWORD='那串密碼'` 再跑一次（別寫進任何檔案）。")
+            "應用程式密碼在 Google 帳號 → 安全性 → 兩步驟驗證 → 應用程式密碼；拿到後設環境變數"
+            "再跑一次（別寫進任何檔案）：終端機（bash／zsh）打 "
+            "`export KIT_SMTP_APP_PASSWORD='那串密碼'`；PowerShell 打 "
+            "`$env:KIT_SMTP_APP_PASSWORD = '那串密碼'`。")
     msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"], msg["From"], msg["To"] = subject, user, ", ".join(to_list)
-    with smtplib.SMTP("smtp.gmail.com", 587) as s:
+    # timeout：學校網路常把 587 直接丟掉（不回 RST），沒有 timeout 的話這裡會永遠掛著，
+    # 排程跑的那一支就變成一個永不結束的行程。
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as s:
         s.starttls(context=ssl.create_default_context())
         s.login(user, pw)
         s.sendmail(user, to_list, msg.as_string())

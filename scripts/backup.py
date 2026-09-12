@@ -185,7 +185,7 @@ def main():
     if export is None and not a.no_export:
         lib.warn("這次只備本機：%s" % why)
 
-    stamp = time.strftime("%Y-%m-%d-%H%M")
+    stamp = time.strftime("%Y-%m-%d-%H%M%S")     # 帶秒：同一分鐘跑兩次不會蓋掉前一份
     zip_path = lib.rpath("backups", "teacher-records-%s.zip" % stamp)
     n = make_zip(zip_path, data_root, export)
     size = os.path.getsize(zip_path)
@@ -196,9 +196,11 @@ def main():
              "md5": digest, "bytes": size, "files": n,
              "export": export is not None, "drive": None}
     mode = (kit.get("drive") or {}).get("mode", "desktop")
+    last_error = ""
     if not a.local_only:
         info, err = (to_desktop if mode == "desktop" else to_gws)(kit, zip_path)
         if info is None:
+            last_error = "雲端備份沒成功：%s" % err
             lib.err("雲端備份沒成功（本機那份是好的）：%s" % err,
                     "desktop 模式：確認「Google 雲端硬碟」桌面程式開著、登入了，"
                     "而且 drive.desktop_dir 指到同步夾裡真的存在的資料夾。"
@@ -223,7 +225,14 @@ def main():
     if not a.local_only and export is not None:
         tok = lib.token(quiet=True)
         if tok:
-            lib.touch_status(lib.fb_base(kit), tok, "lastBackupAt")
+            # lastError 一起寫：備份上不了雲端硬碟時，網頁狀態列要說得出原因，
+            # 不能只更新「上次備份時間」讓它看起來一切正常（成功時寫空字串＝清掉上次的錯）。
+            fields = {"lastBackupAt": lib.now_iso(), "lastError": last_error}
+            try:
+                lib.http("PATCH", lib.fb_base(kit), "meta/status", tok, fields,
+                         mask=list(fields), raise_errors=True)
+            except Exception:
+                pass                     # 狀態列更新失敗不影響備份本身
 
     if not a.quiet:
         print("\n備份記錄寫進 data/backups.jsonl；要確認三處（本機／網站／Drive）對不對得上：")

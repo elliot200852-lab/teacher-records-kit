@@ -1,0 +1,14 @@
+{
+  "name": "trk-line-relay",
+  "version": "1.0.0",
+  "description": "Teacher Records Kit —— LINE 無頭交辦的收件 relay（部署到老師自己的 Firebase 專案）",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^6.1.0"
+  }
+}

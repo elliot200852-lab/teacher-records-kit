@@ -11,6 +11,9 @@
   python3 scripts/install_tools.py              逐項安裝，已裝好的自動跳過
   python3 scripts/install_tools.py --dry-run    只印每一步「會做什麼」，不實際安裝或修改任何東西
   python3 scripts/install_tools.py --with-gws   額外裝 googleworkspace-cli（備份走 gws 進階模式才需要）
+  python3 scripts/install_tools.py --agent claude
+                                                順便裝老師訂的那一家 AI 代理 CLI（claude／codex／gemini）；
+                                                這台電腦已經有 Python 的話，不必走 setup/bootstrap.* 也能裝
   python3 scripts/install_tools.py --json       結果用 JSON 印（給 AI 代理讀）
   python3 scripts/install_tools.py --remove-portable
                                                 刪掉 kit 自己下載的可攜工具（Windows／Linux 的 whisper、ffmpeg）；
@@ -22,6 +25,9 @@
            直接下載官方預編譯檔到 %LOCALAPPDATA%\\teacher-records-kit\\tools，不需要管理員權限
   Linux    apt-get ＋ npm；whisper.cpp 下載官方預編譯檔；gcloud 請照官方說明裝
 
+什麼都還沒有的全新電腦（連 Python、git、AI 代理都沒有）請先跑 setup/bootstrap.sh（macOS／Linux）
+或按兩下 setup\\bootstrap.cmd（Windows）——那一層裝完 Python 之後就是回頭跑這一支。
+
 裝完之後：python3 scripts/doctor.py 逐項健檢。
 零第三方相依：只用 Python 標準庫與系統既有指令。
 """
@@ -29,6 +35,7 @@ import os
 import sys
 import json
 import shutil
+import hashlib
 import tarfile
 import zipfile
 import argparse
@@ -66,12 +73,16 @@ def run_visible(argv, cwd=None):
 
 
 # ── 下載可攜工具 ──────────────────────────────────────────────────────────
-def download(url, dest):
-    """下載到 dest（先寫 .part 再改名，中斷不會留半個檔）。印百分比。"""
+def download(url, dest, sha256=None):
+    """下載到 dest（先寫 .part 再改名，中斷不會留半個檔）。印百分比。
+
+    sha256 有給就一定要對得上——對不上是「上游換了檔案」，比下載失敗嚴重：
+    連 .part 都刪掉、直接丟 ToolError，不解壓、不留任何殘骸。"""
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     tmp = dest + ".part"
     print("  下載：%s" % url)
     req = urllib.request.Request(url, headers={"User-Agent": "teacher-records-kit/%s" % lib.version()})
+    h = hashlib.sha256()
     try:
         with urllib.request.urlopen(req, timeout=60) as resp, open(tmp, "wb") as out:
             total = int(resp.headers.get("Content-Length") or 0)
@@ -81,6 +92,7 @@ def download(url, dest):
                 if not chunk:
                     break
                 out.write(chunk)
+                h.update(chunk)
                 done += len(chunk)
                 if total:
                     sys.stdout.write("\r  %5.1f%%　%.0f／%.0f MB" % (done * 100.0 / total, done / 1e6, total / 1e6))
@@ -90,6 +102,13 @@ def download(url, dest):
         if os.path.exists(tmp):
             os.remove(tmp)
         raise hostos.ToolError("下載失敗：%s（%s）" % (url, e))
+    got = h.hexdigest()
+    if sha256 and got.lower() != str(sha256).lower():
+        os.remove(tmp)
+        raise hostos.ToolError(
+            "下載的檔跟預期的不一樣（sha256 對不上）：%s；預期 %s、實得 %s。"
+            "這通常表示上游換掉了那個檔（或下載被動過手腳）。先別裝，把這一段回報作者。"
+            % (url, sha256, got))
     os.replace(tmp, dest)
     return dest
 
@@ -129,7 +148,7 @@ def find_file(root, name):
 def install_download(key):
     """把 DOWNLOADS[key] 裝進 tools_dir()/<sub>/：下載 → 解壓 → 找到執行檔那一層 → 攤平到目的夾。
     回傳執行檔絕對路徑。"""
-    url, exe_name, sub = hostos.DOWNLOADS[key]
+    url, exe_name, sub, sha256 = hostos.download_entry(key)
     dest_dir = os.path.join(hostos.tools_dir(), sub)
     if DRY:
         print("  （--dry-run，不執行）將會下載 %s 並解壓到 %s" % (url, dest_dir))
@@ -137,7 +156,7 @@ def install_download(key):
     stage = os.path.join(hostos.tools_dir(), "_stage-" + sub)
     archive = os.path.join(hostos.tools_dir(), "_dl-" + os.path.basename(url.split("?")[0]))
     try:
-        download(url, archive)
+        download(url, archive, sha256)
         extract(archive, stage)
         found = find_file(stage, exe_name)
         if not found:
@@ -180,9 +199,26 @@ PM_HELP = {
 }
 
 
-def do_install(name, spec):
-    """照 TOOLS 表的方式裝一個工具。回 (rc, note)。rc=0 成功、rc=None 手動。"""
-    method, arg = spec.get(OS, ("manual", ""))
+# winget 這幾個退出碼其實是「沒事」，不能當失敗。它們是同一個 0x8A15xxxx 家族、
+# 在 Python 這邊會拿到負數（0x8A15002B 與 -1978335189 是同一個值），所以先 & 0xFFFFFFFF 正規化再比：
+#   0x8A15002B UPDATE_NOT_APPLICABLE      已經是最新版，沒有可套用的更新
+#   0x8A150061 PACKAGE_ALREADY_INSTALLED  已經裝過了
+#   3010       ERROR_SUCCESS_REBOOT_REQUIRED  裝好了，只是要重開機（VC++ 執行階段常回這個）
+WINGET_OK_CODES = (0x8A15002B, 0x8A150061)
+
+
+def winget_rc_is_ok(rc):
+    """winget 的這個退出碼算不算成功。"""
+    try:
+        rc = int(rc)
+    except (TypeError, ValueError):
+        return False
+    return rc == 0 or rc == 3010 or (rc & 0xFFFFFFFF) in WINGET_OK_CODES
+
+
+def install_via(method, arg):
+    """跑「一種安裝方式」。工具（TOOLS）與 AI 代理（AGENT_CLIS）共用這一支。
+    回 (rc, note)：rc=0 成功、rc=None 表示這台電腦沒有這條路（要手動）。"""
     if method == "brew" or method == "brew-cask":
         if not need_pm("brew", PM_HELP["brew"]):
             return None, "缺 Homebrew"
@@ -195,10 +231,8 @@ def do_install(name, spec):
         argv = ["winget", "install", "-e", "--id", arg, "--silent",
                 "--accept-package-agreements", "--accept-source-agreements"]
         rc = run_visible(argv)
-        if rc not in (0, None) and not DRY:
-            # winget 的「已經是最新版」不算失敗
-            if rc in (-1978335189, 0x8A15002B):
-                rc = 0
+        if rc not in (0, None) and not DRY and winget_rc_is_ok(rc):
+            rc = 0
         return rc, ""
     if method == "apt":
         if not need_pm("apt-get", PM_HELP["apt-get"]):
@@ -210,6 +244,27 @@ def do_install(name, spec):
             print("  → %s" % PM_HELP["npm"])
             return None, "缺 npm"
         return run_visible(["npm", "install", "-g", arg]), ""
+    if method == "sh-installer":
+        if not hostos.exe("curl") or not hostos.exe("bash"):
+            print("  %s✗ 這台電腦沒有 curl 或 bash%s" % (lib.RED, lib.RESET))
+            return None, "缺 curl／bash"
+        return run_visible(["bash", "-c", "curl -fsSL %s | bash" % arg]), ""
+    if method == "ps-installer":
+        if not hostos.exe("powershell"):
+            print("  %s✗ 找不到 powershell%s" % (lib.RED, lib.RESET))
+            return None, "缺 powershell"
+        return run_visible(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                            "-Command", "irm %s | iex" % arg]), ""
+    if method == "skip":
+        return 0, "這個平台不需要"
+    return None, "手動"
+
+
+def do_install(name, spec):
+    """照 TOOLS 表的方式裝一個工具。回 (rc, note)。rc=0 成功、rc=None 手動。"""
+    method, arg = spec.get(OS, ("manual", ""))
+    if method in ("brew", "brew-cask", "winget", "apt", "npm", "sh-installer", "ps-installer"):
+        return install_via(method, arg)
     if method == "download":
         key = hostos.download_key(arg)
         if not key:
@@ -231,11 +286,7 @@ def do_install(name, spec):
 def present(name, spec):
     """這個工具現在有沒有（＋版本夠不夠）。回 (ok, detail)。"""
     if name == "vcredist":
-        if OS != "win":
-            return True, "非 Windows 不需要"
-        sysroot = os.environ.get("SystemRoot", r"C:\Windows")
-        p = os.path.join(sysroot, "System32", "vcruntime140.dll")
-        return os.path.exists(p), p if os.path.exists(p) else "找不到 vcruntime140.dll"
+        return hostos.vcredist_present()             # 兩個 dll 都要驗；正本在 hostos，doctor.py 問同一支
     path = hostos.exe(name)
     if not path:
         return False, "找不到指令 %s" % name
@@ -250,11 +301,58 @@ def present(name, spec):
     return True, path
 
 
+def install_agent(agent):
+    """裝老師訂的那一家 AI 代理 CLI（正本＝hostos.AGENT_CLIS）。回結果 dict（給 --json 用）。
+    跟工具一樣的規矩：已經有的跳過、失敗不重試、主要方式不成就走備案，再不成印官方網址。"""
+    spec = hostos.AGENT_CLIS[agent]
+    print("── AI 代理：%s" % agent)
+    print("   為什麼需要：%s——它就是待會兒帶老師把整套裝起來的那一個。" % spec["label"])
+    path = hostos.exe(spec["cmd"])
+    if path:
+        print("  ✓ 已就緒，跳過　%s%s%s" % (lib.DIM, path, lib.RESET))
+        if not DRY:
+            return {"status": "ok", "detail": path, "launch": hostos.agent_launch(agent)}
+
+    method, arg = hostos.agent_method(agent)
+    fb = hostos.agent_fallback(agent)
+    line = hostos.method_line(method, arg)
+    if DRY:
+        print("  （--dry-run，不執行）沒裝的話會跑：%s"
+              % (line or "（這個平台沒有自動安裝的路，照官方說明裝：%s）" % spec.get("url", "")))
+        if fb:
+            print("  （失敗時的備案：%s）" % hostos.method_line(*fb))
+        print("  裝完之後這樣叫它：%s" % hostos.agent_launch(agent))
+        return {"status": "ok" if path else "would-install", "detail": path or line,
+                "launch": hostos.agent_launch(agent)}
+
+    rc, note = install_via(method, arg)
+    # 備案**只走一次**：rc 是 None（這台電腦沒有那條路）與 rc 非 0（跑了但失敗）都算「主要方式沒成」，
+    # 合在同一個分支裡判——寫成兩個 if 的話同一支備案安裝程式會被連跑兩次。
+    if rc != 0 and fb:
+        print("  主要方式沒成（%s），改走備案……" % ("這台電腦沒有那條路" if rc is None else "回傳 %s" % rc))
+        rc, note = install_via(*fb)
+
+    hostos.refresh_path()
+    path = hostos.exe(spec["cmd"])
+    if path:
+        print("  ✓ 裝好了　%s%s%s" % (lib.DIM, path, lib.RESET))
+        if spec.get("note"):
+            print("  %s" % spec["note"])
+        return {"status": "installed", "detail": path, "launch": hostos.agent_launch(agent)}
+    print("  %s✗ 沒裝成（%s）%s" % (lib.RED, note or ("安裝指令回傳 %s" % rc), lib.RESET))
+    print("  → 重開一個新的終端機視窗再打一次 `%s`；還是沒有就照官方說明裝：%s"
+          % (spec["cmd"], spec.get("url", "")))
+    return {"status": "failed", "detail": note, "rc": rc, "url": spec.get("url", ""),
+            "launch": hostos.agent_launch(agent)}
+
+
 def main():
     global DRY
     ap = argparse.ArgumentParser(description="裝齊 teacher-records-kit 需要的外部工具（macOS／Windows／Linux）")
     ap.add_argument("--dry-run", action="store_true", help="只印會做什麼，不實際安裝")
     ap.add_argument("--with-gws", action="store_true", help="額外裝 googleworkspace-cli（備份 gws 進階模式才要）")
+    ap.add_argument("--agent", choices=hostos.AGENT_ORDER,
+                    help="順便裝這一家的 AI 代理 CLI（claude／codex／gemini）")
     ap.add_argument("--json", action="store_true", dest="as_json", help="結果用 JSON 印（給 AI 代理讀）")
     ap.add_argument("--remove-portable", action="store_true", help="刪掉 kit 自己下載的可攜工具")
     a = ap.parse_args()
@@ -329,11 +427,20 @@ def main():
                   % (hostos.PY, spec.get("url", "")))
             results[name] = {"status": "failed", "detail": detail2, "rc": rc, "url": spec.get("url", "")}
 
+    agent = None
+    if a.agent:
+        print()
+        agent = install_agent(a.agent)
+
     failed = [n for n, r in results.items() if r["status"] == "failed"]
     manual = [n for n, r in results.items() if r["status"] == "manual"]
+    if agent and agent["status"] == "failed":
+        failed.append("agent:" + a.agent)
     if a.as_json:
         print(json.dumps({"os": OS, "python_cmd": hostos.PY, "results": results,
-                          "failed": failed, "manual": manual}, ensure_ascii=False, indent=2))
+                          "failed": failed, "manual": manual,
+                          "agent": dict(agent, name=a.agent) if agent else None},
+                         ensure_ascii=False, indent=2))
     else:
         print()
         print("完成：就緒 %d、剛裝好 %d、要手動 %d、失敗 %d"
@@ -341,6 +448,8 @@ def main():
                  sum(1 for r in results.values() if r["status"] == "installed"), len(manual), len(failed)))
         if manual:
             print("要手動裝的：%s（每一項上面都印了官方網址；裝完重開終端機再跑健檢）" % "、".join(manual))
+        if agent:
+            print("AI 代理 %s：%s" % (a.agent, agent["status"]))
         print("下一步：%s scripts/doctor.py 逐項健檢" % hostos.PY)
     sys.exit(1 if failed else 0)
 

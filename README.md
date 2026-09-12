@@ -11,6 +11,50 @@
 
 ---
 
+## 從一台什麼都沒裝的電腦開始（三步）
+
+沒開過終端機、沒裝過任何工具、連 AI 代理都還沒有——都沒關係。
+下面這三步會把地基鋪好，**包括幫你把 AI 代理本身裝起來**；之後就是它帶你做，你只要回答問題。
+
+### ① 取得這個資料夾
+
+在這個 repo 的 GitHub 頁面按綠色的 **Code → Download ZIP**，下載後解壓縮，
+放在一個好找、路徑短的地方（macOS 例如 `~/teacher-records-kit`，
+Windows 例如 `C:\Users\你的名字\teacher-records-kit`；**Windows 不要放在 OneDrive 裡面**）。
+會用 git 的話 `git clone` 也行。
+這是私有 repo：要先收下作者寄給你的協作者邀請、並登入 GitHub，才看得到這個頁面。
+
+### ② 跑一次 bootstrap
+
+它會裝 git、Python、Node.js，問你訂的是哪一家 AI 並把那一家的 CLI 裝好，
+最後把其餘工具裝齊、跑一次健檢。
+
+| 你的電腦 | 怎麼做 |
+|---|---|
+| **macOS** | 打開「終端機」（在「應用程式 → 工具程式」裡），輸入 `cd ` 空一格，把資料夾拖進視窗、按 Enter；再貼上這一行：`bash setup/bootstrap.sh` |
+| **Windows** | 打開資料夾裡的 `setup`，對 **`bootstrap.cmd`** 按兩下（會跳出黑色視窗自己跑；中途問「要不要允許」按「是」） |
+| Linux | `bash setup/bootstrap.sh` |
+
+想先看它會做什麼、一個字都不裝：加 `--dry-run`（Windows：`bootstrap.ps1 -DryRun`）。
+已經指定好要哪一家可以直接寫：`bash setup/bootstrap.sh --agent claude`。
+
+### ③ 重開終端機，叫 AI 接手
+
+**關掉終端機視窗、重新開一個新的**（剛裝好的程式要新視窗才叫得到），
+`cd` 到這個資料夾，然後看你裝的是哪一家，貼對應那一行：
+
+| 你裝的 | 貼這一行 |
+|---|---|
+| Claude Code | `claude "請完整讀 AGENTS.md，然後帶我從步驟 0 開始安裝"` |
+| OpenAI Codex CLI | `codex "請完整讀 AGENTS.md，然後帶我從步驟 0 開始安裝"` |
+| Gemini CLI | `gemini -i "請完整讀 AGENTS.md，然後帶我從步驟 0 開始安裝"` |
+
+第一次它會請你登入你自己的訂閱帳號（Claude／ChatGPT／Google），登入完就開始。
+bootstrap 的每一步在 `docs/PLATFORMS.md` 的「bootstrap 層」有完整說明；
+已經有 Python 的電腦可以跳過這一層，直接看下面的「怎麼開始」。
+
+---
+
 ## 給三種人的三個方案
 
 安裝的第一句話是**「你最像哪一種？」**——選完，AI 會把那個方案通常會勾的記錄類型、
@@ -83,6 +127,40 @@
 
 ---
 
+## 兩個可選：本機模式／無頭交辦
+
+跟三個分頁一樣——**全部由你勾選，一個都不預設打開**。安裝精靈會問你，你說要才有。
+
+### ① 資料庫模式：雲端，還是只放這台電腦
+
+安裝精靈的**第一題**就是這個。
+
+- **雲端（cloud，預設）** — 開一個你自己的 Firebase 專案。手機上有一頁網頁可以隨手記，
+  電腦與網頁雙向同步。要申請專案、填六個設定值，一般用量在免費額度內。
+- **只放這台電腦（local）** — 完全不碰雲端：沒有 Firebase、沒有網頁、沒有帳單、沒有要填的值。
+  紀錄就是 `data/` 底下的 md 檔，全部透過 AI 代理與腳本操作。
+
+**本機模式不是閹割版**：備份、匯出 Word／PDF、期末素材包、家長信、錄音轉逐字稿、台帳對帳全部照常，
+安裝精靈會自動跳過所有跟 Firebase 有關的題目與步驟。少掉的只有「手機上那一頁網頁」與「雙向同步」。
+
+學校網路鎖得緊、不想申請任何雲端帳號、或就是覺得學生紀錄不該離開自己的電腦——選這個。
+**哪天想換也不用重來**：跟 AI 說一聲重跑一次安裝、第一題改選雲端就好，既有紀錄一則都不會動
+（第一次同步會把它們全部推上去）。
+
+### ② 無頭交辦：在手機上講一段話，它自己變成一則紀錄
+
+你對**自己的 LINE 官方帳號**講一段話（或打一行字），電腦醒著的時候會自動把它整理成一則紀錄，
+再回你一句「記好了什麼」。放學路上講完就結束——不用回到電腦前、不用打開終端機、不用等在旁邊。
+
+錄音那條路（丟進 `inbox/`）已經很省力，這一項拿掉的是最後那三個動作。
+
+要先知道：**要 Firebase 的 Blaze 方案**（隨用隨付，這個用量幾乎一定是 0 元，但要綁信用卡）、
+**只有雲端模式有**、而且**語音只會經過你自己的 Firebase 專案**，逐字稿一樣在你自己的電腦上跑。
+
+完整說明（LINE 頻道怎麼開、金鑰怎麼放、配對、額度、卡住怎麼查）→ **`docs/HEADLESS.md`**。
+
+---
+
 ## 獨立性聲明（先講清楚這件事）
 
 - **一切帳號都是你自己的。** Google 帳號、Firebase 專案、雲端硬碟、網站網址——全部開在你名下，帳單也是你的（一般老師的用量在免費額度內）。
@@ -98,12 +176,14 @@
 |---|---|
 | 電腦 | **macOS 或 Windows 10／11**（Linux 盡力支援；WSL 不行）——細節見 `docs/PLATFORMS.md` |
 | Google 帳號 | 一個能自己開 Firebase 專案的帳號。學校配發的帳號常被管理員鎖住，判斷方法與替代做法寫在 `AGENTS.md` 的前置條件那一節 |
-| AI 代理 | Claude Code、OpenAI Codex CLI（ChatGPT）或 Gemini CLI 其中一個（見下面「支援的 AI 代理」）。完全沒用過的話先讀 `docs/GUIDE.md` |
+| AI 代理 | Claude Code、OpenAI Codex CLI（ChatGPT）或 Gemini CLI 其中一個（見下面「支援的 AI 代理」）。**還沒裝的話 `setup/bootstrap.sh`／`setup\bootstrap.cmd` 會幫你裝**；完全沒用過的話先讀 `docs/GUIDE.md` |
 | 你要準備的資料 | 你最像上面哪一種方案、學生名單（座號＋姓名就夠）、你要記哪幾種學生記錄類型、想先建的課名、你手上在跑的業務線。走 IEP 的先把該生的目標找出來，走 SOAP 的先想好個案概念化五格。清單在 `docs/DATA-CHECKLIST.md` |
 
 ---
 
 ## 怎麼開始
+
+（電腦上還沒有 Python、也還沒有 AI 代理的話，先看最上面的「從一台什麼都沒裝的電腦開始」。）
 
 1. 把這個資料夾交給你的 AI 代理。
 2. 對它說：**「讀 AGENTS.md，幫我裝起來。」**
@@ -118,11 +198,13 @@
 
 三個擇一就好，你手上有哪一家的訂閱就用哪一家：
 
-| 代理 | 你要有的訂閱 | 啟動指令 |
-|---|---|---|
-| Claude Code | Claude | `claude` |
-| OpenAI Codex CLI | ChatGPT | `codex` |
-| Gemini CLI | Google | `gemini` |
+| 代理 | 你要有的訂閱 | 啟動指令 | bootstrap 怎麼幫你裝 |
+|---|---|---|---|
+| Claude Code | Claude | `claude` | macOS／Linux 官方安裝程式，Windows `winget` |
+| OpenAI Codex CLI | ChatGPT | `codex` | macOS／Linux 官方安裝程式，Windows `npm` |
+| Gemini CLI | Google | `gemini` | macOS `brew`，Windows／Linux `npm` |
+
+每一家在每個平台怎麼裝，機器正本在 `scripts/hostos.py` 的 `AGENT_CLIS`，人讀的在 `docs/PLATFORMS.md`。
 
 安裝腦只有一份：`AGENTS.md`（Codex CLI 直接讀它）。`CLAUDE.md`、`GEMINI.md`（＋`.gemini/settings.json`）、
 `.github/copilot-instructions.md`、`.cursor/rules/` 都只是指回 `AGENTS.md` 的小紙條。
@@ -155,6 +237,9 @@
 - `data/`、`config/kit.json`、`setup/progress.json`、`inbox/`（錄音與逐字稿）、`backups/`、
   所有金鑰都被 `.gitignore` 擋住，永遠不會進版本控制。
 - 錄音轉文字是在你自己的電腦上跑的，音檔與逐字稿都不會上傳到任何地方。
+- 選了**本機模式**的話，連資料庫都沒有——所有東西都只在這台電腦上。
+- 開了**無頭交辦**的話，你傳的那段語音會經過 LINE 與**你自己的** Firebase 專案（別無其他），
+  逐字稿一樣只在你的電腦上跑。細節見 `docs/HEADLESS.md` 的「隱私：東西會經過誰」。
 - **代號不是匿名。** 代號的用處是讓這些文字可以安心交給 AI 讀、可以匯出、可以備份；
   你自己的名單一對照就知道是誰。真正擋住別人的，是伺服器端「只有你的 Google 帳號讀得到」那條規則。
 
@@ -178,12 +263,14 @@
 
 | 檔案 | 給誰讀 |
 |---|---|
-| `AGENTS.md` | 你的 AI 代理。安裝精靈，步驟 0–10 |
+| `AGENTS.md` | 你的 AI 代理。安裝精靈，步驟 0–11 |
 | `docs/GUIDE.md` | **完全沒碰過 AI 的老師**。從「什麼是 AI 代理」開始 |
 | `docs/DATA-CHECKLIST.md` | 你。安裝前要準備哪些資料 |
 | `docs/BUSINESS-GROUPS.md` | 你。業務組庫十一組各記什麼，以及它跟學生記錄類型是同一套勾選機制 |
 | `docs/ARCHITECTURE.md` | 想弄懂它怎麼運作的人 |
 | `docs/PLATFORMS.md` | macOS／Windows／Linux 的支援等級、指令對照、每個平台的坑 |
+| `docs/HEADLESS.md` | 想用「手機上講一段話就變成紀錄」的人。含 LINE 頻道申請、Blaze 方案、隱私 |
+| `AGENTS-HEADLESS.md` | 無頭交辦時 AI 要遵守的作業指示（你可以改它） |
 | `INSTALL.md` | 不用 AI、自己動手的人 |
 | `embed/EMBED-AND-SECURITY.md` | 已經有自己網站、想把它嵌進去的人 |
 | `CHANGELOG.md` | 每一版改了什麼 |

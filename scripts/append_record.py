@@ -17,7 +17,7 @@
       --tags "#課堂 #人際" --content-file 草稿.md
 
   學生記錄一定要指定 `--stream`（記錄類型）：導師的班級紀錄、任課老師的觀察、個案追蹤、
-  IEP、輔導晤談各寫各的檔，混在一起就分不清楚。可用的類型看 config/tabs.json 的
+  IEP、會談紀錄（SOAP）各寫各的檔，混在一起就分不清楚。可用的類型看 config/tabs.json 的
   students.streams（漏給或給錯，這支會拒寫並把可用的列出來）。
 
   python3 scripts/append_record.py --kind business --target paperwork \\
@@ -59,9 +59,30 @@ def bail(code, msg, fix=""):
     sys.exit(code)
 
 
-def next_rid(blocks, date, now=None):
-    """同一天已經有紀錄就帶時間；連時間都撞到就補到秒。"""
-    used = {b["rid"] for b in blocks}
+def sibling_rids(kit, tabs, t):
+    """同一個 Firestore 集合底下、所有本機檔已經用掉的 rid。
+
+    雲端的文件 id 就是 rid，而一位學生的所有記錄類型共用 `students/<代號>/records`、
+    班級整體觀察的所有類型共用 `class-observations`（見 lib.targets 的說明）。
+    所以「rid 在這個檔裡沒撞到」還不夠——同一天在兩種類型各記一則，兩邊都會取到
+    `2026-09-10`，後推上去的那一則撞成 ALREADY_EXISTS。取號時把兄弟檔一起算進來，
+    文件 id 就不必改形狀（安全規則仍要求 id ＝ date，網頁新增那條路也不用動）。
+    """
+    used = set()
+    for x in lib.targets(kit, tabs):
+        if x["records"] != t["records"]:
+            continue
+        for b in lib.parse_file(x["path"])[1]:
+            used.add(b["rid"])
+    return used
+
+
+def next_rid(blocks, date, now=None, extra_used=()):
+    """同一天已經有紀錄就帶時間；連時間都撞到就補到秒。
+
+    extra_used＝同集合兄弟檔已經用掉的 rid（見 sibling_rids）。
+    """
+    used = {b["rid"] for b in blocks} | set(extra_used)
     if date not in used:
         return date, None
     now = now or datetime.now()
@@ -117,14 +138,14 @@ def main():
         if not avail_streams:
             bail(EXIT_TARGET, "設定裡一種學生記錄類型都沒有，沒有地方可以寫。",
                  "重跑 `python3 scripts/setup.py`，在「勾選你要的記錄類型」那題勾起來"
-                 "（導師班級學生紀錄、個案追蹤、IEP、輔導晤談…）。")
+                 "：導師班級學生紀錄、個案追蹤、IEP、會談紀錄（SOAP）…。")
         if not stream:
             if a.kind == "class" and len(avail_streams) == 1:
                 stream = avail_streams[0]["id"]          # 只有一種就不必逼使用者打
             else:
                 bail(EXIT_ARGS, "--kind %s 一定要指定 --stream（記錄類型）。" % a.kind,
                      "可用的類型：%s。例如 `--stream %s`。導師的班級紀錄、個案追蹤、IEP、"
-                     "輔導晤談要分開寫，混在一起就分不清楚。" % (names, avail_streams[0]["id"]))
+                     "會談紀錄（SOAP）要分開寫，混在一起就分不清楚。" % (names, avail_streams[0]["id"]))
         # 舊 id 也認（counseling → soap）：找得到就換成設定裡真正的 id。
         hit = next((s for s in avail_streams if stream in lib.stream_ids(s)), None)
         if hit:
@@ -181,6 +202,12 @@ def main():
         fields = {str(k): (MULTI_SEP.join(str(x).strip() for x in v if str(x).strip())
                            if isinstance(v, (list, tuple)) else str(v))
                   for k, v in fields.items()}
+        # 欄位是「一行一個 鍵：值」，值裡面有換行的話寫出去就變成正文的一部分，
+        # 再解析回來會少一個欄位、雜湊也跟著變——寧可在這裡擋下來。
+        for k, v in fields.items():
+            if "\n" in k or "\r" in k or "\n" in v or "\r" in v:
+                bail(EXIT_ARGS, "欄位「%s」的內容有換行，紀錄格式一行只放一個欄位。" % k,
+                     "把換行改成空白或全形分號（；），長篇敘述請寫在正文（--content-file）裡。")
 
     # ── 閘①之二：目標編號要真的在這位學生的卡片上 ──
     # IEP 的每一則都掛在某一條學年／學期目標下。填了卡片上沒有的編號，期末產報告時
@@ -224,15 +251,24 @@ def main():
     before_size = os.path.getsize(t["path"])
     _, before = lib.parse_file(t["path"])
     before_rids = [b["rid"] for b in before]
-    rid, tm = (lib.rid_for(date, a.time_), a.time_) if a.time_ else next_rid(before, date)
+    siblings = sibling_rids(kit, tabs, t) - set(before_rids)
+    rid, tm = ((lib.rid_for(date, a.time_), a.time_) if a.time_
+               else next_rid(before, date, extra_used=siblings))
     if rid in before_rids:
         bail(EXIT_ARGS, "這個紀錄 id 已經存在：%s" % rid, "換一個 --time，或不要指定 --time 讓它自動編。")
+    if rid in siblings:
+        bail(EXIT_ARGS,
+             "這個紀錄 id 已經被同一位對象的另一種記錄類型用掉了：%s" % rid,
+             "雲端同一個集合裡文件 id 不能重複（%s）。換一個 --time，"
+             "或不要指定 --time 讓它自動編。" % t["records"])
 
     chunk = "\n".join(lib.render_block(date, tm, tags, fields, related, body)).rstrip("\n") + "\n"
     with open(t["path"], "r", encoding="utf-8") as f:
         tail = f.read()[-2:]
     prefix = "" if tail.endswith("\n\n") else ("\n" if tail.endswith("\n") else "\n\n")
-    fd = os.open(t["path"], os.O_WRONLY | os.O_APPEND)
+    # O_BINARY：Windows 上沒有它的話這個唯一的寫入通道會把 \n 換成 \r\n，
+    # 整份 kit 只有這裡走 os.write（其他地方都用 newline="\n"）。
+    fd = os.open(t["path"], os.O_WRONLY | os.O_APPEND | getattr(os, "O_BINARY", 0))
     try:
         os.write(fd, (prefix + chunk).encode("utf-8"))
     finally:

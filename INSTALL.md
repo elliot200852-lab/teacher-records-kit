@@ -6,6 +6,8 @@
 
 前置條件：macOS 或 Windows 10／11（Linux 盡力支援，WSL 不行）、一個能自己開 Firebase 專案的
 Google 帳號、套件管理程式（macOS＝Homebrew，https://brew.sh ；Windows＝系統內建的 winget）。
+**什麼都還沒裝的電腦**（連 Python、git、AI 代理都沒有）先跑第 1 步的 `setup/bootstrap.sh`
+（Windows 按兩下 `setup\bootstrap.cmd`），它會把這些地基連同 Homebrew 一起裝好。
 支援等級與每個平台的坑見 `docs/PLATFORMS.md`。
 
 > **Windows**：這份文件裡的 `python3` 一律換成 `py -3`（或 `python`），路徑的 `/` 換成 `\`；
@@ -27,15 +29,52 @@ ls config/kit.json config.yaml 2>/dev/null
 
 ## 1. 裝工具
 
+電腦上**還沒有 Python／git／Node.js**（或還沒有 AI 代理的 CLI）的話，先跑一次 bootstrap，
+它會把這些地基裝好，最後自己接著跑下面這幾行：
+
+```bash
+bash setup/bootstrap.sh                 # macOS／Linux；--dry-run 只看不裝、--agent claude 指定代理
+```
+
+```powershell
+# Windows：對 setup\bootstrap.cmd 按兩下，或
+powershell -NoProfile -ExecutionPolicy Bypass -File setup\bootstrap.ps1 -Agent claude
+```
+
+已經有 Python 的話直接從這裡開始（bootstrap 跑過了就不用再跑一次）：
+
 ```bash
 python3 scripts/install_tools.py --dry-run     # 先看會裝什麼
 python3 scripts/install_tools.py               # 真的裝
 python3 scripts/install_tools.py --with-gws    # 備份要走 gws 進階模式才加這個
+python3 scripts/install_tools.py --agent claude # 順便裝 AI 代理的 CLI（claude／codex／gemini）
 python3 scripts/install_tools.py --json        # 要機器讀的輸出
 python3 scripts/doctor.py                      # 健檢（裝完工具先重開終端機）
 ```
 
-## 2. Firebase 專案
+## 2. 先決定：雲端，還是只放這台電腦
+
+安裝精靈（第 4 步）的第一題就是這個，決定後面要不要做第 2、4（部署）、5 步。
+
+| | **雲端（cloud，預設）** | **只放這台電腦（local）** |
+|---|---|---|
+| 要申請什麼 | 一個你自己的 Firebase 專案（免費），填六個設定值 | 什麼都不用 |
+| 手機上記一則 | ✔ 有一頁網頁 | ✘ 沒有網頁（回電腦上跟 AI 說） |
+| 電腦 ⇄ 手機同步 | ✔ | ✘（沒有第二個地方要同步） |
+| 備份到雲端硬碟 | ✔ | ✔ |
+| 匯出 Word／PDF、期末素材包、家長信、錄音轉逐字稿 | ✔ | ✔ |
+| 無頭交辦（第 11 步） | ✔ | ✘ |
+| 帳單 | 你的（一般用量在免費額度內） | 沒有 |
+
+答案寫進 `config/kit.json` 的 `mode`（答案檔同名鍵）。**哪天要換就改那個值重跑一次第 4 步**，
+既有紀錄一則都不會動（改成 cloud 的話第一次同步會把它們全部推上去）。
+
+**選 local 的人**：跳過這一步剩下的全部與第 5 步，第 4 步只跑 `setup.py` 與 `build_config.py`
+（本機模式根本不產生 `firestore.rules`，所以沒有東西要部署）；
+`setup.py` 會自動把第 2、4、5 步標成「本機模式，略過」。第 10 步的驗收改成在本機做
+（`append_record.py` 各記一則、`export_docs.py` 匯出一次、`ledger.py --check` 自動只比兩處）。
+
+**選 cloud 的人**，往下：
 
 在 https://console.firebase.google.com 用你的 Google 帳號完成四件事：
 
@@ -45,8 +84,10 @@ python3 scripts/doctor.py                      # 健檢（裝完工具先重開�
 4. 專案設定（左上齒輪）→ 一般 → 你的應用程式 → 加**網頁應用程式** → SDK 設定與配置 → **Config**
    → 抄下六個值：`projectId`、`apiKey`、`authDomain`、`storageBucket`、`messagingSenderId`、`appId`
 
-**iOS Safari 防坑**：打算用 Firebase Hosting 上線的話，`authDomain` 填 `<專案ID>.web.app`
-（不要用 Console 預設的 `.firebaseapp.com`），否則 iPhone 上 Google 登入會一直失敗。
+**iOS Safari 防坑**：`authDomain` 這一格**留空就好**——`build_config.py` 會自動填
+`<專案ID>.web.app`，那正是 Firebase Hosting 的網址。Console 給的預設值是
+`<專案ID>.firebaseapp.com`，跟網頁不同源，iPhone 上 Google 登入會一直失敗。
+網站要掛在別的網域（GitHub Pages、嵌進現有站）才填你實際打開網頁的那個網域。
 
 ## 3. 想清楚三個分頁要記什麼
 
@@ -84,7 +125,13 @@ python3 scripts/setup.py                                  # 互動安裝，一�
 # 或免互動：
 cp templates/answers.example.json /tmp/answers.json       # 改成你自己的答案
 python3 scripts/setup.py --answers /tmp/answers.json
+# Windows（PowerShell）：
+#   Copy-Item templates\answers.example.json $env:TEMP\answers.json
+#   py -3 scripts\setup.py --answers $env:TEMP\answers.json
 ```
+
+答案檔裡有你的信箱與專案 ID，**裝完就刪掉**（`rm /tmp/answers.json`；Windows `Remove-Item $env:TEMP\answers.json`）。
+文件裡其他 `/tmp/…` 的檔在 Windows 上一律換成 `$env:TEMP\…`（對照表在 `docs/PLATFORMS.md`）。
 
 其他旗標：`--resume`（續裝）、`--upgrade`（轉 v2 設定）、`--skip-network`、`--skip-doctor`、
 `--root`、`--mark-step N`（＋選填的 `--note 文字`）。
@@ -112,7 +159,8 @@ firebase deploy --only firestore:rules --project <你的專案ID>
 python3 scripts/setup.py --mark-step 4 --note "已部署規則"
 ```
 
-`--mark-step` 只動 `setup/progress.json`，不碰其他任何檔案。步驟編號跟這份檔一致（0–10）。
+`--mark-step` 只動 `setup/progress.json`，不碰其他任何檔案。步驟編號跟這份檔一致（0–11，
+第 11 步「無頭交辦」是選用的，不裝就不用標）。
 
 ## 5. 上線
 
@@ -192,10 +240,11 @@ python3 scripts/backup.py --no-export     # 不抓資料庫快照（離線時）
 ```bash
 python3 scripts/schedule.py --dry-run                   # 先看
 python3 scripts/schedule.py                             # 每天 07:00 同步、每週日 08:00 備份
+                                                        #（本機模式不掛同步；開了無頭交辦會多一個每 5 分鐘的）
 python3 scripts/schedule.py --sync-time 08:30           # 換同步時間
 python3 scripts/schedule.py --backup-day 6 --backup-time 21:00   # 換備份的星期與時間（0＝週日）
 python3 scripts/schedule.py --status                    # 現在掛了什麼
-python3 scripts/schedule.py --print-cron                # 只印等效的 crontab 兩行
+python3 scripts/schedule.py --print-cron                # 只印等效的 crontab
 python3 scripts/schedule.py --uninstall                 # 移除
 ```
 
@@ -213,6 +262,8 @@ python3 scripts/transcribe.py 會議.m4a       # 或指定單檔
 
 逐字稿出現在 `inbox/transcripts/`，原始錄音移到 `inbox/done/`（`--keep` 可以不搬）。
 其他旗標：`--lang`、`--model`、`--no-vad`、`--root`。
+
+（下面幾個範例裡的 `/tmp/改寫稿.md` 在 Windows 上是 `$env:TEMP\改寫稿.md`，`Copy-Item`／`Set-Content` 都寫得出來。）
 
 逐字稿讀完自己改寫（提到學生一律換成代號），再走 `append_record.py` 寫入
 （學生記錄記得帶 `--stream`：這一段是日常觀察還是會談，落點不一樣），最後 `sync.py`。
@@ -258,7 +309,8 @@ python3 scripts/report_pack.py --format waldorf-homeroom --all           # 全�
 它寫草稿、你定稿；`waldorf-homeroom` 的「整體感受」那一段一律自己寫，不讓 AI 代筆。
 寫完照 prompt 裡的稽核清單逐條檢查一次。
 
-學校有自己的格式：`cp templates/report-format.custom.example.json config/report-format.custom.json`，
+學校有自己的格式：`cp templates/report-format.custom.example.json config/report-format.custom.json`
+（Windows：`Copy-Item templates\report-format.custom.example.json config\report-format.custom.json`），
 把校方的標題貼進去，再跑 `--format custom`。
 網頁上同一件事＝學生明細頁的「產生期末素材 ▾」、一覽頁的「產生全班期末素材 ▾」。
 `exports/` 含名冊真名，已被 `.gitignore` 擋住，別放到公開的地方。
@@ -280,16 +332,64 @@ git status
 `exports/` 裡出現 `-素材包.md` 與 `-prompt.md`，打開看得到剛剛記的那一則與報告骨架。
 
 `git status` 不該出現：`data/`、`config/kit.json`、`config/tabs.json`、`setup/progress.json`、
-`site/js/kit-config.js`、`site/js/firebase-config.js`、`firestore.rules`、`inbox/`、`backups/`、`*-key.json`、`.env`。
+`site/js/kit-config.js`、`site/js/firebase-config.js`、`firestore.rules`、`storage.rules`、
+`inbox/`、`backups/`、`*-key.json`、`.env`。
+
+---
+
+## 11. 無頭交辦（選用；只有 cloud 模式有）
+
+手機上對自己的 LINE 官方帳號講一段話 → 電腦醒著時自動變成一則紀錄 → 回你一句「記好了什麼」。
+
+**要 Firebase 的 Blaze（隨用隨付）方案**——這個用量幾乎一定是 0 元，但要綁信用卡。
+不想綁卡就不要做這一步，其他功能完全不受影響。
+
+**完整步驟（LINE 頻道怎麼開、每一個畫面要按什麼、卡住怎麼查）寫在 `docs/HEADLESS.md`**，
+這裡只列指令：
+
+```bash
+# ① Firebase 升到 Blaze；② 在 LINE Developers 開 Messaging API 頻道，拿 secret 與 token
+#    （順便把 Auto-reply messages 關掉、用手機加那個帳號為好友）
+# ③ 兩個金鑰寫進「登入時會載入」的設定檔（~/.bashrc / ~/.zshrc；Windows 走系統環境變數）
+export KIT_LINE_CHANNEL_SECRET='…'
+export KIT_LINE_CHANNEL_TOKEN='…'
+
+# ④ 打開這個功能（setup 會問「無頭交辦」那一題）
+python3 scripts/setup.py
+python3 scripts/build_config.py
+
+# ⑤ 金鑰交給 Cloud Function，部署收件端（一律用 --only，不要跑沒參數的 firebase deploy）
+firebase functions:secrets:set KIT_LINE_CHANNEL_SECRET
+firebase functions:secrets:set KIT_LINE_CHANNEL_TOKEN
+firebase deploy --only storage --project <你的專案id>
+firebase deploy --only functions:line-relay --project <你的專案id>
+
+# ⑥ 把部署印出來的網址填回 LINE 的 Webhook URL、打開 Use webhook；
+#    用手機傳一句話，它會回「配對碼：Uxxxx…」。填進 kit.json 的 headless.line.owner_user_id 之後：
+python3 scripts/build_config.py
+python3 scripts/headless.py --once      # 把配對碼送上雲端，relay 從此只認你
+python3 scripts/headless.py --pair      # （沒收到配對碼時用這個查）
+
+# ⑦ 掛排程（會多一個每 5 分鐘的工作）＋ 驗收
+python3 scripts/schedule.py
+python3 scripts/doctor.py               # 「無頭交辦」那一區五項要全綠
+```
+
+真正的驗收是**自己傳一則**：先收到「收到了」（雲端收到），五分鐘內收到「已記到…」（真的寫好了）。
+
+無頭模式下 AI 要遵守的作業指示在 `AGENTS-HEADLESS.md`，你可以改它。
+失敗**不會自動重試**（重試會把同一段話寫成好幾則）：`headless.py --status` 看、`--retry <id>` 重排。
 
 ---
 
 ## 從 v2 升級
 
 1. `git pull`（或重新下載）。**只覆蓋** `scripts/`、`site/dashboard.html`、`site/js/*.example.js`、
-   `templates/`、`config/*.example.json`、`firestore.rules.tmpl`、`firebase.json`、文件。
+   `templates/`、`config/*.example.json`、`firestore.rules.tmpl`、`storage.rules.tmpl`、
+   `firebase.json`、`functions/`、文件。
    **絕對不要覆蓋** `config/kit.json`、`config/tabs.json`、`data/`、`setup/progress.json`、
-   `firestore.rules`、`site/js/kit-config.js`、`site/js/firebase-config.js`、`backups/`、`inbox/`。
+   `firestore.rules`、`storage.rules`、`site/js/kit-config.js`、`site/js/firebase-config.js`、
+   `backups/`、`inbox/`。
 
 2. ```bash
    python3 scripts/setup.py --upgrade
@@ -337,4 +437,6 @@ python3 scripts/report_pack.py --format waldorf-homeroom --all                  
 python3 scripts/pending.py                                # 還沒決定要不要寄家長的
 python3 scripts/parent_email.py --id S-01 --subject "…" --body-file msg.txt --dry-run
 python3 scripts/build_preview.py                          # 產生單檔離線示範
+python3 scripts/headless.py --status                      # 無頭交辦：待處理／失敗幾則（選用功能）
+python3 scripts/headless.py --once                        # 無頭交辦：立刻收一次，不等排程
 ```

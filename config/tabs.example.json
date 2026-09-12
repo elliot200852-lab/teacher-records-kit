@@ -5,7 +5,7 @@
 
   "students": {
     "enabled": true,
-    "_註解_streams": "學生記錄類型：導師班級學生紀錄、任課老師學生紀錄、個案追蹤、IEP、輔導晤談…混在一起就分不清楚，所以一種類型一組欄位與分類詞、一個本機檔。每一筆長成 {\"id\",\"label\",\"desc\",\"scope\",\"fields\",\"tags\",\"custom\"}；scope＝class（名冊每一位都在）或 case（只有 data/roster.csv 第三欄列入的學生）。",
+    "_註解_streams": "學生記錄類型：質性評量觀察、導師班級學生紀錄、任課老師學生紀錄、個案追蹤、IEP、會談紀錄（SOAP）…混在一起就分不清楚，所以一種類型一組欄位與分類詞、一個本機檔。每一筆長成 {\"id\",\"label\",\"desc\",\"scope\",\"fields\",\"tags\",\"custom\"}；scope＝class（名冊每一位都在）或 case（只有 data/roster.csv 第三欄列入的學生）。",
     "streams": [],
     "help": {
       "what": "這頁記什麼：單一學生的具體觀察。客觀描述當下發生的事——頭（思考）、心（情感）、手（意志）、社群哪一個面向，以及他現在的發展位置。",

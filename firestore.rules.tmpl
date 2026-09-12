@@ -43,7 +43,7 @@ service cloud.firestore {
       // 每則觀察一份文件；文件 id ＝ 日期，或日期-建立時間（見 validRid）
       //
       // ── 記錄類型 stream（v3 加）──
-      // 學生記錄再分類型（導師班級紀錄／任課老師紀錄／個案／IEP／輔導晤談…），
+      // 學生記錄再分類型（導師班級紀錄／任課老師紀錄／個案／IEP／會談紀錄（SOAP）…），
       // 每一則一定要說自己是哪一種：沒有 stream 的紀錄會在網頁上無家可歸，
       // 本機檔也不知道要寫進 students/<id>/<streamId>.md 的哪一個檔。
       // 建立時必填、之後不准改——改了等於把一則紀錄從一種類型搬到另一種，
@@ -115,6 +115,22 @@ service cloud.firestore {
 
     // 代號↔姓名對照（供儀表板顯示真名；僅擁有者）
     match /roster/{doc} {
+      allow read, write: if isOwner();
+    }
+
+    // ── 無頭交辦（選用；docs/HEADLESS.md）──
+    // headless_events/{webhookEventId}：LINE relay 收到的每一則訊息一份文件
+    //（文件 id ＝ LINE 的 webhookEventId，天然去重：同一則重送不會變成兩筆）。
+    // headless_pairing/{userId}：還沒配對時 relay 記下「誰傳過訊息」，
+    // 讓 `headless.py --pair` 在電腦上看得到那個 userId。
+    //
+    // relay 走 Admin SDK，**不受這些規則管**（伺服器端憑證一律繞過規則）——
+    // 所以這兩條只管「人」：只有擁有者本人讀得到、刪得掉自己的交辦紀錄。
+    // 網頁與手機瀏覽器如果被別人打開，看不到任何一則語音交辦的內容。
+    match /headless_events/{eventId} {
+      allow read, write: if isOwner();
+    }
+    match /headless_pairing/{userId} {
       allow read, write: if isOwner();
     }
 

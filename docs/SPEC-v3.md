@@ -24,6 +24,7 @@
 3. AI 一次只問一件事：你的 Google 帳號？要不要業務記錄？勾哪些業務組？學生名單在哪？……每一題都附「去哪裡拿、怎麼做」的連結。
 4. 裝好後：手機或電腦開網站登入，三個分頁記錄；或把錄音檔丟進 `inbox/` 跟 AI 說「整理成○○記錄」。
 5. 本機每日同步、每週備份到自己的 Google Drive；隨時可跑 `ledger.py --check` 看三處對不對得上。
+6. （選用）**本機模式**＝完全不碰雲端，只有第 2、5 點沒有；（選用）**無頭交辦**＝在外面對 LINE 講一句話，回家紀錄已經寫好了。兩個都見 §13。
 
 ## 2. 儲存架構（三處一台帳）
 
@@ -203,7 +204,7 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
    "courses":{"enabled":true,"categories":[...],"skeleton":["### 課程進度",...],"help":{...}},
    "business":{"enabled":true,"groups":[{"id":"guidance","label":"輔導／個案追蹤","fields":[...],"tags":[...],"custom":false}],"help":{...}}}
   ```
-- `scripts/build_config.py` 讀上面兩份，產生：`site/js/kit-config.js`（`window.KIT = {...}`）、`site/js/firebase-config.js`、`firestore.rules`（換 `{{OWNER_EMAIL}}`）。三個輸出都 gitignored。
+- `scripts/build_config.py` 讀上面兩份，產生：`site/js/kit-config.js`（`window.KIT = {...}`）、`site/js/firebase-config.js`、`firestore.rules`（換 `{{OWNER_EMAIL}}`，信箱一律去空白轉小寫並跳脫後才插進規則字串）。三個輸出都 gitignored。`auth_domain` 留空時預設 `<專案id>.web.app`。
 - 範本：`config/kit.example.json`、`config/tabs.example.json`、`setup/progress.example.json`。
 - **安裝是確定性的**（紅隊 #3）：`scripts/setup.py` 互動問答（可用 `--answers file.json` 免互動）負責產檔、換規則、自檢；AI 代理只負責解釋題目、幫老師找答案、讀錯誤訊息。規則檔**永遠由腳本產生**，AGENTS.md 禁止 AI 手寫 `firestore.rules`。
 
@@ -228,7 +229,7 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 |---|---|---|
 | `lib.py` | 共用 | 沿用 v2；新增 `parse_block_fields()`（欄位列＋關聯列）、`targets(cfg, tabs)` 產四種目標清單 |
 | `setup.py` | **確定性安裝精靈** | 互動問答（或 `--answers`）→ 寫 `config/kit.json`、`config/tabs.json` → 呼叫 build_config → 跑 doctor；`--upgrade` 把 v2 的 config.yaml 轉過來（零預設的唯一例外：自動勾 `homeroom`，否則舊 observations.md 看不見）；`--resume` 讀 `setup/progress.json` 續做；**不部署規則、不標第 4 步**，AI 在 `firebase deploy` 成功後跑 `--mark-step 4 --note ...` |
-| `build_config.py` | 產生三個 gitignored 輸出 | 見 §4；`--check` 只驗不寫 |
+| `build_config.py` | 產生三個 gitignored 輸出 | 見 §4；`--check` 只驗不寫；設定裡還留著範本值（`you@example.com`、`your-firebase-project-id`、空白金鑰）一律 exit 1，測試／預覽要跑得過就加 `--allow-placeholders`（`setup.py` 內部呼叫時帶它）|
 | `doctor.py` | 健檢 | 逐項 ✓／✗：工具在不在、config 齊不齊、gcloud／firebase／gws 登入了沒、Drive 夾 ID 存在且 `trashed=false`、whisper 模型在不在；每個 ✗ 附「怎麼修」與連結；`--json` 給 AI 讀 |
 | `install_tools.py` | 裝依賴 | 三個平台同一支：macOS 走 Homebrew、Windows 走 winget（失敗退可攜版）、Linux 走 apt／官方說明，裝的都是 `node`、`firebase-tools`、`google-cloud-sdk`、`whisper-cpp`、`ffmpeg`（`gws` 選用，一律 `npm i -g @googleworkspace/cli`）；每步先印「要裝什麼、為什麼」，不重試、不留半裝狀態；`--dry-run`、`--with-gws`、`--json`、`--remove-portable`。每個平台的細節見 `docs/PLATFORMS.md` |
 | `sync.py` | 本機 ↔ Firestore 雙向 | 通用化到四種目標；衝突不覆蓋；回寫前備 `.prev.md`；`--dry-run`；結束寫 `.sync-last-status` 與 Firestore `meta/status.lastSyncAt`。**每個 PATCH 必帶 `currentDocument.updateTime` 前置條件**（紅隊 #9：v2 的無條件回寫會在老師同時編輯時靜默蓋掉他的字）；前置條件不成立（400 FAILED_PRECONDITION／409／412）就當衝突處理、不重試覆寫；帶前置條件的寫入走 `documents:commit` |
@@ -239,7 +240,7 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 | `export_records.py` | 匯出取材（Markdown／JSON） | 通用化四種；`--by-tag`、`--related`（把關聯記錄一起帶出）、`--stream`（只匯某一種學生記錄類型） |
 | `report_pack.py` | 期末素材包＋草稿 prompt | 見 §3.6；`--format waldorf-homeroom|subject-4|iep-tracking|case-summary|custom`、`--target <id>|all`（＝`--all`）、`--stream`；輸出 `exports/` |
 | `export_docs.py` | 匯出 Word／PDF | 見 §3.5；`.docx` 標準庫 zipfile、`.pdf` 走 headless Chrome（沒有就給 HTML） |
-| `schedule.py` | 排程（選用） | 三個平台同一支：macOS 產 launchd plist、Windows 用工作排程器 XML 定義檔註冊、Linux 寫 crontab 區塊（每日 sync、每週 backup）；`--dry-run`、`--status`、`--print-cron`、`--uninstall`、`--sync-time`、`--backup-day`、`--backup-time`。**失敗要看得見**（紅隊 #11）：網頁頂端讀 `meta/status`，上次同步／備份超過 7 天就顯示紅字 |
+| `schedule.py` | 排程（選用） | 三個平台同一支：macOS 產 launchd plist、Windows 用工作排程器 XML 定義檔註冊、Linux 寫 crontab 區塊。**掛幾支由 `wanted_jobs()` 決定，不是固定兩支**：`sync`（每日 07:00，只有 cloud 模式）、`backup`（每週日 08:00，一定有）、`headless`（每 5 分鐘，只有開了無頭交辦；macOS 用 `StartInterval: 300`、Windows 用 `Repetition PT5M`、Linux 是 `*/5 * * * *`）。`--uninstall` 一律全清、`--status` 對沒開的那幾項印「本來就不該掛」；`--dry-run`、`--status`、`--print-cron`、`--uninstall`、`--sync-time`、`--backup-day`、`--backup-time`。**失敗要看得見**（紅隊 #11）：網頁頂端讀 `meta/status`，上次同步／備份超過 7 天就顯示紅字 |
 | `parent_email.py`、`pending.py`、`monthly_reminder.py` | 選用 | 沿用 v2 |
 | `tests/` | 零網路測試 | 區塊解析、rid、欄位列、關聯、ledger rebuild、build_config 輸出、demo store 種子 |
 
@@ -258,7 +259,7 @@ match /meta/{doc} { allow read, write: if isOwner(); }
 - 開頭「你是誰在讀」：假設讀者是 Claude Code 等最高等級代理；**一次只問一題**；每題附「去哪裡拿」連結；問完做、做完驗、驗完由 `setup.py` 寫 `setup/progress.json`（gitignored）再往下。**AI 不手寫任何產生檔**（規則、firebase-config、kit-config）——一律跑腳本。
 - 前置條件先講清楚（紅隊 #1）：macOS 或 Windows 10／11（David 2026-09-10 拍板支援 Windows；Linux 盡力、WSL 拒絕，見 `docs/PLATFORMS.md`）、能開 Firebase 專案的 Google 帳號（學校配發帳號常被管理員鎖住 Cloud Console，GUIDE 要教怎麼判斷、以及改用個人帳號的取捨）、已裝好的 AI 代理。
 - 「去哪裡拿」寫**目標＋驗證**而不是逐畫面截圖（紅隊 #2：Console 畫面會改版，AI 自己會找路）。
-- 步驟：0 判斷新裝／升級／續裝（讀 progress） → 1 裝工具（跑 `install_tools.py` 與 `doctor.py`） → 2 Google 帳號與 Firebase 專案（console 連結、逐畫面指引、取 web config） → 3 分頁與向度（學生：名冊來源；課程：先建幾門；業務：勾組＋兩層開放選項） → 4 產生設定與規則（`build_config.py`、`firebase deploy`） → 5 上線（Firebase Hosting 預設；GitHub Pages 備選；嵌入現有站見 embed/） → 6 學生名單與既有資料匯入 → 7 Google Drive 備份夾（老師自己建夾→貼網址→AI 抽 ID→`doctor.py` 驗） → 8 排程 → 9 錄音檔試跑一次 → 10 驗收清單。
+- 步驟：0 判斷新裝／升級／續裝（讀 progress） → 1 裝工具（跑 `install_tools.py` 與 `doctor.py`） → 2 Google 帳號與 Firebase 專案（console 連結、逐畫面指引、取 web config） → 3 分頁與向度（學生：名冊來源；課程：先建幾門；業務：勾組＋兩層開放選項） → 4 產生設定與規則（`build_config.py`、`firebase deploy`） → 5 上線（Firebase Hosting 預設；GitHub Pages 備選；嵌入現有站見 embed/） → 6 學生名單與既有資料匯入 → 7 Google Drive 備份夾（老師自己建夾→貼網址→AI 抽 ID→`doctor.py` 驗） → 8 排程 → 9 錄音檔試跑一次 → 10 驗收清單 → **11 無頭交辦（選用，驗收之後才問；本機模式不問）**。
 - 每步固定四段：**AI 要問的話**／**使用者去哪裡拿（連結＋畫面路徑）**／**AI 要做的事（指令）**／**怎麼驗證＋失敗時怎麼辦**。
 - 升級路徑 v2→v3：保留設定與 data、跑 `build_config.py`、重新部署規則、`sync.py --dry-run`。
 - 錄音流程、日常使用、每月／期末取材各一節。
@@ -300,3 +301,53 @@ Stage 1 由 fresh opus 攻擊 15 條；裁決如下（成立的已寫回上面�
 | 8 | 三處一台帳太複雜 | **不成立**：David 5A 已跑一年、語音→本機→網站需要雙向；Drive 只是單向備份 | 維持，但 #9 修好後風險才可接受 |
 | 14 | 程式量太大／lock-in | **部分成立** | 砍 `voice_intake.py`（併入 transcribe）、`ledger --related` 延後；`export_records.py` 保證資料可整包帶走 |
 | 15 | 值錢的是方法論不是程式 | **交 David**：與陪跑有償化是同一條線 | 寫進給 David 的精進建議 |
+
+## 13. 兩個選用的安裝選項（v3.0.0-alpha.4 追加）
+
+### 13.1 模式 `mode: "cloud" | "local"`
+
+- 住在 `config/kit.json` 頂層；預設 `cloud`；**沒有這個鍵的舊設定一律當 `cloud`**（相容性硬規定）。
+  腳本一律經 `lib.mode()` 與 `lib.is_local()` 判斷（唯一例外＝`build_config.py`，
+  它要在讀進來的當下驗值合不合法，所以直接讀原始鍵）。
+  也鏡射到 `window.KIT.mode` 與 `doctor.py --json` 的頂層 `mode`。
+- `local` ＝沒有 Firebase 專案、沒有那六個設定值、沒有網頁、沒有同步、沒有帳單、不能開無頭交辦；
+  錄音、Word／PDF、期末素材包、家長信、Drive 備份全部照用。紀錄只有 `data/**/*.md` 一處。
+- 分支行為（規格）：`build_config.py` 只產 `site/js/kit-config.js`（不產規則與 firebase-config，
+  舊產生檔只提醒不刪，`headless.enabled` 為真直接報錯）；`sync.py` 印一行就 return **退出碼 0**；
+  `ledger.py` 自動 offline 只比兩處；`schedule.py` 只掛 backup；`headless.py` 拒跑（退出碼 0）；
+  **`doctor.py` 保留每一個 key、雲端項標 `skipped`**（不刪項目——CI 與 AI 代理靠固定 key 清單判斷）。
+- 安裝精靈**第 2 步的第一句**就問（`setup.py` 的 `STEP_TITLES` 現在是 0–11）；
+  選 local 會自動把第 2、4、5、11 步標成完成，備註「本機模式，略過」。
+- local → cloud：改 `mode` → `setup.py` 問六個值 → `build_config.py` → 部署規則與 hosting →
+  第一次 `sync.py` 整批推上去。**既有紀錄一則都不會動。**
+
+### 13.2 無頭交辦（LINE）
+
+只有 cloud 模式能開，**需要 Firebase Blaze**（Cloud Functions 不跑在 Spark 方案上）。
+
+- 鏈路：LINE webhook → `functions/line-relay`（Cloud Functions v2／`asia-east1`／Node 20，
+  相依只准 `firebase-admin` 與 `firebase-functions` 兩個）→ Firestore
+  `headless_events/{webhookEventId}`（語音另存 Storage `headless-inbox/<messageId>.m4a`）→
+  relay 只回一句「收到了，電腦醒著時會處理」→ 本機 `scripts/headless.py --once`（每 5 分鐘）
+  認領、轉逐字稿、叫 AI 代理 CLI → `append_record.py`（**仍然是唯一寫入通道**）→ `sync.py` →
+  LINE 推播一則回報 → `data/headless-audit.jsonl` 一行。
+- 事件文件用 `create()` 不用 `set()`：LINE 重送撞 `ALREADY_EXISTS` 成為 no-op（去重，
+  而且重送不會把工作端改過的 `status` 蓋回 `pending`）。狀態機 `pending → processing → done|failed`，
+  認領用 `currentDocument.updateTime` 前置條件（兩台電腦同時跑也不重複處理）。
+- 安全：`firestore.rules.tmpl` 新增 `headless_events`、`headless_pairing` 兩個 `match`，皆
+  `allow read, write: if isOwner()`；新增 `storage.rules.tmpl`（預設整份拒絕，`headless-inbox/**`
+  那一段只有開了才寫進去）。**relay 走 Admin SDK、完全繞過規則**，它的身分驗證靠
+  `x-line-signature`（對 `req.rawBody` 算 HMAC-SHA256，`timingSafeEqual` 比，不合回 401——
+  LINE 主控台的 Verify 按鈕送空簽章，回 401 是對的）。金鑰雲端走 `defineSecret`、
+  本機走環境變數，`config/kit.json` **只存變數名稱**（有測試守著）。
+- 配對碼＝老師自己的 LINE `userId`：未配對前 relay 對任何人都回配對碼（那是唯一拿得到的辦法），
+  配好之後不合的 `userId` 靜默丟掉、不回話。真相住 `meta/headless.ownerUserId`，改手機不用重新部署。
+- 刻意的設計：**不自動重試**（只認 `--retry <事件id>`，自動重試最糟是同一句話寫成三則）；
+  代理沒回 `<<REPORT>>…<<END>>` 就算失敗（rc 0 也不算成功）；
+  **一則交辦只推播一次**（LINE 免費方案每月 200 則），失敗也推；推不出去不算整件事失敗。
+- `AGENTS-HEADLESS.md` 是無頭代理的行為守則（只走 `append_record.py`、只用代號、不問問題、
+  不確定就回報「我沒有寫入」、不碰 `config/`／`setup/`／規則／`site/`／`functions/`），
+  由 `headless.py` **整份內嵌進提示詞**——無頭代理不保證會去讀檔案。
+- 驗證邊界：模擬器只驗文字那條路；**relay 從未部署到真的專案**，語音那條路（Storage、
+  `headless-inbox/**` 規則、抓音檔、無頭裡轉逐字稿）完全沒跑過；測試與 CI 一律走
+  `TRK_HEADLESS_AGENT_CMD` 假代理，**永不叫真的模型**。

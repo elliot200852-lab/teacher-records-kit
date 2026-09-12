@@ -23,7 +23,6 @@ import json
 import shutil
 import tempfile
 import argparse
-import subprocess
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -32,10 +31,16 @@ import hostos
 
 AUDIO_EXT = (".m4a", ".mp3", ".wav", ".mp4", ".mov", ".aac", ".flac", ".ogg", ".m4v", ".caf")
 MODEL_DIR = hostos.model_dir()
-MODEL_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/%s.bin"
-VAD_NAME = "ggml-silero-v5.1.2"
-VAD_URL = "https://huggingface.co/ggml-org/whisper-vad/resolve/main/%s.bin" % VAD_NAME
+MODEL_URL = hostos.WHISPER_MODEL_URL          # 網址的正本在 hostos（CI 的 urls job 每週檢查它們還活著）
+VAD_NAME = hostos.WHISPER_VAD_NAME
+VAD_URL = hostos.WHISPER_VAD_URL
 PRIMER = "以下是台灣的教學現場錄音，請用繁體中文（台灣用語）記錄。"
+
+# 外部工具的逾時：轉檔與轉錄都可能很久（一小時的會議錄音），但不能「永遠」——
+# 卡住的子行程會讓整條管線靜靜地停在那裡，老師只看到游標在閃。
+FFMPEG_TIMEOUT = 600         # 10 分鐘：轉成 16kHz wav，再長的錄音也不該超過
+FFPROBE_TIMEOUT = 120
+WHISPER_TIMEOUT = 3600       # 1 小時：large-v3-turbo 在沒有 GPU 的筆電上真的會跑這麼久
 
 
 def hms(sec):
@@ -90,26 +95,34 @@ def transcribe_one(src, model, vad, lang, out_dir, done_dir, keep, tools=None):
     if os.path.exists(out_md):
         lib.warn("已經有逐字稿了，跳過：%s" % os.path.relpath(out_md, lib.root()))
         return out_md
-    tmp = tempfile.mkdtemp(prefix="trk-transcribe-")
+    # 暫存 wav 與 `-of` 前綴都放 hostos.work_dir()，不用 %TEMP%：
+    # Windows 版 whisper-cli.exe 吃窄字元 argv，使用者名稱是中文時 %TEMP% 的路徑它開不了，
+    # 而且錯誤訊息看起來像「這個錄音壞了」。work_dir() 保證是 ASCII 路徑。
+    work = hostos.work_dir()
+    warn = hostos.work_dir_warning()
+    if warn:
+        lib.warn(warn)
+    tmp = tempfile.mkdtemp(prefix="trk-transcribe-", dir=work)
     try:
         wav = os.path.join(tmp, "audio.wav")
         print("── %s ──" % os.path.basename(src))
         print("① 轉成 16kHz 單聲道 wav…")
-        r = subprocess.run([ffmpeg, "-y", "-i", src, "-ac", "1", "-ar", "16000",
-                            "-c:a", "pcm_s16le", wav], capture_output=True)
-        r.stderr = hostos.decode_output(r.stderr)
-        if r.returncode != 0 or not os.path.exists(wav):
+        # 一律走 hostos.run：它有逾時、輸出解碼不會炸、Windows 的 .cmd 特殊字元有閘。
+        rc, out = hostos.run([ffmpeg, "-y", "-i", src, "-ac", "1", "-ar", "16000",
+                              "-c:a", "pcm_s16le", wav], timeout=FFMPEG_TIMEOUT)
+        if rc != 0 or not os.path.exists(wav):
             lib.err("ffmpeg 轉檔失敗：%s" % os.path.basename(src),
+                    ("轉檔超過 %d 秒還沒好，已經中止。" % FFMPEG_TIMEOUT) if rc == 124 else
                     "這個檔可能不是音訊或已經損壞。最後幾行訊息：%s"
-                    % " ".join((r.stderr or "").strip().splitlines()[-2:]))
+                    % " ".join((out or "").strip().splitlines()[-2:]))
             return None
         dur = 0.0
-        p = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration",
-                            "-of", "default=noprint_wrappers=1:nokey=1", wav],
-                           capture_output=True)
+        rc, out = hostos.run([ffprobe, "-v", "error", "-show_entries", "format=duration",
+                              "-of", "default=noprint_wrappers=1:nokey=1", wav],
+                             timeout=FFPROBE_TIMEOUT)
         try:
-            dur = float(hostos.decode_output(p.stdout).strip() or "0")
-        except ValueError:
+            dur = float((out or "").strip().splitlines()[0]) if rc == 0 and out.strip() else 0.0
+        except (ValueError, IndexError):
             dur = 0.0
         print("② 轉錄中（%s，長度 %s，這一步最花時間）…" % (os.path.basename(model), hms(dur)))
         prefix = os.path.join(tmp, "out")
@@ -117,12 +130,13 @@ def transcribe_one(src, model, vad, lang, out_dir, done_dir, keep, tools=None):
                "-f", wav, "-oj", "-of", prefix, "-np", "-pp"]
         if vad:
             cmd += ["--vad", "--vad-model", vad]
-        r = subprocess.run(cmd, capture_output=True)
-        r.stderr, r.stdout = hostos.decode_output(r.stderr), hostos.decode_output(r.stdout)
+        rc, out = hostos.run(cmd, timeout=WHISPER_TIMEOUT)
         jpath = prefix + ".json"
-        if r.returncode != 0 or not os.path.exists(jpath):
+        if rc != 0 or not os.path.exists(jpath):
             lib.err("whisper-cli 轉錄失敗：%s" % os.path.basename(src),
-                    "訊息：%s" % " ".join((r.stderr or r.stdout or "").strip().splitlines()[-2:]))
+                    ("轉錄超過 %d 秒還沒好，已經中止（錄音太長或機器太慢；"
+                     "可以改用小一點的模型 --model ggml-medium）。" % WHISPER_TIMEOUT) if rc == 124 else
+                    "訊息：%s" % " ".join((out or "").strip().splitlines()[-2:]))
             return None
         with open(jpath, encoding="utf-8", errors="replace") as f:
             data = json.load(f)
@@ -174,7 +188,7 @@ def main():
     kit = lib.load_kit(required=False)
     voice = kit.get("voice") or {}
     lang = a.lang or voice.get("lang") or "zh"
-    model_name = a.model or voice.get("model") or "ggml-large-v3-turbo"
+    model_name = a.model or voice.get("model") or hostos.WHISPER_MODEL_DEFAULT
 
     inbox = lib.rpath("inbox")
     out_dir = os.path.join(inbox, "transcripts")

@@ -21,7 +21,7 @@
    要告訴他去哪個網址、在那裡要達成什麼、怎麼知道自己拿對了。
 3. **不准說「你自己 google 一下」「請參考官方文件」「這個要看你的環境」。**
    你就是那個要去查、去試、去解決的人。找不到答案就自己讀腳本、跑 `--help`、看錯誤訊息。
-4. **你不手寫任何產生檔。** `firestore.rules`、`site/js/kit-config.js`、
+4. **你不手寫任何產生檔。** `firestore.rules`、`storage.rules`、`site/js/kit-config.js`、
    `site/js/firebase-config.js`、`config/kit.json`、`config/tabs.json`、`setup/progress.json`
    ——這些一律由 `python3 scripts/setup.py` 與 `python3 scripts/build_config.py` 產生。
    手寫規則檔一旦把信箱打錯，他的資料庫就變成「誰都讀不到」或更糟「誰都讀得到」。
@@ -48,7 +48,7 @@
 | 電腦 | **macOS 或 Windows 10／11**（Linux 盡力支援；**WSL 不行**，要用 Windows 原生 PowerShell） | 支援等級表在 `docs/PLATFORMS.md`，照那份判斷這台機器算哪一級；WSL 的話腳本會直接拒跑，請他改開 Windows Terminal 或 PowerShell |
 | Google 帳號 | 一個**能自己開 Firebase 專案**的 Google 帳號 | 見下面「學校帳號被鎖住怎麼判斷」 |
 | 套件管理程式 | macOS＝Homebrew，Windows＝winget（Windows 10／11 內建），`install_tools.py` 靠它裝工具 | macOS 沒裝 Homebrew 的話，`install_tools.py` 會停下來並印出安裝指令；照它印的做，官方安裝說明在 https://brew.sh 。Windows 的 winget 被學校鎖住的話，照腳本印出來的官方安裝檔網址手動裝 |
-| AI 代理 | 就是你 | — |
+| AI 代理的 CLI | 就是你——已經由 bootstrap 裝好（`setup/bootstrap.sh`，Windows 是 `setup\bootstrap.cmd`） | 老師是自己裝的代理也一樣往下走；他問「別台電腦怎麼裝」就叫他跑 bootstrap，不要口述安裝步驟 |
 
 ### 學校帳號被鎖住怎麼判斷
 
@@ -75,13 +75,15 @@
 
 ## 平台對照（Windows 的 AI 先讀這段）
 
-先跑一次 `python3 scripts/doctor.py`（Windows 用 `py -3 scripts\doctor.py`）——它第一行就會印出
-這台電腦該用哪個 Python 指令、現在是哪個平台。之後全程照那一行寫的叫法。
+先跑一次 `python3 scripts/doctor.py`（Windows 用 `py -3 scripts\doctor.py`）。
+第一行印的是「健檢：<路徑>（kit <版本>，<平台>）」；**該用哪個 Python 指令寫在逐項清單的
+「平台」那一列**——它的說明欄長成「Python 叫法：`py -3`；套件管理：winget」。
+之後全程照那一列寫的叫法。
 
 | 這份檔裡寫的 | Windows 上換成 |
 |---|---|
 | `python3 scripts/x.py` | `py -3 scripts\x.py`（或 `python scripts\x.py`） |
-| `/tmp/answers.json` | `$env:TEMP\answers.json` |
+| `/tmp/<任何檔>`（`answers.json`、`一則.md`、`改寫稿.md`…，這份檔裡出現很多次） | `$env:TEMP\<檔>`——每一個都要換，不是只有 answers.json |
 | `bash …` | 沒有 bash；這套 kit 的腳本全部是 `.py` |
 | 裝完任何工具 | 重開一個新的終端機視窗，PATH 才會更新 |
 
@@ -117,6 +119,15 @@ cat setup/progress.json 2>/dev/null || echo "沒有進度檔＝新裝"
 ls config/kit.json config.yaml 2>/dev/null
 ```
 
+**Windows（PowerShell 5.1）的同一件事**——上面那三行的 `2>/dev/null` 與 `ls a b` 在 PowerShell 裡不成立，
+照這個版本打（平台對照的正本在 `docs/PLATFORMS.md`）：
+
+```powershell
+Get-Content VERSION
+if (Test-Path setup\progress.json) { Get-Content setup\progress.json } else { "沒有進度檔＝新裝" }
+Get-ChildItem config\kit.json, config.yaml -ErrorAction SilentlyContinue
+```
+
 判斷表：
 
 | 看到什麼 | 這是 | 走哪裡 |
@@ -128,6 +139,32 @@ ls config/kit.json config.yaml 2>/dev/null
 
 `setup/progress.json` 的形狀看 `setup/progress.example.json`（每一步 `step` / `title` / `done` / `at` / `notes`）。
 **這個檔一律由 `setup.py` 寫，你不要手改。**
+
+**第 6 步（學生名單）有一個陷阱，續裝時一定要自己查，不能只信旗標。**
+`setup.py` 只要答案檔給了學生代號就會把第 6 步標成 `done: true`，但那一步真正要做的事——
+**把真名收進 `data/roster.csv`**——是你（AI）跟老師一題一題問出來的。
+照旗標走的話，續裝的代理會直接跳過第 6 步，老師的名冊就永遠只有代號沒有姓名。
+
+所以第 6 步的判準是**名冊本身**，不是進度檔：`data/roster.csv` 裡**每一位學生的「姓名」欄都不是空的**才算做完。
+查法（表頭那一行不算，第二欄空白或只有空白字元就是還沒填）：
+
+```bash
+python3 - <<'EOF'
+import csv, io, os
+p = "data/roster.csv"
+if not os.path.exists(p):
+    print("第 6 步：還沒做（沒有 data/roster.csv）")
+else:
+    rows = list(csv.reader(io.open(p, encoding="utf-8")))[1:]
+    miss = [r[0] for r in rows if r and not (len(r) > 1 and r[1].strip())]
+    print("第 6 步：%s（共 %d 位，缺姓名 %d 位：%s）"
+          % ("已完成" if rows and not miss else "還沒做完", len(rows), len(miss), "、".join(miss[:10])))
+EOF
+```
+
+（Windows 一樣跑這段，把 `python3` 換成 `py -3`。）
+缺姓名或根本沒有名冊 → **不管 `progress.json` 怎麼寫，都要回去做第 6 步**；
+做完再用 `python3 scripts/setup.py --mark-step 6 --note "名冊姓名已補齊"` 標記。
 
 ### 怎麼驗證＋失敗時怎麼辦
 
@@ -159,7 +196,11 @@ Windows 用的是系統內建的 winget，正常情況不用他準備任何東�
 
 ### AI 要做的事
 
-先空跑一次讓他看清楚會裝什麼（這一步沒有副作用）：
+**他如果是照 README 跑 `setup/bootstrap.sh`（Windows：`setup\bootstrap.cmd`）才有你的，
+這一步已經做完了**——bootstrap 最後就是跑 `install_tools.py` 與 `doctor.py`。
+那就別重裝，直接跳到下面的健檢，用結果跟他說「工具都齊了」。
+
+不確定的話先空跑一次讓他看清楚會裝什麼（這一步沒有副作用）：
 
 ```bash
 python3 scripts/install_tools.py --dry-run
@@ -202,9 +243,52 @@ python3 scripts/doctor.py
 
 ---
 
-## 步驟 2：Google 帳號與 Firebase 專案
+## 步驟 2：資料要放哪裡（先問這題）＋ Google 帳號與 Firebase 專案
 
 這一步是整套安裝裡老師唯一需要親自動手點畫面的地方。**你陪著他一格一格走。**
+
+### 2-0 第一題：雲端，還是只放這台電腦
+
+**這是整個安裝的第一個實質問題，一定要先問。** 他答「只放這台電腦」的話，
+這一步剩下的全部、加上步驟 4 的部署與步驟 5 的上線，**整段都不用做**。
+
+> 「開始之前先決定一件事，因為它會決定後面要不要申請帳號。**你的紀錄要放哪裡？**
+>
+> ①**雲端**——我幫你開一個屬於你自己的資料庫（Google 免費給每個人的空間）。
+> 好處是：**手機上有一頁網頁**，你排隊、等車、下課走廊上都能隨手記一則，電腦跟手機自動同步。
+> 代價是：要申請一個專案、填六個設定值，大概多花十分鐘。資料在你自己的帳號裡，
+> 帳單也是你的（一般老師的用量都在免費額度內）。
+>
+> ②**只放這台電腦**——完全不碰雲端：不用申請任何東西、沒有網頁、沒有帳單、沒有要填的值。
+> 你的紀錄就是這台電腦裡的檔案，全部透過我（AI）跟你講話來記、來查、來整理。
+>
+> 兩種都是完整的：備份到你的雲端硬碟、期末素材包、匯出 Word／PDF、錄音轉文字、家長信，
+> 兩邊一模一樣。**差別只有「手機上那一頁網頁」跟「同步」。**
+> 而且**哪天想改都可以**——跟我說一聲重跑一次安裝就好，已經記的東西一則都不會動。
+>
+> 你要哪一種？」
+
+他可能會問「哪個比較安全」——照這個口徑回答，不要幫他決定：
+
+> 「兩種都只有你看得到。雲端那邊是靠 Google 伺服器端的規定擋住所有人，只有你的帳號讀得到；
+> 本機那邊是根本沒有網路上的副本。真正的差別是**風險長得不一樣**：
+> 雲端要相信你的 Google 帳號不會被盜（所以請開兩步驟驗證）；
+> 本機要相信你的電腦不會壞、不會掉（所以備份那一步更重要）。
+> 你比較在意哪一種，就選另一種。」
+
+**答案是「只放這台電腦」的話**（答案檔寫 `"mode": "local"`）：
+
+- 跳過這一步剩下的全部（不用問那六個值、不用開 Firebase 專案）。**直接進步驟 3。**
+- 步驟 4 只跑 `setup.py` 與 `build_config.py`，**沒有規則要部署**（本機模式根本不產生規則檔）。
+- **步驟 5（上線）整步跳過**——沒有網站。
+- `setup.py` 會自動把第 2、4、5 步標成完成、備註「本機模式，略過」，你不用再標一次。
+- 步驟 8 的排程只會掛「每週備份」一個（沒有東西要同步）。
+- 步驟 11（無頭交辦）不適用，也不要問他。
+- **步驟 10 的驗收清單要換**：第 1、2、3、8 項（網頁登入、別的帳號被拒、三個分頁新增、網頁匯出）
+  改成在本機做——用 `python3 scripts/append_record.py` 各記一則、
+  用 `python3 scripts/export_docs.py` 匯出一次；第 4 項用 `ledger.py --check`（本機模式自動只比兩處）。
+
+**答案是「雲端」的話**（`"mode": "cloud"`，預設），照下面原本的流程走。
 
 ### AI 要問的話（逐字可念）
 
@@ -252,9 +336,12 @@ python3 scripts/doctor.py
 但 Console 給的 `authDomain` 預設是 `<專案ID>.firebaseapp.com`。
 兩者不同源，**iOS Safari 的跨網域儲存分區會讓 Google 登入一直失敗**（登入後又跳回未登入）。
 
-所以：**打算用 Firebase Hosting 的話，`authDomain` 填 `<專案ID>.web.app`**，
-而不是 Console 給的 `.firebaseapp.com`。這件事在步驟 4 回答 `setup.py` 的 `authDomain` 那一題時處理。
-（要用 GitHub Pages 或嵌進現有網站的話，`authDomain` 就填他實際打開網頁的那個網域。）
+所以：**打算用 Firebase Hosting 的話，`authDomain` 那一格留空**——
+`build_config.py` 會自己填 `<專案ID>.web.app`，那正是網站的網址。
+答案檔 `templates/answers.example.json` 的 `firebase.auth_domain` 預設就是 `""`，
+`config/kit.example.json` 也是；步驟 4 那一題直接跳過就對了，**不要把 Console 給的
+`.firebaseapp.com` 抄進去**。
+（要用 GitHub Pages 或嵌進現有網站的話，才填他實際打開網頁的那個網域。）
 
 ### 怎麼驗證＋失敗時怎麼辦
 
@@ -638,7 +725,7 @@ python3 scripts/setup.py --mark-step 4 --note "已用 firebase deploy 部署規�
 `--mark-step N` 只動 `setup/progress.json`，不碰其他任何檔案；`--note` 是選填的一行備註。
 **部署真的成功了才標**——標了之後續裝流程會跳過這一步，標錯等於讓下一輪 AI 以為規則已經上線。
 其他步驟同理：腳本管不到的事（上線、備份夾設好、排程掛好）做完都可以用同一支標記，
-步驟編號與這份檔的步驟編號一致（0–10），標題印在 `setup/progress.json` 裡。
+步驟編號與這份檔的步驟編號一致（0–11），標題印在 `setup/progress.json` 裡。
 
 ### 怎麼驗證＋失敗時怎麼辦
 
@@ -804,6 +891,8 @@ python3 scripts/append_record.py --kind students --target S-03 --stream homeroom
   訊息會把可用的類型列給你。
 - 退出碼 **3** ＝ `--kind` ＋ `--target` ＋ `--stream` 這個組合在設定裡不存在
   （打錯代號、那門課還沒建、帶的類型他根本沒勾、或那位學生沒被列入這個個案型類型）。
+- 退出碼 **6** ＝ 設定裡有這個目標，但本機的記錄檔不見了（`data/…` 底下那個 `.md` 被刪掉或還沒建）。
+  重跑 `python3 scripts/setup.py`（它只補缺的、不覆蓋已經有的檔），再寫一次。
 - 退出碼 9 ＝ 寫入前後的編號對不上，腳本已經自己把檔案還原了，什麼都沒寫壞。把訊息貼給老師看，重試一次。
 - **sync 印出「衝突」** ＝ 同一則在網頁跟本機都改過。它**不會覆蓋任何一邊**，
   把兩邊念給老師聽，讓他決定留哪個。
@@ -1149,8 +1238,13 @@ SOAP 還要對「會談次數連續」「全文沒有真名」。
 ### 網頁上的同一顆按鈕
 
 不開終端機也做得到同一件事：學生明細頁的「**產生期末素材 ▾**」、
-學生一覽頁的「**產生全班期末素材 ▾**」，下拉列的是這一種記錄類型吃得到的格式，
-按下去下載的 .md 內容與腳本一樣（素材包＋檔尾的 prompt）。
+學生一覽頁的「**產生全班期末素材 ▾**」，下拉列的是這一種記錄類型吃得到的格式。
+
+單一學生那顆跟 `report_pack.py --target` 下載到的東西一樣（素材包＋檔尾的 prompt）。
+**全班那顆的檔案切法不一樣**：網頁下載的是**一份 `.md`、每位學生一節**；
+`report_pack.py --all` 寫出來的是**每位學生各一個檔，另外加一份 `_index.md`**。
+內容規則與檔尾的 prompt 兩邊相同，差別只在切成幾個檔——
+老師要一次貼給 AI 就用網頁那顆，要一位一位處理就用腳本。
 
 ### 學校有自己的表格
 
@@ -1212,6 +1306,148 @@ config/report-format.custom.json` 再改）。`groupBy` 填他記錄時實際用
 
 最後，把「日常使用」那一節（見下）**當面講給他聽一次**，不要只叫他自己看文件。
 
+**（雲端模式的老師，驗收完再問一次步驟 11 要不要——那是選用的，不要自作主張裝上去。）**
+
+---
+
+## 步驟 11：無頭交辦（選用）
+
+**這一步是選用的，而且只有雲端模式有。** 本機模式（步驟 2-0 選②）沒有這一項，不要問、不要提。
+驗收（步驟 10）做完之後再問——它不是安裝的一部分，是一個加購的便利。
+
+完整的人讀版在 `docs/HEADLESS.md`；那份是正本，這裡只寫你要怎麼帶。
+
+### AI 要問的話（逐字可念）
+
+> 「都裝好了。最後問你一件**要不要加的**事，不加完全不影響現在這一套。
+>
+> 現在你要記一則的時候，路徑是：回到電腦前 → 跟我說一聲 → 我幫你記。錄音也是——
+> 要先把錄音檔弄進電腦。
+>
+> 有一個做法可以把最後那幾步也拿掉：**你在手機上對「你自己的 LINE 帳號」講一段話，
+> 電腦醒著的時候會自己把它整理成一則紀錄，然後回你一句「記好了什麼」。**
+> 放學走去停車場的路上講完，就結束了。
+>
+> 三件事要先跟你說清楚：
+> ①這需要你的 Firebase 升級成『用多少算多少』的方案。你這個用量幾乎一定是 **0 元**，
+> 但 Google 規定要**綁一張信用卡**。不想綁卡就到此為止，現在這一套完全不受影響。
+> ②要去 LINE 的開發者網站免費開一個帳號，大概十分鐘，我會一格一格帶你。
+> ③你的語音會經過 LINE 跟**你自己的** Firebase，除此之外不會到任何地方；
+> 轉成文字一樣是在你這台電腦上跑。
+>
+> 要加嗎？」
+
+他說「再想想」就**到此為止**，不要再推銷。跟他說一句「哪天想要跟我說一聲，十五分鐘就好」。
+
+### 老師去哪裡拿
+
+三樣東西，你一樣一樣帶（每一樣拿到再進下一樣）：
+
+| # | 要達成什麼 | 在哪裡 | 怎麼確認拿對了 |
+|---|---|---|---|
+| 1 | Firebase 升級成 Blaze | Firebase Console 左下角「升級」 | 左下角不再顯示 Spark，帳單頁看得到 Blaze。**順便帶他設一個 1 美元的預算警示** |
+| 2 | 一個 LINE Messaging API 頻道，拿到 **Channel secret** 與 **Channel access token** | https://developers.line.biz/console/ | secret 在「Basic settings」；token 在「Messaging API」分頁最下面按 Issue（**只顯示一次**，叫他先貼到你這裡或記事本） |
+| 3 | 用手機把那個官方帳號**加為好友** | LINE Developers 那一頁的 QR code | 他的 LINE 好友清單裡看得到 |
+
+**第 2 樣同一個畫面還要叫他做兩件事**（漏了會很難查）：
+
+- **Auto-reply messages 關掉**——不關的話 LINE 會用罐頭訊息蓋掉我們的回覆。
+- 先別管 Webhook，那要部署完才有網址。
+
+### AI 要做的事
+
+**A. 兩個金鑰設成環境變數**（**絕對不要寫進任何檔案**）。
+重點是要寫進「每次登入都會載入」的地方，不能只在終端機臨時 export——
+排程每 5 分鐘跑一次的那支讀不到臨時變數。macOS／Linux 寫進 `~/.bashrc`（或 `~/.zshrc`）：
+
+```bash
+export KIT_LINE_CHANNEL_SECRET='他給你的 Channel secret'
+export KIT_LINE_CHANNEL_TOKEN='他給你的 Channel access token'
+```
+
+Windows 要走「系統內容 → 環境變數 → 使用者變數 → 新增」，設完關掉所有終端機再開新的
+（`docs/PLATFORMS.md`）。設完在**新的**終端機裡確認讀得到再往下。
+
+**B. 在 kit 裡打開它**——重跑安裝精靈，在「無頭交辦」那一題說要、選代理：
+
+```bash
+python3 scripts/setup.py           # 或改答案檔的 headless 區塊再 --answers
+python3 scripts/build_config.py
+```
+
+代理選哪一支：**選這台電腦上已經裝好、而且登入過的那一支**（就是你自己）。
+`python3 scripts/doctor.py` 的「AI 代理的 CLI」那一項會列出找得到哪幾支。
+
+**C. 把金鑰交給 Cloud Function，然後部署三樣**（先跟他講一句再做）：
+
+```bash
+firebase functions:secrets:set KIT_LINE_CHANNEL_SECRET       # 互動貼上
+firebase functions:secrets:set KIT_LINE_CHANNEL_TOKEN
+firebase deploy --only storage --project <他的專案id>
+firebase deploy --only functions:line-relay --project <他的專案id>
+```
+
+**一律用 `--only`。不要跑沒有參數的 `firebase deploy`**——它會把四個產品一起送，
+其中任何一個沒啟用就整批失敗，而錯誤訊息會指向錯的地方。
+
+`--only storage` 說「找不到 bucket」＝專案還沒啟用 Cloud Storage：
+帶他去 Console → Build → Storage → 開始使用（地區選跟 Firestore 一樣），再重跑那一行。
+
+部署成功會印出一個 `https://line-relay-….run.app` 的網址，**記下來**。
+
+**D. 把網址填回 LINE，然後配對：**
+
+1. 請他回 LINE Developers →「Messaging API」分頁 → **Webhook URL** 貼上 → Update →
+   打開 **Use webhook** 開關 → 按 Verify。
+   （Verify 出現 `401` 是**正常的**：那顆按鈕送的是空簽章，我們的程式本來就會擋。
+   只有 404／500 才是真的有問題。）
+2. 請他用手機傳一句「哈囉」給那個帳號 → 他會收到 `配對碼：Uxxxx…`。
+3. 把那一串填進 `config/kit.json` 的 `headless.line.owner_user_id`（或重跑 setup 在那題貼上），
+   然後：
+
+```bash
+python3 scripts/build_config.py
+python3 scripts/headless.py --once      # 這一步把配對碼送上雲端，relay 從此只認他
+```
+
+他收不到回覆 → 跑 `python3 scripts/headless.py --pair`，它會把 relay 看到的 userId 列出來。
+一個都沒有 ＝ webhook 沒設好，回第 1 點。
+
+**⚠️ 配對完成前，任何人傳訊息都會拿到自己的配對碼**（他才拿得到自己的）。
+所以拿到之後**馬上**做完第 3 點，不要留著過夜。
+
+**E. 掛排程**（開了之後會多一個每 5 分鐘的工作）：
+
+```bash
+python3 scripts/schedule.py
+```
+
+**F. 告訴他 `AGENTS-HEADLESS.md` 可以改。** 那是無頭模式下 AI 要遵守的作業指示；
+他希望回報更短、或某一種紀錄一定要帶某個欄位，改那份檔就好。
+
+### 怎麼驗證＋失敗時怎麼辦
+
+```bash
+python3 scripts/doctor.py        # 「無頭交辦」那一區五項要全綠
+```
+
+**但真正的驗證是他自己做一次**（一定要做，不要只看健檢）：
+
+> 「現在請你拿手機，傳一句話給那個帳號，就講今天班上真的發生的一件小事。
+> 你會先收到『收到了』，那是雲端收到了；五分鐘之內會收到第二句『已記到…』，那才是真的寫好了。」
+
+兩句都收到 ＝ 整條線通了。然後跟他解釋那兩句的差別（他一定會問）。
+
+常見卡點與修法列在 `docs/HEADLESS.md` 的「卡住的時候」那張表——**照那張表查，不要自己猜**。
+最常見的三個：Auto-reply 沒關（回的是罐頭訊息）、Use webhook 沒打開（完全沒回應）、
+環境變數只在終端機裡 export（手動跑得動、排程永遠不動）。
+
+看雲端發生什麼事：Firebase Console → Functions → `line-relay` → Logs。
+
+**不要做的事**：不要自己改 `functions/line-relay/index.js`；不要把金鑰寫進任何檔案；
+不要因為某一則失敗就寫個迴圈重試——`headless.py` 刻意不重試，重試會把同一段話寫成好幾則紀錄。
+失敗的用 `python3 scripts/headless.py --status` 看、`--retry <id>` 重排。
+
 ---
 
 ## 升級路徑 v2 → v3
@@ -1229,9 +1465,10 @@ config/report-format.custom.json` 再改）。`groupBy` 填他記錄時實際用
 
 1. **只覆蓋程式與範本，不覆蓋他的東西。** `git pull`，或重新下載一份新的把這些蓋過去：
    `scripts/`、`site/dashboard.html`、`site/js/*.example.js`、`templates/`、`firestore.rules.tmpl`、
-   `config/*.example.json`、`firebase.json`、文件。
+   `storage.rules.tmpl`、`config/*.example.json`、`firebase.json`、`functions/`、文件。
    **絕對不要覆蓋**：`config/`（`kit.json`、`tabs.json`）、`data/`、`setup/progress.json`、
-   `firestore.rules`、`site/js/kit-config.js`、`site/js/firebase-config.js`、`backups/`、`inbox/`。
+   `firestore.rules`、`storage.rules`、`site/js/kit-config.js`、`site/js/firebase-config.js`、
+   `backups/`、`inbox/`。
 
 2. **轉設定**：
    ```bash
@@ -1376,7 +1613,7 @@ config/report-format.custom.json` 再改）。`groupBy` 填他記錄時實際用
 
 | 可以覆蓋 | 絕對不要覆蓋 |
 |---|---|
-| `scripts/`、`site/dashboard.html`、`site/js/*.example.js`、`templates/`、`config/*.example.json`、`firestore.rules.tmpl`、`firebase.json`、`AGENTS.md`、`README.md`、`docs/` | `config/kit.json`、`config/tabs.json`、`data/`、`setup/progress.json`、`firestore.rules`、`site/js/kit-config.js`、`site/js/firebase-config.js`、`backups/`、`inbox/` |
+| `scripts/`、`site/dashboard.html`、`site/js/*.example.js`、`templates/`、`config/*.example.json`、`firestore.rules.tmpl`、`storage.rules.tmpl`、`firebase.json`、`functions/`、`AGENTS.md`、`AGENTS-HEADLESS.md`、`README.md`、`docs/` | `config/kit.json`、`config/tabs.json`、`data/`、`setup/progress.json`、`firestore.rules`、`storage.rules`、`site/js/kit-config.js`、`site/js/firebase-config.js`、`backups/`、`inbox/` |
 
 **更新後一定要跑**（新版的設定產生器可能多產了東西）：
 
@@ -1395,8 +1632,8 @@ firebase deploy --only firestore:rules --project <他的專案ID>
 
 `VERSION` 是唯一的版本來源，它會流到三個地方，所以三個地方都問得到：
 
-- **他手上這份程式是哪一版**：`cat VERSION`（目前 `3.0.0-alpha.1`），
-  或直接跑 `python3 scripts/doctor.py`——它第一行就印「健檢：<路徑>（kit <版本>）」。
+- **他手上這份程式是哪一版**：`cat VERSION`（那個檔就是唯一的版本來源，別在這份文件裡另外寫一個版號），
+  或直接跑 `python3 scripts/doctor.py`——它第一行就印「健檢：<路徑>（kit <版本>，<平台>）」。
 - **他的資料庫上一次是用哪一版同步的**：`sync.py` 每次都把 `VERSION` 寫進 Firestore 的
   `meta/config.version`。`doctor.py` 連得上網的時候會**自動抓下來跟本機比對**，
   印成「資料庫上次部署的版本（meta/config.version）」那一項：兩邊一樣就過，
@@ -1430,7 +1667,8 @@ firebase deploy --only firestore:rules --project <他的專案ID>
 | `scripts/export_records.py` | 整包匯出（期末取材、換系統） |
 | `scripts/export_docs.py` | 一鍵匯出 Word（`.docx`）與 PDF：學生／班級／課程／業務組 |
 | `scripts/report_pack.py` | 期末素材包＋草稿指令：依報告格式分組，**不寫評語、不呼叫 AI** |
-| `scripts/schedule.py` | （選用）每日同步、每週備份的排程，三個平台同一支 |
+| `scripts/schedule.py` | （選用）每日同步、每週備份、每 5 分鐘收無頭交辦的排程，三個平台同一支 |
+| `scripts/headless.py` | （選用）無頭交辦的電腦端：LINE 收到的語音／文字 → 逐字稿 → AI 代理 → 紀錄 → 推回手機 |
 | `scripts/monthly_reminder.py` | （選用）本月未記名單寄給老師自己 |
 | `scripts/parent_email.py` | （選用）把一則改寫稿寄給家長 |
 | `scripts/pending.py` | （選用）列出還沒決定要不要寄家長的記錄 |
@@ -1443,3 +1681,4 @@ firebase deploy --only firestore:rules --project <他的專案ID>
 業務組庫的完整內容 → `docs/BUSINESS-GROUPS.md`。
 老師自己要讀的入門 → `docs/GUIDE.md`。
 Windows／Linux 的指令對照、每個平台的坑與排程機制 → `docs/PLATFORMS.md`。
+無頭交辦（LINE → 紀錄）的完整說明 → `docs/HEADLESS.md`；無頭模式下你要遵守的作業指示 → `AGENTS-HEADLESS.md`。

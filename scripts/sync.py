@@ -12,7 +12,9 @@
   · 回寫：雲端那則被網頁改過（editedOnWeb）且本機那則自上次同步後沒動 → 寫回檔案。
   · 衝突：兩邊都改 → **不覆蓋**，印出來讓老師自己決定。
   · 前置條件：每個 PATCH 都帶 currentDocument.updateTime；雲端在我們讀完之後又被改過
-    就回 412，當成衝突處理、不重試覆寫（紅隊 #9：沒有這條，老師在手機上打字會被靜默蓋掉）。
+    就前置條件不成立（Firestore 依情境回 400 FAILED_PRECONDITION／409 ALREADY_EXISTS／412，
+    lib.py 三種都認成 Precondition），當成衝突處理、不重試覆寫
+    （紅隊 #9：沒有這條，老師在手機上打字會被靜默蓋掉）。
   · 刪除：雲端那則被刪掉（以前同步過、現在不見了）→ 從本機檔案也刪掉，並寫進 data/audit.jsonl。
     但**整個檔案不見或變成空的時候一律不刪任何東西**——那多半是檔案出事，不是老師要刪。
   · 回寫前先備份成 `.<檔名>.prev.md`。
@@ -94,7 +96,27 @@ def record_body(b, keep=None, t=None):
     return out
 
 
+def accumulate_card(cards, t, blocks):
+    """卡片摘要：同一位學生的每一種記錄類型共用一張卡，所以先累加、迴圈跑完再寫一次。"""
+    if not t["card"]:
+        return
+    c = cards.setdefault(t["card"], {"id": t["id"], "kind": t["kind"],
+                                     "label": t["label"], "dates": [], "streams": {}})
+    c["dates"] += [x["date"] for x in blocks]
+    if t["stream"]:
+        c["streams"][t["stream"]] = len(blocks)
+    else:
+        c["label"] = t["label"]
+
+
 def sync_target(t, base, tok, names, state, dry, notes, counters, cards):
+    """回傳「這一輪過後，這個目標在雲端有哪些 rid」——那就是下一次的 state。
+
+    **只能放雲端真的有的 rid**（現在讀到的，加上這一輪真的推成功的）。
+    把本機每一則都寫進去（含被真名閘攔下、被前置條件擋下而沒上傳的）的話，
+    下一輪那些 rid 會變成「以前同步過、現在雲端沒有」＝網頁上刪了，
+    於是把老師本機的區塊刪掉——紀錄就這樣不見了。
+    """
     key = t["key"]
     known = set(state.get(key, {}).get("rids") or [])
     cloud = {rid: (fs, ut) for rid, fs, ut in lib.list_docs(base, t["records"], tok)
@@ -167,7 +189,8 @@ def sync_target(t, base, tok, names, state, dry, notes, counters, cards):
             notes.append("（預演）從網頁新增到檔案 %s %s" % (key, rid))
         for b in pend_del:
             notes.append("（預演）從檔案刪掉 %s %s（網頁上刪了）" % (key, b["rid"]))
-        return set(by_rid) | set(cloud)
+        accumulate_card(cards, t, blocks)      # 預演也要累加，卡片那一段才印得出預演訊息
+        return set(cloud)
 
     # ── 改檔案（回寫、網頁新增、網頁刪除）──
     if pend_write or pend_new or pend_del:
@@ -217,27 +240,24 @@ def sync_target(t, base, tok, names, state, dry, notes, counters, cards):
                        "reason": "雲端已刪，同步刪除本機區塊"})
 
     # ── 推上雲 ──
+    pushed = set()
     for b, ut, fs in pend_push:
         try:
             lib.http("PATCH", base, "%s/%s" % (t["records"], b["rid"]), tok,
                      record_body(b, fs, t), precondition_update_time=ut,
                      precondition_exists=None if ut else False, raise_errors=True)
+            pushed.add(b["rid"])
         except lib.Precondition:
             counters["conflict"] += 1
             counters["push"] -= 1
-            notes.append("衝突 %s %s：雲端在同步途中被改過——這一則沒上傳" % (key, b["rid"]))
+            # 409 也可能是「同一天另一種記錄類型已經占用這個文件 id」——v3 alpha 之前
+            # 取號沒看兄弟檔，舊資料裡還會有這種撞號（現在由 append_record 取號時避開）。
+            notes.append("衝突 %s %s：雲端在同步途中被改過，或同一天另一種記錄類型已經用掉"
+                         "這個紀錄 id——這一則沒上傳" % (key, b["rid"]))
 
-    # ── 卡片摘要：同一位學生的每一種記錄類型共用一張卡，所以先累加、迴圈跑完再寫一次 ──
     _, fb = lib.parse_file(t["path"])
-    if t["card"]:
-        c = cards.setdefault(t["card"], {"id": t["id"], "kind": t["kind"],
-                                         "label": t["label"], "dates": [], "streams": {}})
-        c["dates"] += [x["date"] for x in fb]
-        if t["stream"]:
-            c["streams"][t["stream"]] = len(fb)
-        else:
-            c["label"] = t["label"]
-    return ({x["rid"] for x in fb} | set(cloud)) - {b["rid"] for b in pend_del}
+    accumulate_card(cards, t, fb)
+    return set(cloud) | pushed
 
 
 def sync_student_card(sid, path, base, tok, state, dry, notes):
@@ -257,6 +277,15 @@ def sync_student_card(sid, path, base, tok, state, dry, notes):
     lh, ch = lib.card_fingerprint(local), lib.card_fingerprint(cloud)
     if lh == ch:
         return lh
+    if not baseline:
+        # 第一次同步：還沒有基準，而基準是空字串、雲端指紋是「空卡片」的雜湊——
+        # 直接比會永遠不相等，於是每一次都報衝突，IEP 目標與個案概念化一輩子上不去。
+        # 照名冊第三欄的同一條規則辦：沒有基準就看哪一邊是空的，空的那邊讓另一邊贏。
+        empty = lib.card_fingerprint({})
+        if ch == empty:
+            baseline = ch                                # 雲端還沒有東西 → 本機為準，推上去
+        elif lh == empty:
+            baseline = lh                                # 本機還沒有東西 → 網頁為準，寫回來
     if ch == baseline:                                   # 只有本機改過 → 推上去
         if dry:
             notes.append("（預演）卡片 %s：本機的目標／個案概念化會推上去" % sid)
@@ -295,8 +324,9 @@ def write_cards(cards, base, tok, notes=None):
         的舊名字把它改回去。唯一的例外是這張卡雲端還沒有（下面 exists=false 的建立情境），
         那時候帶一次 label 只是把空白填起來，沒有覆寫任何人的字。
       · **PATCH 一律帶前置條件**（紅隊 #9）：先 get_doc 拿 updateTime，PATCH 帶
-        currentDocument.updateTime；讀完之後網頁又改過就回 412 → 記一筆衝突、不重試覆寫。
-        卡片沒有「兩邊都改」的問題（統計是算出來的），但 412 代表我們手上的 updateTime
+        currentDocument.updateTime；讀完之後網頁又改過就前置條件不成立
+        （400 FAILED_PRECONDITION／409／412，lib.py 一律丟 Precondition）→ 記一筆衝突、不重試覆寫。
+        卡片沒有「兩邊都改」的問題（統計是算出來的），但前置條件不成立代表我們手上的 updateTime
         已經過期，硬寫下去等於用舊快照蓋新文件。
     """
     for path, c in sorted(cards.items()):
@@ -387,7 +417,8 @@ def sync_roster(kit, base, tok, state, dry, notes):
         # 無 mask 的整份 PATCH 會把它靜默清掉。
         # 帶 currentDocument 前置條件（紅隊 #9）：網頁的「＋ 列入學生」寫的就是這份
         # students[].streams——我們讀完之後老師剛好在網頁上列入一位，無條件 PATCH
-        # 會把他靜默蓋掉。412 就當衝突，不重試覆寫，下次同步再對。
+        # 會把他靜默蓋掉。前置條件不成立（400 FAILED_PRECONDITION／409／412）就當衝突，
+        # 不重試覆寫，下次同步再對。
         try:
             lib.http("PATCH", base, "roster/main", tok, {"students": merged}, mask=["students"],
                      precondition_update_time=roster_ut,
@@ -441,6 +472,15 @@ def main():
 
     kit = lib.load_kit()
     tabs = lib.load_tabs()
+    # 本機模式沒有雲端可以同步。退出碼 0（不是錯誤）：排程與 append_record.py --sync
+    # 都會叫到這一支，本機模式下它就該安安靜靜地什麼都不做。
+    if lib.is_local(kit):
+        if not a.quiet:
+            print("本機模式沒有雲端，不用同步。紀錄就在 %s 底下。"
+                  % os.path.relpath(lib.data_dir(), lib.root()))
+            print("  想改用手機網頁：把 config/kit.json 的 mode 改成 cloud，"
+                  "再跑一次 `%s scripts/setup.py`。" % lib.PY)
+        return
     base = lib.fb_base(kit)
     tok = lib.token()
     names = lib.real_names(kit)
@@ -485,7 +525,14 @@ def main():
                  {"version": lib.version(), "dataVersion": lib.DATA_VERSION,
                   "tabs": json.dumps(tabs, ensure_ascii=False)},
                  mask=["version", "dataVersion", "tabs"])
-        lib.touch_status(base, tok, "lastSyncAt")
+        # 狀態列不能只有「上次同步時間」：有衝突、有真名攔截的那一輪也會更新時間，
+        # 網頁於是顯示綠燈，而老師其實有幾則沒上去。把數字一起寫上去，網頁照這三個欄位判斷。
+        status_fields = {"lastSyncAt": lib.now_iso(),
+                         "lastSyncConflicts": counters["conflict"],
+                         "lastSyncPii": counters["pii"],
+                         "lastError": ""}
+        lib.http("PATCH", base, "meta/status", tok, status_fields,
+                 mask=list(status_fields))
 
     line = ("%s同步 %d 個目標：上傳 %d、回寫 %d、從網頁新增 %d、刪除 %d、衝突 %d、真名攔截 %d"
             % ("（預演）" if a.dry_run else "", len(tg), counters["push"], counters["write"],

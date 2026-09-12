@@ -2,6 +2,9 @@
   "_註解_這個檔是什麼": "Teacher Records Kit 的主設定範本。安裝精靈 scripts/setup.py 會照著你的回答產生 config/kit.json（那份被 .gitignore 擋住、不會進 git）。JSON 不能寫註解，所以說明一律放在「_註解_欄位名」這種鍵裡，程式會忽略所有底線開頭的鍵。",
   "version": 3,
 
+  "_註解_mode": "資料庫模式，安裝精靈第 2 步第一題問的就是它。cloud＝照這份 kit 原本的樣子：開一個你自己的 Firebase 專案，手機上有一頁網頁可以隨手記、電腦與網頁雙向同步。local＝完全不碰雲端：紀錄只存在這台電腦的 data/*.md，沒有網頁、沒有 Firebase、沒有帳單，全部透過 AI 代理與腳本操作（備份、匯出、期末素材包、家長信、錄音轉逐字稿都照常）。之後想換模式，改這個值再重跑一次 `python3 scripts/setup.py` 就好（紀錄不會動）。",
+  "mode": "cloud",
+
   "_註解_owner_email": "只有這個 Google 帳號能讀寫你的資料（安全規則在伺服器端鎖定本人）。要用能登入 Google 的信箱；學校配發帳號若被管理員鎖住 Cloud Console，改用個人 Gmail。",
   "owner_email": "you@example.com",
 
@@ -12,7 +15,7 @@
   "firebase": {
     "project_id": "your-firebase-project-id",
     "api_key": "",
-    "_註解_auth_domain": "通常是 <project_id>.firebaseapp.com；若你用 Firebase Hosting 且 iPhone 上登不進去，改成你實際打開網頁的網域（如 <project_id>.web.app）。",
+    "_註解_auth_domain": "留空即可——build_config.py 會自動填 <project_id>.web.app（這份 kit 預設部署在 Firebase Hosting，網址就是它）。Console 給的 <project_id>.firebaseapp.com 跟網頁不同源，iPhone 上會一直登不進去。網站掛在別的網域（GitHub Pages、嵌進現有站）才填你實際打開網頁的那個網域。",
     "auth_domain": "",
     "storage_bucket": "",
     "messaging_sender_id": "",
@@ -34,6 +37,19 @@
   "voice": {
     "model": "ggml-large-v3-turbo",
     "lang": "zh"
+  },
+
+  "_註解_headless": "選用，而且要先是 cloud 模式。無頭交辦＝你在手機上對自己的 LINE 官方帳號講一段話或打一行字，電腦醒著的時候自動變成一則紀錄，你完全不用打開終端機。enabled 由安裝精靈問你要不要（預設關）。tool 目前只有 line（欄位留著是為了以後接別的）。agent＝要叫哪一支 AI 代理來整理（claude／codex／gemini，要是這台電腦上裝好也登入過的那一支）。timeout_sec＝一則交辦最多讓 AI 跑多久（秒），超過就連子孫行程一起殺掉並記成失敗。line.channel_secret_env／channel_token_env＝放金鑰的環境變數「名字」（金鑰本身永遠不寫進任何檔案）。line.owner_user_id＝配對碼：只接受這個 LINE 使用者的訊息，空白時 relay 會把任何人的 userId 回給他當配對碼，拿到之後填進來。完整說明：docs/HEADLESS.md。",
+  "headless": {
+    "enabled": false,
+    "tool": "line",
+    "agent": "",
+    "timeout_sec": 1800,
+    "line": {
+      "channel_secret_env": "KIT_LINE_CHANNEL_SECRET",
+      "channel_token_env": "KIT_LINE_CHANNEL_TOKEN",
+      "owner_user_id": ""
+    }
   },
 
   "_註解_email": "選用。只有要寄家長信、每月提醒才需要。method 選 smtp（通用）時，密碼放環境變數 KIT_SMTP_APP_PASSWORD（Google 帳號 → 安全性 → 兩步驟驗證 → 應用程式密碼），絕不要寫進這個檔。",

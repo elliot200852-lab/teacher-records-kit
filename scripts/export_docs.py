@@ -436,11 +436,9 @@ def _wait_for_pdf(proc, pdf_path, timeout=180):
             break
         time.sleep(0.4)
     if proc.poll() is None:
-        proc.kill()
-        try:
-            proc.wait(timeout=15)
-        except Exception:
-            pass
+        # 一定要連子孫一起殺：Chrome／Edge 的 renderer 是獨立行程，只殺父行程的話它們還抓著
+        # --user-data-dir 那個暫存 profile，Windows 上 rmtree 會靜靜地失敗、留下一地 trk-chrome-*。
+        hostos.kill_tree(proc)
 
 
 def html_to_pdf(html_path, pdf_path):
@@ -453,13 +451,17 @@ def html_to_pdf(html_path, pdf_path):
     cmd = [chrome, "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
            "--user-data-dir=" + profile, "--no-pdf-header-footer",
            "--print-to-pdf=" + os.path.abspath(pdf_path), file_url(html_path)]
+    kw = {}
+    if os.name == "posix":
+        kw["start_new_session"] = True             # 自成一個 process group，kill_tree 才殺得掉整群
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
     except Exception:
         return False
     try:
         _wait_for_pdf(proc, os.path.abspath(pdf_path))
     finally:
+        hostos.kill_tree(proc)                     # 保險：子孫沒死光的話下面那行刪不掉 profile
         shutil.rmtree(profile, ignore_errors=True)
     if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) < 5:
         return False

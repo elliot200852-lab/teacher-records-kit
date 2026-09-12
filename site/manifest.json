@@ -1,0 +1,27 @@
+{
+  "name": "教學記錄",
+  "short_name": "教學記錄",
+  "description": "只有擁有者本人看得到的教學記錄；資料受 Firestore 伺服器端規則保護。",
+  "lang": "zh-Hant",
+  "dir": "ltr",
+  "start_url": "./dashboard.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#2F7AC4",
+  "background_color": "#fafafa",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "maskable"
+    }
+  ]
+}

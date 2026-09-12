@@ -110,6 +110,134 @@ def read(path):
         return f.read()
 
 
+FAKE_AGENT = r'''#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""假的 AI 代理：無頭交辦的測試絕對不會叫到真的模型。
+
+它做的事跟真代理該做的一樣——走唯一寫入通道記一則，然後印回報——
+只是判斷是寫死的。headless.py 看到的介面（argv、cwd、退出碼、<<REPORT>> 區塊）完全一樣。
+"""
+import os
+import sys
+import subprocess
+
+prompt = sys.argv[1] if len(sys.argv) > 1 else ""
+root = os.environ["TRK_ROOT"]
+scripts = os.path.join(os.environ["TRK_PKG"], "scripts")
+
+# 提示詞裡「內容：」後面夾在兩條分隔線之間的就是逐字稿／文字（真代理是讀懂之後改寫）
+body = "（假代理沒讀到內容）"
+if "內容：" in prompt:
+    tail = prompt.split("內容：", 1)[1].splitlines()
+    got = []
+    for line in tail[2:]:                 # tail[0] 是空的、tail[1] 是上面那條分隔線
+        if line.startswith("\u2500"):
+            break
+        got.append(line)
+    if "".join(got).strip():
+        body = "\n".join(got).strip()
+
+draft = os.path.join(root, "fake-agent-draft.md")
+with open(draft, "w", encoding="utf-8", newline="\n") as f:
+    f.write(body + "\n")
+r = subprocess.run([sys.executable, os.path.join(scripts, "append_record.py"),
+                    "--kind", "students", "--target", "S-01", "--stream", "homeroom",
+                    "--content-file", draft, "--source", "voice", "--root", root],
+                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+if r.returncode != 0:
+    print(r.stdout + r.stderr)
+    print("<<REPORT>>沒有寫入：append_record 回傳 %d<<END>>" % r.returncode)
+    sys.exit(1)
+print("<<REPORT>>已記到 S-01 的導師班級紀錄：%s<<END>>" % body[:40])
+'''
+
+
+def headless_steps(root, kit, base):
+    """無頭交辦的電腦端：假造一則 headless_events，讓 headless.py 真的處理一輪。
+
+    雲端那一半（Cloud Function）不在這裡驗——模擬器只跑 Firestore。
+    這裡驗的是**交給老師電腦之後**的每一件事：搶件的前置條件、叫代理、回報、標 done、稽核。
+    """
+    print("\n── 無頭交辦 ──")
+    kit_path = os.path.join(root, "config", "kit.json")
+    with open(kit_path, encoding="utf-8") as f:
+        k = json.load(f)
+    k["headless"] = {"enabled": True, "tool": "line", "agent": "claude", "timeout_sec": 300,
+                     "line": {"channel_secret_env": "KIT_LINE_CHANNEL_SECRET",
+                              "channel_token_env": "KIT_LINE_CHANNEL_TOKEN",
+                              "owner_user_id": "Utest0000"}}
+    write(kit_path, json.dumps(k, ensure_ascii=False, indent=1))
+    rc, out = py("build_config.py", "--allow-placeholders", root=root)
+    step("開了無頭交辦之後 build_config 仍然過", rc == 0, out.strip().splitlines()[-1] if rc else "")
+    rules = read(os.path.join(root, "storage.rules"))
+    step("storage.rules 長出收件匣那一條", "match /headless-inbox/{file}" in rules)
+
+    agent = os.path.join(root, "fake-agent.py")
+    write(agent, FAKE_AGENT)
+    os.chmod(agent, 0o755)
+    env = {"TRK_HEADLESS_AGENT_CMD": agent, "TRK_ROOT": root, "TRK_PKG": PKG}
+
+    # 一則文字交辦（語音那一條路要 Storage 與 whisper，不在模擬器裡驗）
+    eid = "evt-smoke-1"
+    lib.http("PATCH", base, "headless_events/%s" % eid, "owner",
+             {"type": "text", "text": "今天午休 S-01 主動幫忙排椅子。", "messageId": "m1",
+              "userId": "Utest0000", "receivedAt": "2026-09-12T10:00:00", "status": "pending",
+              "storagePath": "", "audioPending": False, "error": ""},
+             precondition_exists=False)
+
+    rc, out = py("headless.py", "--once", "--dry-run", root=root, env=env)
+    step("headless --dry-run 不改任何東西", rc == 0 and "預演" in out,
+         out.strip().splitlines()[-1] if out.strip() else "")
+    fs, _ = lib.get_doc(base, "headless_events/%s" % eid, "owner", raise_errors=True)
+    step("預演之後那一則還是 pending", fs.get("status") == "pending", str(fs.get("status")))
+
+    rc, out = py("headless.py", "--once", root=root, env=env)
+    step("headless --once 跑完", rc == 0, out.strip().splitlines()[-1] if out.strip() else "")
+    fs, _ = lib.get_doc(base, "headless_events/%s" % eid, "owner", raise_errors=True)
+    step("那一則標成 done 並帶回報", fs.get("status") == "done" and "S-01" in (fs.get("note") or ""),
+         "%s／%s" % (fs.get("status"), (fs.get("note") or "")[:40]))
+    md = read(os.path.join(root, "data", "students", "S-01", "observations.md"))
+    step("紀錄真的寫進本機檔（走 append_record.py）", "主動幫忙排椅子" in md)
+    meta, _ = lib.get_doc(base, "meta/headless", "owner", raise_errors=True)
+    step("配對碼寫上 meta/headless（relay 讀的是這一份）",
+         (meta or {}).get("ownerUserId") == "Utest0000", str((meta or {}).get("ownerUserId")))
+    audit = read(os.path.join(root, "data", "headless-audit.jsonl"))
+    step("稽核留了一行", eid in audit and '"status": "done"' in audit)
+
+    rc, out = py("headless.py", "--once", root=root, env=env)
+    step("第二輪沒事做（done 的不會再處理一次）", rc == 0 and "沒有待處理" in out)
+
+    rc, out = py("headless.py", "--status", "--json", root=root, env=env, expect=None)
+    data = json.loads(out[out.index("{"):])
+    step("--status 數得出來", data["counts"]["done"] == 1 and data["paired"] is True,
+         json.dumps(data["counts"], ensure_ascii=False))
+
+    # 失敗的那一條路：代理不印回報 → 標 failed、不重試；--retry 才排回待辦
+    write(agent, "#!/usr/bin/env python3\nprint('我什麼都沒做')\n")
+    os.chmod(agent, 0o755)
+    eid2 = "evt-smoke-2"
+    lib.http("PATCH", base, "headless_events/%s" % eid2, "owner",
+             {"type": "text", "text": "第二則", "messageId": "m2", "userId": "Utest0000",
+              "receivedAt": "2026-09-12T11:00:00", "status": "pending", "storagePath": "",
+              "audioPending": False, "error": ""}, precondition_exists=False)
+    rc, out = py("headless.py", "--once", root=root, env=env, expect=None)
+    fs2, _ = lib.get_doc(base, "headless_events/%s" % eid2, "owner", raise_errors=True)
+    step("代理沒印回報 → 標 failed（不當成功）", rc == 1 and fs2.get("status") == "failed",
+         "%s／%s" % (rc, fs2.get("status")))
+    rc, out = py("headless.py", "--retry", eid2, root=root, env=env)
+    fs2, _ = lib.get_doc(base, "headless_events/%s" % eid2, "owner", raise_errors=True)
+    step("--retry 把它排回待辦", rc == 0 and fs2.get("status") == "pending", str(fs2.get("status")))
+
+    # 規則：無頭交辦的事件與配對紀錄一樣只有擁有者讀得到
+    owner_tok, stranger_tok = fake_jwt(OWNER), fake_jwt("stranger@example.com")
+    step("規則：擁有者讀得到 headless_events",
+         raw_get(kit, "headless_events/%s" % eid, owner_tok) == 200)
+    step("規則：陌生人讀不到 headless_events（403）",
+         raw_get(kit, "headless_events/%s" % eid, stranger_tok) == 403)
+    step("規則：未登入讀不到 headless_events（403）",
+         raw_get(kit, "headless_events/%s" % eid) == 403)
+
+
 # ── 被 emulators:exec 叫起來的那一層 ───────────────────────────────────────────
 def inner(root):
     lib.set_root(root)
@@ -131,6 +259,13 @@ def inner(root):
     rc, out = py("append_record.py", "--kind", "students", "--target", "S-02", "--stream", "case",
                  "--date", "2026-09-02", "--fields-json", '{"來源":"導師轉介"}', "--content-file", draft, "--source", "file", root=root)
     step("append S-02 case", rc == 0)
+    # 同一位學生、同一天、另一種記錄類型：兩種類型共用 students/S-02/records，
+    # 取號沒看兄弟檔的話兩邊都會是 2026-09-02，第二則推上去就撞 ALREADY_EXISTS。
+    write(draft, "同一天的班級紀錄，跟上面那則個案紀錄共用同一個雲端集合。\n")
+    rc, out = py("append_record.py", "--kind", "students", "--target", "S-02", "--stream", "homeroom",
+                 "--date", "2026-09-02", "--content-file", draft, "--source", "file", "--json", root=root)
+    sib_rid = json.loads(out.strip().splitlines()[-1])["rid"] if rc == 0 else ""
+    step("append S-02 homeroom（同日不撞紀錄 id）", rc == 0 and sib_rid.startswith("2026-09-02-"), sib_rid)
     write(draft, "公文：校外教學申請已送出。\n")
     rc, out = py("append_record.py", "--kind", "business", "--target", "homeroom",
                  "--date", "2026-09-03", "--content-file", draft, "--source", "file", root=root)
@@ -149,10 +284,22 @@ def inner(root):
     step("雲端有 S-01 的紀錄", len(docs) == 1 and docs[0][1].get("stream") == "homeroom"
          and docs[0][1].get("sourceFile") == "students/S-01/observations.md",
          json.dumps({k: docs[0][1].get(k) for k in ("stream", "sourceFile", "date")}, ensure_ascii=False) if docs else "空")
+    s2 = lib.list_docs(base, "students/S-02/records", "owner", raise_errors=True)
+    step("同一位學生兩種類型各自成一份文件（沒撞 id）",
+         len(s2) == 2 and {f.get("stream") for _, f, _ in s2} == {"case", "homeroom"},
+         "、".join("%s/%s" % (rid, f.get("stream")) for rid, f, _ in s2))
+    card, _ = lib.get_doc(base, "students/S-02", "owner", raise_errors=True)
+    step("第一次同步就把卡片的 IEP 目標推上去", len(card.get("goals") or []) == 2,
+         "goals=%d" % len(card.get("goals") or []))
     cfg, _ = lib.get_doc(base, "meta/config", "owner", raise_errors=True)
     step("meta/config.version 寫上去了", cfg.get("version") == lib.version(), str(cfg.get("version")))
     st, _ = lib.get_doc(base, "meta/status", "owner", raise_errors=True)
     step("meta/status.lastSyncAt", bool(st.get("lastSyncAt")))
+    step("meta/status 帶衝突／真名／錯誤三個欄位",
+         st.get("lastSyncConflicts") == 0 and st.get("lastSyncPii") == 0
+         and st.get("lastError") == "",
+         json.dumps({k: st.get(k) for k in ("lastSyncConflicts", "lastSyncPii", "lastError")},
+                    ensure_ascii=False))
     rc, out = py("sync.py", root=root)
     step("第二次 sync 沒事做", rc == 0 and "上傳 0" in out)
 
@@ -181,6 +328,9 @@ def inner(root):
     md2 = read(os.path.join(root, "data", "students", "S-01", "observations.md"))
     fs2, _ = lib.get_doc(base, "students/S-01/records/%s" % rid, "owner", raise_errors=True)
     step("兩邊都改 → 報衝突", "衝突" in out and "衝突 1" in out)
+    stc, _ = lib.get_doc(base, "meta/status", "owner", raise_errors=True)
+    step("衝突那一輪 meta/status.lastSyncConflicts 記 1（網頁不能顯示綠燈）",
+         stc.get("lastSyncConflicts") == 1, str(stc.get("lastSyncConflicts")))
     step("衝突時本機不動", "（本機又改）" in md2)
     step("衝突時雲端不動", fs2.get("body") == "（網頁再改一次）")
     # 老師決定留網頁版：把本機改回去讓雜湊一致 → 下一次同步就用網頁那份
@@ -262,6 +412,9 @@ def inner(root):
          raw_post(kit, "students/S-01/records", "2026-09-10",
                   {"date": "2026-09-10", "stream": "homeroom", "body": "x", "tags": [], "fields": {}}, stranger_tok) == 403)
 
+    # 14. 無頭交辦：假造一則事件文件，讓 headless.py 真的跑一輪（AI 代理是假的）
+    headless_steps(root, kit, base)
+
     print()
     if FAILS:
         print("✗ %d 項沒過：%s" % (len(FAILS), "、".join(FAILS)))
@@ -295,8 +448,13 @@ def outer():
         if rc != 0:
             print(out[-1500:])
             return 1
-        # 模擬器要從有 firebase.json 的資料夾起，規則檔是 setup 剛產生的那一份
-        shutil.copy(os.path.join(PKG, "firebase.json"), root)
+        # 模擬器要從有 firebase.json 的資料夾起，規則檔是 setup 剛產生的那一份。
+        # **這裡故意只留 firestore 那一段**，不複製 repo 的 firebase.json：
+        # 那一份還宣告了 hosting／storage／functions，functions 的來源資料夾不在這個暫存 root 裡，
+        # firebase CLI 讀設定時就可能因為那一段而抱怨（而那跟這支測的東西完全無關）。
+        write(os.path.join(root, "firebase.json"), json.dumps({
+            "firestore": {"rules": "firestore.rules", "indexes": "firestore.indexes.json"},
+        }, ensure_ascii=False, indent=2) + "\n")
         shutil.copy(os.path.join(PKG, "firestore.indexes.json"), root)
         assert os.path.exists(os.path.join(root, "firestore.rules"))
         inner_cmd = '"%s" "%s" --inner "%s"' % (sys.executable, os.path.abspath(__file__), root)

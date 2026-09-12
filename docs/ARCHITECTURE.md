@@ -9,6 +9,18 @@
 腳本全部是 Python 3、三個平台同一份（macOS／Windows／Linux）。**平台差異只寫在
 `scripts/hostos.py` 這一支**：工具怎麼裝、執行檔怎麼找、主控台編碼、Drive 同步夾與
 Chrome／Edge 的候選、排程掛在哪——其他腳本一律經它，人讀的那一份是 `docs/PLATFORMS.md`。
+
+那一層還管兩件跟「別留下爛攤子」有關的事：
+
+- **下載的可攜工具驗 sha256。** `hostos.DOWNLOADS` 每一項帶一個雜湊，
+  `download()` 邊下載邊算，對不上就刪掉 `.part` 直接失敗——不解壓、不留半套。
+  少數滾動網址（ffmpeg 的 `ffmpeg-release-essentials.zip`，同一個網址永遠指向最新版）刻意留空，
+  CI 的 `urls` job 會把它印成 `rolling`，
+  讓「哪幾項沒釘住」永遠是看得見的，而不是被忘掉的。
+- **`hostos.kill_tree()` 殺的是整群行程，不是父行程。** Chrome／Edge 印 PDF 會生 renderer 子行程，
+  無頭代理會生它自己的子行程；只殺父行程的話，子行程還抓著暫存 profile 目錄，
+  Windows 上刪不掉，暫存區留一地垃圾。Windows 走 `taskkill /T /F`、POSIX 走 `killpg`
+  （所以那幾支 `Popen` 在 POSIX 上都帶 `start_new_session=True`），失敗才退回單行程 kill。
 所有腳本寫出來的文字檔一律用 LF 換行（`newline="\n"`，有測試守著），`.gitattributes` 也鎖 LF；
 不然同一則記錄在兩台機器上算出的雜湊會不一樣，同步會一直報「內容不同」。
 
@@ -381,7 +393,19 @@ v3 起安全規則允許擁有者刪除記錄（`allow delete: if isOwner();`）
 
 排程由 `scripts/schedule.py` 掛：macOS 是 launchd LaunchAgent、Windows 是工作排程器（XML 定義檔）、
 Linux 是 crontab 區塊（三個平台的細節與移除方式見 `docs/PLATFORMS.md`）。
-三種都會靜默死掉——電腦沒開機、權限被擋、學校電腦鎖住排程。
+
+掛幾支由 `wanted_jobs()` 決定，**不是固定兩支**：
+
+| 工作 | 什麼時候會掛 | 頻率 | 跑什麼 |
+|---|---|---|---|
+| `sync` | 只有 cloud 模式 | 每天 07:00 | `sync.py` |
+| `backup` | 一定有 | 每週日 08:00 | `backup.py --quiet` |
+| `headless` | 只有開了無頭交辦 | **每 5 分鐘** | `headless.py --once --quiet` |
+
+`--uninstall` 不管開了哪幾項都一律清乾淨；`--status` 對沒開的那幾項印
+「（沒開這個功能，本來就不該掛）」，免得看起來像掛失敗。
+
+三種排程都會靜默死掉——電腦沒開機、權限被擋、學校電腦鎖住排程。
 所以網頁頂端讀 `meta/status`，顯示「上次同步 X 天前・上次備份 Y 天前」，
 **任一超過 7 天就顯示紅字**。
 
@@ -459,18 +483,20 @@ python3 scripts/ledger.py --check      # 三處對帳，印三欄表
 
 ---
 
-## 8. 設定：一個產生器，三個輸出
+## 8. 設定：一個產生器，四個輸出
 
 ```
 config/kit.json            ──┐
 config/tabs.json           ──┤
 config/business-groups.    ──┤
-  library.json             ──┼──►  build_config.py  ──►  site/js/kit-config.js
-config/student-streams.    ──┤                          site/js/firebase-config.js
-  library.json             ──┤                          firestore.rules
-config/report-formats.     ──┤
   library.json             ──┤
-firestore.rules.tmpl       ──┘
+config/student-streams.    ──┼──►  build_config.py  ──►  site/js/kit-config.js
+  library.json             ──┤                          site/js/firebase-config.js
+config/report-formats.     ──┤                          firestore.rules
+  library.json             ──┤                          storage.rules
+config/verticals.json      ──┤
+firestore.rules.tmpl       ──┤
+storage.rules.tmpl         ──┘
 VERSION                    ──┘（版本字串進 window.KIT.version）
 ```
 
@@ -478,8 +504,19 @@ VERSION                    ──┘（版本字串進 window.KIT.version）
 格式庫進的是網頁「產生期末素材 ▾」要列哪幾個格式（`window.KIT.reportFormats`）；
 老師實際勾了什麼一律看 `config/tabs.json`（含 `vertical` 與 `reportFormat` 兩個標記）。
 
-- **三個輸出全部 gitignored，而且永遠由腳本產生。** AI 代理不准手寫——
+- **輸出全部 gitignored，而且永遠由腳本產生。** AI 代理不准手寫——
   手寫規則檔一旦把信箱打錯，資料庫就變成誰都讀不到，或更糟：誰都讀得到。
+- **`storage.rules` 每次都產**（來源是 `storage.rules.tmpl`）：沒開無頭交辦的時候它是整份拒絕，
+  開了才把 `headless-inbox/**` 那一段填進去。這樣老師日後自己在 Console 開了 Storage，
+  也不會拿到一個誰都寫得進去的 bucket。**本機模式只產 `site/js/kit-config.js` 一個檔**（見 §11）。
+- **規則裡的信箱是插進字串的，所以要跳脫。** `owner_email` 一律去空白轉小寫，
+  再經跳脫才插進規則模板——寬鬆的信箱格式加上原樣字串替換，等於讓一個
+  `x'||true||'someone@a.bc` 這種值把 `isOwner()` 變成恆真。
+- **範本值不放行。** `owner_email` 還是 `you@example.com`、專案 id 還是範本值的時候，
+  `build_config.py` 直接 exit 1。以前它照樣產檔、印「下一步：部署安全規則」然後 exit 0，
+  老師與 AI 都會以為裝好了。`setup.py` 內部呼叫、測試與 CI 用 `--allow-placeholders` 降級成提醒。
+- **部署一律帶 `--only`。** 無參數的 `firebase deploy` 會連 hosting、firestore、storage、functions
+  一起送，其中一項沒設好就整批失敗，錯誤訊息還指不到真正的原因。
 - 設定用 **JSON 不用 YAML**（v2 那個自寫的 YAML 解析器已經拆掉了）。
   JSON 不能寫註解，所以說明放在 `_註解_欄位名` 這種鍵裡，程式忽略所有底線開頭的鍵。
 - 安裝是**確定性的**：`setup.py` 同樣的答案跑幾次結果都一樣。
@@ -507,7 +544,7 @@ VERSION                    ──┘（版本字串進 window.KIT.version）
   （移出只改名冊，不刪任何紀錄）。
 - 分頁狀態在網址的 `#` 後面（`#students` `#courses` `#business` `#class` `#s/<代號>` …），
   所以手機的返回鍵是通的。
-- 頁尾顯示版本，來源是 `window.KIT.version`（見 §11）。
+- 頁尾顯示版本，來源是 `window.KIT.version`（見 §13）。
 - 規則過舊會被即時偵測：新增或刪除被舊規則擋下來時，畫面直接顯示
   「你的安全規則還是舊版，請重新部署」。
 
@@ -585,11 +622,132 @@ VERSION                    ──┘（版本字串進 window.KIT.version）
 - **不代管、不介入的定位**：這套 kit 從不持有老師的金鑰，也不該持有他的判斷。
   評語是專業判斷與對這個孩子的責任，腳本沒有資格代寫——它只能保證「素材沒有漏、規則有附上」。
 - **定稿規矩**：老師定稿之後那一版就是那一版，AI 不回頭「順手修正」；
-  這跟 §12 的「不做自動評量生成」是同一條線。
+  這跟 §14 的「不做自動評量生成」是同一條線。
 
 ---
 
-## 11. 版本控制
+## 11. 兩種模式：cloud 與 local
+
+`config/kit.json` 頂層的 `mode` 決定整套系統要不要碰雲端。只有兩個值：`cloud`（預設）與 `local`。
+沒有這個鍵的舊設定一律當成 `cloud`。這條是相容性的硬規定，改它就會弄壞所有既有安裝。
+
+腳本一律經 `lib.mode(kit)` 與 `lib.is_local(kit)` 判斷，不自己看那個鍵；
+唯一的例外是 `build_config.py`，它要在讀進來的當下驗值合不合法（只能是 `cloud` 或 `local`），
+所以那一支直接讀原始值。
+
+| | `cloud` | `local` |
+|---|---|---|
+| Firebase 專案與那六個設定值 | 要 | **不用** |
+| 手機網頁、電腦⇄手機同步 | 有 | **沒有** |
+| 無頭交辦（LINE） | 可以開 | **不能開** |
+| 錄音轉逐字稿、Word／PDF、期末素材包、家長信、Drive 備份 | 有 | 有 |
+| 帳單 | 老師自己的（免費額度內） | 沒有帳單 |
+
+本機模式的紀錄就只有 `data/**/*.md` 一處，台帳因此只比兩處。
+
+**各支腳本在本機模式下的行為**（照這張表實作，改行為要連這張表一起改）：
+
+| 腳本 | 本機模式做什麼 |
+|---|---|
+| `build_config.py` | **只產 `site/js/kit-config.js`**，不產 `firestore.rules`、`storage.rules`、`site/js/firebase-config.js`。以前是 cloud 留下來的舊產生檔只提醒、**不刪**（刪別人的檔不是設定產生器的事）。`headless.enabled` 為真時直接報錯 |
+| `sync.py` | 印一行「本機模式沒有雲端，不用同步」就 return，**退出碼 0**——排程與 `append_record --sync` 都會叫到它，非 0 會被當成故障 |
+| `ledger.py` | 自動進 offline，只比對本機與備份兩處，並明說「只比對兩處」 |
+| `schedule.py` | 只掛 `backup` 一支 |
+| `headless.py` | 直接拒跑（退出碼 0） |
+| `doctor.py` | **每一個檢查項目的 key 都保留，雲端那幾項標成 `skipped`**（不刪項目、也不報 ✗）。CI 與 AI 代理靠固定 key 清單判斷，項目消失會被誤判成健檢本身壞了。`--json` 頂層多出 `mode` 與 `headless` |
+
+**local → cloud**：改 `config/kit.json` 的 `mode`（或重跑一次安裝精靈）→ `setup.py` 問那六個值 →
+`build_config.py` → 部署規則與 hosting → 第一次 `sync.py` 把既有紀錄整批推上去。
+**既有紀錄一則都不會動。** 反方向（cloud → local）刻意不刪已經產生的規則檔，只印一行提醒。
+
+---
+
+## 12. 無頭交辦（LINE，選用）
+
+老師在外面用手機對 LINE 講一句話，回家的時候紀錄已經寫好了。**只有 cloud 模式能開**，
+而且需要 Firebase Blaze 方案（Cloud Functions 在免費的 Spark 方案上不會跑）。
+
+```
+  手機 LINE
+      │  webhook（POST，帶 x-line-signature）
+      ▼
+  functions/line-relay        Cloud Functions v2 / asia-east1 / Node 20
+      │  · HMAC-SHA256(rawBody, channel secret) 用 timingSafeEqual 比，不合回 401
+      │  · 寫 Firestore（Admin SDK，繞過安全規則）
+      │  · 語音另存 Storage headless-inbox/<messageId>.m4a
+      │  · 只回一句「收到了，電腦醒著時會處理」
+      ▼
+  Firestore  headless_events/{webhookEventId}
+      │        status: pending → processing → done / failed
+      │
+      │  每 5 分鐘（排程）
+      ▼
+  scripts/headless.py --once
+      │  · 前置條件 PATCH 認領（兩台電腦同時跑也不會重複處理）
+      │  · 語音 → inbox/ → transcribe.py（本機 whisper）
+      │  · 把 AGENTS-HEADLESS.md 整份內嵌進提示詞
+      ▼
+  AI 代理 CLI（非互動）
+      │
+      ▼
+  append_record.py（唯一寫入通道）→ sync.py
+      │
+      ▼
+  LINE 推播一則回報   ＋   data/headless-audit.jsonl 一行
+```
+
+**資料落在哪**
+
+| 東西 | 位置 |
+|---|---|
+| 原始訊息 | Firestore `headless_events/{webhookEventId}` |
+| 語音檔（雲端） | Cloud Storage `headless-inbox/<messageId>.m4a`，**不自動刪** |
+| 配對候選 | Firestore `headless_pairing/{userId}` |
+| 配對的唯一真相 | Firestore `meta/headless.ownerUserId` |
+| 語音檔（本機） | `inbox/line-<messageId>.m4a`，轉完移到 `inbox/done/` |
+| 逐字稿 | `inbox/transcripts/<檔名>.md`（本機 whisper，不出本機） |
+| 紀錄 | `data/**/*.md`（走 `append_record.py`） |
+| 稽核 | `data/headless-audit.jsonl`，一則一行 |
+| 排程 log | `logs/headless.log` |
+
+文件 id 優先用 LINE 的 `webhookEventId`（沒有就退到 `message.id`，再沒有就退到時間戳），
+寫入走 `create()` 而非 `set()`——LINE 重送就撞 `ALREADY_EXISTS` 變成 no-op。
+這既是去重，也保證重送不會把工作端已經改過的 `status` 蓋回 `pending`。
+**去重的保證只在 `webhookEventId` 真的有值的時候成立**；退到時間戳那一層只是保證寫得進去。
+
+**安全**
+
+- `firestore.rules.tmpl` 新增 `headless_events` 與 `headless_pairing` 兩個 `match`，
+  兩個都是 `allow read, write: if isOwner()`。檔尾的整份預設拒絕照舊。
+- 新增 `storage.rules.tmpl`：預設整份拒絕，`headless-inbox/**` 那一段**只有開了無頭交辦才會被寫進去**。
+  沒開的人日後自己在 Console 開了 Storage，也不會拿到一個誰都寫得進去的 bucket。
+- **relay 用 Admin SDK，完全繞過安全規則。** 那兩條規則管的是打開網頁的人；
+  relay 那一端擋住陌生人的是 LINE 的簽章驗證。
+- **金鑰只住兩個地方**：雲端是 Functions 的 `defineSecret`（`KIT_LINE_CHANNEL_SECRET`／
+  `KIT_LINE_CHANNEL_TOKEN`，走 Secret Manager），本機是環境變數。
+  `config/kit.json` 只存**變數名稱**，有一條測試守著「金鑰本身永遠不進任何檔案」。
+  環境變數要寫進登入時會載入的設定檔（`~/.zshrc`、Windows 的使用者環境變數）——
+  臨時 `export` 的那個值，五分鐘後跑的排程看不到。
+- **配對碼就是老師自己的 LINE `userId`。** 還沒配對之前，relay 對任何人都回配對碼——
+  那是老師唯一拿得到自己 id 的辦法。配好之後，不合的 `userId` **靜默丟掉、不回任何話**
+  （對陌生人零回饋）。所以文件把「立刻完成配對」寫成安裝的一部分，不是之後再說。
+
+**幾個刻意的決定**
+
+- **不自動重試。** 失敗就停在 `failed`，等老師 `--retry <事件id>`。自動重試最糟的情況是
+  同一句話被寫成三則紀錄，而老師得自己找出來刪掉——那比「沒寫成功」難收拾得多。
+- **代理沒有回 `<<REPORT>>…<<END>>` 就算失敗**，即使退出碼是 0。沒有那段回報，
+  就無法確定它到底有沒有寫進去，不能當成功。
+- **一則交辦只推播一次**（不推「開始處理了」「轉逐字稿完成了」）——LINE 免費方案每個帳號
+  每月只有 200 則推播。失敗也推，因為老師唯一的回饋就是那句「收到了」，不推等於靜靜地掉。
+  推不出去不算整件事失敗——紀錄已經寫好了。
+- **電腦睡著或關機**：訊息排在 Firestore 裡，一則都不會掉，也一則都不會被處理。
+  電腦醒來五分鐘內補完。macOS 的排程用 `StartInterval: 300` 而不是 `StartCalendarInterval`，
+  正是因為後者睡醒不補跑。
+
+---
+
+## 13. 版本控制
 
 - **`VERSION`** ＝ 這份程式是哪一版（語意化版本：主版本．次版本．修訂）。**唯一的版本來源**。
 - **`CHANGELOG.md`** ＝ 每一版改了什麼。**動過 `firestore.rules.tmpl` 的版本，
@@ -604,7 +762,7 @@ VERSION                    ──┘（版本字串進 window.KIT.version）
 | 落點 | 誰寫 | 看得到什麼 |
 |---|---|---|
 | `site/js/kit-config.js` 的 `window.KIT.version` | `build_config.py`（`build_preview.py` 也內聯它） | **網頁頁尾直接顯示「版本 <版本字串>」**；沒有那個鍵就顯示「版本未知」 |
-| `doctor.py` 的標頭 | `doctor.py` | 健檢第一行「健檢：<資料根目錄>（kit <版本>）」；`--json` 也帶 `version` |
+| `doctor.py` 的標頭 | `doctor.py` | 健檢第一行「健檢：<資料根目錄>（kit <版本>，<平台>）」；`--json` 也帶 `version` |
 | Firestore `meta/config.version` | `sync.py`（連同 `dataVersion: 3` 與 `tabs` 鏡像一起寫） | 這個資料庫**最後一次是用哪一版同步／部署的** |
 
 ### 版本比對是自動的
@@ -625,7 +783,7 @@ VERSION                    ──┘（版本字串進 window.KIT.version）
 
 ---
 
-## 12. 這套不做什麼
+## 14. 這套不做什麼
 
 多租戶、代管、家長端、網頁錄音、行動 App、自動評量生成、作者對老師資料的任何介入。
 

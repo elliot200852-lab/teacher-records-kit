@@ -219,7 +219,19 @@ def check(kit, tabs, offline, as_json):
         if len(problems) > 40:
             print("  …還有 %d 項（用 --json 看完整清單）" % (len(problems) - 40))
         return 1
-    lib.ok("三處對得上。")
+    # 只有真的三處都比對過才能說「三處對得上」——網站沒比（--offline 或沒登入）、
+    # 備份沒比（還沒備份過）的時候那句話會讓老師以為備份是好的。
+    compared = ["本機"]
+    if not offline and not cloud_err:
+        compared.append("網站")
+    if in_backup is not None:
+        compared.append("備份")
+    if len(compared) == 3:
+        lib.ok("三處對得上。")
+    else:
+        lib.ok("對得上（這次只比對了%s；沒比對到的：%s）"
+               % ("、".join(compared),
+                  "、".join(x for x in ("網站", "備份") if x not in compared)))
     return 0
 
 
@@ -239,11 +251,17 @@ def main():
 
     kit = lib.load_kit()
     tabs = lib.load_tabs()
+    # 本機模式沒有「網站」那一處，對帳一律只比本機與備份（--offline 是它的預設，
+    # 不是老師忘了加旗標）。不這樣做的話 check() 會去要 gcloud 權杖，然後報一個
+    # 「沒登入」的假錯誤——本機模式的人本來就不該有 gcloud。
+    offline = a.offline or lib.is_local(kit)
     rc = 0
     if a.rebuild:
         rebuild(kit, tabs, a.quiet)
     if a.check:
-        rc = check(kit, tabs, a.offline, a.as_json)
+        if offline and not a.offline and not a.as_json and not a.quiet:
+            print("（本機模式：只比對本機與備份兩處）")
+        rc = check(kit, tabs, offline, a.as_json)
     sys.exit(rc)
 
 

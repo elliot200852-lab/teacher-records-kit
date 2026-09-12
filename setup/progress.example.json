@@ -12,7 +12,7 @@
     },
     {
       "step": 1,
-      "title": "裝工具：scripts/install_tools.sh，再跑 scripts/doctor.py 逐項健檢",
+      "title": "裝工具：scripts/install_tools.py，再跑 scripts/doctor.py 逐項健檢",
       "done": false,
       "at": null,
       "notes": ""
@@ -61,7 +61,7 @@
     },
     {
       "step": 8,
-      "title": "排程（選用）：scripts/schedule.sh 裝每日同步與每週備份",
+      "title": "排程（選用）：scripts/schedule.py 裝每日同步與每週備份",
       "done": false,
       "at": null,
       "notes": ""
@@ -76,6 +76,13 @@
     {
       "step": 10,
       "title": "驗收清單：doctor 全綠、網頁能登入能新增、ledger.py --check 三處對得上",
+      "done": false,
+      "at": null,
+      "notes": ""
+    },
+    {
+      "step": 11,
+      "title": "無頭交辦（選用）：LINE 語音／文字 → 紀錄（docs/HEADLESS.md）；沒開的話備註寫「沒有開無頭交辦」",
       "done": false,
       "at": null,
       "notes": ""

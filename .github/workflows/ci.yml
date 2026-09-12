@@ -1,11 +1,16 @@
 # CI：三個平台真的跑一遍。沒有 Windows 機器也能驗 Windows——這條線就是為此存在的。
-#   test          三平台 × 兩個 Python 版本跑 unittest
-#   windows-smoke 在真 Windows 上：健檢、安裝腳本（會真的下載 whisper 預編譯檔）、排程真掛上再拆掉、
-#                 免互動安裝到暫存目錄、用 Edge 印 PDF
+#   test          三平台 × 三個 Python 版本（3.9 底線／3.13／3.14）跑 unittest
+#   windows-smoke 在真 Windows 上：健檢、安裝腳本（先把 runner 預裝的 ffmpeg 拿掉，winget 那條路才真的會走到；
+#                 whisper 預編譯檔真的下載）、排程真掛上再拆掉、免互動安裝到暫存目錄、用 Edge 印 PDF
 #   linux-smoke   在 Ubuntu 上：安裝腳本（whisper 預編譯檔）、排程 crontab 真寫入再拆掉
+#   bootstrap     三個平台上從「什麼都沒裝」那一層真的跑一遍 setup/bootstrap.*：先 --dry-run
+#                 （不准裝任何東西）再真跑，最後那支 AI 代理的 CLI 要叫得出版本
+#   local-mode    「只放這台電腦」那條路（mode=local）：不產生規則檔、sync 是 no-op、
+#                 ledger 自動 offline、排程少掛一個 job、doctor 的 key 一個都沒少
 #   emulator      在 Firestore 模擬器（真的 Firestore 引擎）上跑 scripts/tests/emulator_smoke.py：
-#                 sync／backup／ledger／doctor 的連網路徑＋安全規則本身
-#   urls          每週檢查 hostos.DOWNLOADS 裡的下載網址還活著（釘死的 tag／URL 會過期，這裡先知道）
+#                 sync／backup／ledger／doctor 的連網路徑、安全規則本身，以及無頭交辦的電腦端
+#                 （假的 AI 代理，走 TRK_HEADLESS_AGENT_CMD——CI 永遠不會叫到真的模型）
+#   urls          每週檢查 hostos.ALL_URLS() 裡的每一個網址還活著（可攜工具＋語音模型；釘死的 tag 會過期）
 name: ci
 
 on:
@@ -22,7 +27,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.9", "3.13"]
+        python: ["3.9", "3.13", "3.14"]      # 3.9 是 kit 的底線（doctor.py 也驗這個），3.14 是提前吃新版的雷
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -42,7 +47,27 @@ jobs:
         run: python scripts/hostos.py
       - name: install_tools (dry-run)
         run: python scripts/install_tools.py --dry-run
-      - name: install_tools (real; downloads whisper.cpp prebuilt, node/gcloud/ffmpeg already on runner)
+      - name: hide the runner's preinstalled ffmpeg so the winget path is really exercised
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          $cmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
+          if ($cmd) {
+            $dir = Split-Path $cmd.Source
+            Write-Host "found ffmpeg at $($cmd.Source)"
+            # runner 上的 ffmpeg 是 chocolatey 裝的：shim 在 ...\chocolatey\bin，真的執行檔在 ...\chocolatey\lib\ffmpeg*。
+            # 兩邊都拿掉，PATH 上才真的找不到；找不到 install_tools 才會去跑 winget install Gyan.FFmpeg。
+            Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $dir "ffmpeg.exe"), (Join-Path $dir "ffprobe.exe"), (Join-Path $dir "ffplay.exe")
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "C:\ProgramData\chocolatey\lib\ffmpeg*"
+          } else {
+            Write-Host "no preinstalled ffmpeg; nothing to hide"
+          }
+          if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+            Write-Host "WARNING: ffmpeg still on PATH - the winget branch will be skipped this run"
+          } else {
+            Write-Host "ffmpeg is gone -> install_tools will really run 'winget install -e --id Gyan.FFmpeg'"
+          }
+
+      - name: install_tools (real; winget for ffmpeg, download for whisper.cpp; node/gcloud already on runner)
         run: python scripts/install_tools.py --json
       - name: whisper-cli must be runnable after install
         shell: python
@@ -55,23 +80,85 @@ jobs:
           assert rc in (0, 1), "whisper-cli did not run (missing DLL?)"
           for t in ("node", "firebase", "gcloud", "ffmpeg", "ffprobe"):
               print(t, "=", hostos.exe(t))
+          # 上一步把 runner 預裝的 ffmpeg 拿掉了，所以這裡有 ffmpeg ＝ winget 那條路成功，
+          # 或者 winget 掛了而 hostos.TOOLS 的可攜版備案接住了。兩條都算過，兩條都沒過才是真的壞。
+          assert hostos.exe("ffmpeg"), "ffmpeg missing after install_tools (winget and the portable fallback both failed)"
       - name: schedule (dry-run, install, status, uninstall)
         run: |
+          # pwsh 預設不會因為外部指令失敗就中止整個 step；這兩行讓它照 bash 的 set -e 那樣做。
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
           python scripts/schedule.py --dry-run
           python scripts/schedule.py
           python scripts/schedule.py --status
           schtasks /Query /TN "TeacherRecordsKit\Sync" /FO LIST /V
           python scripts/schedule.py --uninstall
-      - name: non-interactive setup into a temp root + doctor
+
+      # 無頭交辦那個 job 是唯一的「間隔型」工作（CalendarTrigger + Repetition PT5M）。
+      # 它只有在設定裡開了才會掛，所以這裡先做一份「開著」的設定當 TRK_ROOT，
+      # 讓工作排程器**真的**吃一次那份 XML——schema 不對的話 schtasks 會當場拒絕。
+      - name: the headless task really registers on Task Scheduler
         run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          # PowerShell 沒有 heredoc，所以這一份答案檔用 PowerShell 自己組（別抄 bash 那幾個 job 的寫法）
+          $root = "$env:RUNNER_TEMP\trk-headless"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $ans = Get-Content templates\answers.example.json -Raw | ConvertFrom-Json
+          $hl = [pscustomobject]@{ enabled = $true; agent = "claude";
+                                   line = [pscustomobject]@{ owner_user_id = "Uci000000" } }
+          $ans | Add-Member -NotePropertyName headless -NotePropertyValue $hl -Force
+          $ans | ConvertTo-Json -Depth 30 | Set-Content -Encoding utf8 "$root\answers.json"
+          python scripts/setup.py --answers "$root\answers.json" --skip-network --skip-doctor --root $root
+          $env:TRK_ROOT = $root
+          python scripts/schedule.py --dry-run
+          python scripts/schedule.py
+          schtasks /Query /TN "TeacherRecordsKit\Headless" /FO LIST /V
+          python scripts/schedule.py --uninstall
+          Remove-Item Env:\TRK_ROOT
+      - name: non-interactive setup into a temp root
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
           python scripts/setup.py --answers templates/answers.example.json --skip-network --root "$env:RUNNER_TEMP\trk"
-          python scripts/build_config.py --root "$env:RUNNER_TEMP\trk"
-          python scripts/doctor.py --skip-network --root "$env:RUNNER_TEMP\trk"; if ($LASTEXITCODE -ne 0) { Write-Host "doctor reported missing items (expected without network)"; exit 0 }
+          # answers.example.json 是範本值（owner_email／firebase 都還是 your-…），
+          # build_config 預設會因此 exit 1——CI 這一步只驗「產得出那三個檔」，所以放行範本值。
+          python scripts/build_config.py --allow-placeholders --root "$env:RUNNER_TEMP\trk"
+
+      # doctor 在 CI 上本來就會有幾項紅（沒登入 gcloud、runner 沒有那些工具），所以不看退出碼——
+      # 看 --json：**離線就該過**的那幾項只要有一項在 failed 裡，這個 job 就該紅。
+      # （以前這裡是 `if ($LASTEXITCODE -ne 0) { ...; exit 0 }`，等於 doctor 怎麼壞都不會被發現。）
+      - name: doctor must pass every offline-required item
+        shell: python
+        run: |
+          import json, os, subprocess, sys
+          root = os.path.join(os.environ["RUNNER_TEMP"], "trk")
+          p = subprocess.run([sys.executable, "scripts/doctor.py", "--json", "--skip-network", "--root", root],
+                             capture_output=True, encoding="utf-8", errors="replace")
+          print(p.stdout[-6000:])
+          print(p.stderr[-2000:], file=sys.stderr)
+          data = json.loads(p.stdout[p.stdout.index("{"):])
+          # 不靠網路、不靠外部工具的項目：離線也必須全過。
+          # 其餘允許紅：node／firebase／gcloud／gcloud_auth／gws／chrome／model（runner 上沒有或沒登入）、
+          # drive（範本的備份夾路徑本來就不存在）、owner（範本答案檔的信箱就是 you@example.com）。
+          # rules_email 留在名單裡：它驗的是「產生出來的規則檔裡真的有設定檔那個信箱」，那件事離線就該對。
+          # 這幾個 key **在兩種資料庫模式下都必須存在**：本機模式只准把雲端那幾項標成
+          # skipped（doctor 的 check_config／check_tools 就是這樣做的），不准整項拿掉。
+          MUST = {"platform", "python", "cfg_kit", "cfg_tabs", "gen_kitjs", "gen_fbjs", "gen_rules",
+                  "rules_email"}
+          seen = {i["key"] for i in data["items"]}
+          missing = MUST - seen
+          assert not missing, "doctor no longer reports these keys (rename?): %s" % sorted(missing)
+          bad = [(i["key"], i["detail"]) for i in data["items"]
+                 if i["required"] and not i["ok"] and not i["skipped"] and i["key"] in MUST]
+          assert not bad, "doctor failed offline-required items: %s" % bad
+          print("offline-required doctor items: all green (%d checked)" % len(MUST))
       - name: export Word + PDF with Edge/Chrome on Windows
         run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
           python scripts/export_docs.py --kind students --target all --with-class --docx --pdf --local --root "$env:RUNNER_TEMP\trk"
           Get-ChildItem "$env:RUNNER_TEMP\trk\exports"
           if (-not (Get-ChildItem "$env:RUNNER_TEMP\trk\exports" -Filter *.pdf)) { throw "no PDF produced" }
+          # renderer 子行程沒被殺乾淨的話，Chrome 的暫存 profile 會刪不掉、留在 %TEMP% 底下
+          $left = Get-ChildItem $env:TEMP -Directory -Filter "trk-chrome-*" -ErrorAction SilentlyContinue
+          if ($left) { $left | Select-Object -First 5 FullName; throw "leftover Chrome profile dirs (kill_tree did not take the renderers with it)" }
 
   linux-smoke:
     runs-on: ubuntu-latest
@@ -100,6 +187,105 @@ jobs:
           python3 scripts/schedule.py --uninstall
           ! (crontab -l 2>/dev/null | grep -q teacher-records-kit)
 
+  bootstrap:
+    # 「一台全新的電腦」那一層（setup/bootstrap.sh／.ps1）。
+    # CI 挑 gemini 與 codex，是因為這兩支裝完不登入也能 --version；**這裡永遠不做登入**。
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, agent: gemini }
+          - { os: ubuntu-latest, agent: codex }
+          - { os: windows-latest, agent: gemini }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bootstrap --dry-run (must not install anything)
+        if: runner.os != 'Windows'
+        run: bash setup/bootstrap.sh --dry-run --yes --agent ${{ matrix.agent }}
+      - name: bootstrap (real)
+        if: runner.os != 'Windows'
+        run: bash setup/bootstrap.sh --yes --agent ${{ matrix.agent }}
+      - name: the agent CLI must answer
+        if: runner.os != 'Windows'
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          which ${{ matrix.agent }}
+          ${{ matrix.agent }} --version
+
+      - name: bootstrap -DryRun (must not install anything)
+        if: runner.os == 'Windows'
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File setup/bootstrap.ps1 -DryRun -Yes -Agent ${{ matrix.agent }}
+      - name: bootstrap (real)
+        if: runner.os == 'Windows'
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File setup/bootstrap.ps1 -Yes -Agent ${{ matrix.agent }}
+      - name: the agent CLI must answer
+        if: runner.os == 'Windows'
+        run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
+          Get-Command ${{ matrix.agent }}
+          & ${{ matrix.agent }} --version
+
+  local-mode:
+    # 「只放這台電腦」那條路：零雲端、零 Firebase。它跟 cloud 模式共用同一批腳本，
+    # 所以每一支都要在這個模式下真的跑一次——尤其 sync（該安靜地什麼都不做）與
+    # doctor（該把雲端那幾項標成略過、而且 key 一個都不能少）。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: install into a temp root with mode=local
+        run: |
+          set -e
+          root="$RUNNER_TEMP/trk-local"
+          mkdir -p "$root"
+          python3 - "$root" <<'PY'
+          import json, os, sys
+          root = sys.argv[1]
+          with open("templates/answers.example.json", encoding="utf-8") as f:
+              a = {k: v for k, v in json.load(f).items() if not k.startswith("_")}
+          a["mode"] = "local"
+          with open(os.path.join(root, "answers.json"), "w", encoding="utf-8") as f:
+              json.dump(a, f, ensure_ascii=False)
+          PY
+          python3 scripts/setup.py --answers "$root/answers.json" --skip-network --skip-doctor --root "$root"
+          # 本機模式不產生規則檔與 firebase-config.js——產出來才是 bug
+          test ! -e "$root/firestore.rules"
+          test ! -e "$root/storage.rules"
+          test ! -e "$root/site/js/firebase-config.js"
+          test -e "$root/site/js/kit-config.js"
+          # 範本值也不該讓 build_config 在本機模式下爆掉（那六個值老師根本沒被問過）
+          python3 scripts/build_config.py --allow-placeholders --root "$root"
+          # sync 是 no-op、ledger 自動 offline、schedule 少掛一個 job
+          python3 scripts/sync.py --root "$root" | grep -q "本機模式沒有雲端"
+          python3 scripts/ledger.py --rebuild --root "$root"
+          python3 scripts/ledger.py --check --root "$root"
+          TRK_ROOT="$root" python3 scripts/schedule.py --print-cron | grep -q backup.py
+          ! (TRK_ROOT="$root" python3 scripts/schedule.py --print-cron | grep -q sync.py)
+      - name: doctor in local mode keeps every key (cloud ones skipped, not missing)
+        shell: python
+        run: |
+          import json, os, subprocess, sys
+          root = os.path.join(os.environ["RUNNER_TEMP"], "trk-local")
+          p = subprocess.run([sys.executable, "scripts/doctor.py", "--json", "--skip-network", "--root", root],
+                             capture_output=True, encoding="utf-8", errors="replace")
+          data = json.loads(p.stdout[p.stdout.index("{"):])
+          items = {i["key"]: i for i in data["items"]}
+          MUST = {"platform", "python", "cfg_kit", "cfg_tabs", "gen_kitjs", "gen_fbjs", "gen_rules",
+                  "rules_email"}
+          missing = MUST - set(items)
+          assert not missing, "doctor dropped keys in local mode: %s" % sorted(missing)
+          assert data["mode"] == "local", data["mode"]
+          for k in ("gen_fbjs", "gen_rules", "rules_email", "cloud_version", "gcloud_auth"):
+              assert items[k]["skipped"], "%s must be skipped, not failed, in local mode" % k
+          bad = [(i["key"], i["detail"]) for i in data["items"]
+                 if i["required"] and not i["ok"] and not i["skipped"] and i["key"] in MUST]
+          assert not bad, bad
+          print("local mode: every offline-required doctor key present and green/skipped")
+
   emulator:
     runs-on: ubuntu-latest
     steps:
@@ -122,17 +308,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: every download URL in hostos.DOWNLOADS still answers
+      - name: every URL this kit downloads still answers (hostos.ALL_URLS)
         run: |
           python3 - <<'PY'
           import sys, urllib.request; sys.path.insert(0, "scripts"); import hostos
           bad = []
-          for k, (url, _, _) in hostos.DOWNLOADS.items():
+          for name, url, sha in hostos.ALL_URLS():           # 可攜工具 ＋ whisper 模型與 VAD 模型
               req = urllib.request.Request(url, headers={"Range": "bytes=0-0", "User-Agent": "trk-ci"})
               try:
                   with urllib.request.urlopen(req, timeout=60) as r:
-                      print("ok ", k, r.status, url)
+                      print("ok ", name, r.status, ("sha256 pinned" if sha else "rolling"), url)
               except Exception as e:
-                  print("BAD", k, e, url); bad.append(k)
+                  print("BAD", name, e, url); bad.append(name)
           sys.exit(1 if bad else 0)
           PY

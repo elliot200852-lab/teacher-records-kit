@@ -1,0 +1,30 @@
+rules_version = '2';
+
+// Teacher Records Kit — Cloud Storage 安全規則範本
+// 由 scripts/build_config.py 產生 storage.rules（{{OWNER_EMAIL}} 換成你的信箱，
+// {{HEADLESS_BLOCK}} 只有開了無頭交辦才會長出東西），產完部署：
+//   firebase deploy --only storage --project <你的專案id>
+//
+// 核心保證：預設全部 deny。這份 kit 只有「無頭交辦」會用到 Storage，
+// 開了才會有一條 headless-inbox/** 的規則，而且一樣只認擁有者本人。
+//
+// ⚠️ 只有 cloud 模式、而且 Firebase 專案真的開過 Cloud Storage 的時候才需要部署這一份。
+//    沒開 Storage 就跑 `firebase deploy --only storage` 會失敗（找不到 bucket）——
+//    那不是這份規則有問題，是那個產品還沒啟用。
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isOwner() {
+      return request.auth != null
+        && request.auth.token.email == '{{OWNER_EMAIL}}'
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
+    }
+{{HEADLESS_BLOCK}}
+    // 預設：其餘全部禁止
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

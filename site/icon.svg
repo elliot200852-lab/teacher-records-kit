@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="教學記錄">
+  <!-- 加到主畫面用的圖示。刻意用 SVG：這個 repo 不收任何二進位檔（見 .gitignore 與 README），
+       而且 SVG 在各種尺寸下都不會糊。底色＝頁面的 brand 藍 #2F7AC4。 -->
+  <rect width="512" height="512" rx="112" fill="#2F7AC4"/>
+  <!-- 一本攤開的簿子 -->
+  <rect x="112" y="120" width="288" height="272" rx="24" fill="#ffffff"/>
+  <rect x="112" y="120" width="288" height="52" rx="24" fill="#d8e6f5"/>
+  <rect x="112" y="148" width="288" height="24" fill="#d8e6f5"/>
+  <!-- 三條記錄 -->
+  <rect x="152" y="216" width="208" height="20" rx="10" fill="#2F7AC4" opacity=".85"/>
+  <rect x="152" y="268" width="168" height="20" rx="10" fill="#2F7AC4" opacity=".55"/>
+  <rect x="152" y="320" width="120" height="20" rx="10" fill="#2F7AC4" opacity=".35"/>
+  <!-- 書籤 -->
+  <path d="M328 120h40v112l-20-22-20 22z" fill="#2f7a3d"/>
+</svg>

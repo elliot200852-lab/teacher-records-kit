@@ -32,12 +32,13 @@
    > 老師點兩下就能離線看示範版；壞處是設定檔如果你自己手寫，記得寫 `window.XXX = {...}`
    > 而不是 `export const`（v2 是 export，直接照抄會壞）。
 3. **（選用）隱形入口**：在你網站每頁的導覽列引入 `site/js/dashboard-nav.js`。
-   這一支**還是 ES module**（它自己 import Firebase），所以標籤要留 `type="module"`，
-   而且它讀的是舊式的 `export const firebaseConfig`。若你的 `firebase-config.js` 是
-   `build_config.py` 產生的 v3 版（`window.FIREBASE_CONFIG`），請在同一個檔案末尾補一行
-   `export const firebaseConfig = window.FIREBASE_CONFIG, OWNER_EMAIL = window.OWNER_EMAIL;`
-   ——兩種寫法可以並存，`dashboard.html` 只吃 `window.*`，導覽列那支只吃 `export`。
+   這一支**還是 ES module**（它自己 import Firebase），所以標籤要留 `type="module"`；
+   但它讀的設定跟 `dashboard.html` 是同一份——`window.FIREBASE_CONFIG` 與 `window.OWNER_EMAIL`，
+   也就是 `build_config.py` 直接產生出來的那個檔。**不需要再手改任何東西**
+   （v3.0 之前這裡要你自己在設定檔尾巴補一行 `export const …`，現在不用了，補了也沒用）。
+   兩個標籤要照這個順序放，設定要在前面：
    ```html
+   <script src="/records/js/firebase-config.js"></script>
    <script type="module" src="/records/js/dashboard-nav.js"
            data-nav-selector="nav ul"
            data-href="/records/dashboard.html"
@@ -54,7 +55,10 @@
   學生分頁頂端出現你勾的那幾種記錄類型。
 - 用**別的帳號 / 無痕視窗** → 看不到入口；就算直接開 `dashboard.html` → 顯示「無權檢視」、讀不到任何資料。
 - 打開瀏覽器主控台（Console）看有沒有 404：少了 `js/kit-config.js` 會停在「還沒有設定檔」，
-  少了 `js/firebase-config.js` 則會停在「載入 Firebase 失敗」。
+  少了 `js/firebase-config.js` 則會停在「載入 Firebase 失敗」；導覽列那支沒出現的話，
+  主控台會有一句 `[dashboard-nav] 找不到 window.FIREBASE_CONFIG…`＝設定沒在它之前載入。
+- **加到手機主畫面**：`site/manifest.json` 與 `site/icon.svg` 要跟 `dashboard.html` 放在一起
+  （`<link rel="manifest">` 用的是相對路徑）。少了它們只是不能「加到主畫面」，網頁本身照跑。
 - 想確認網頁本身沒壞、又不想動到真資料：在網址後面加 `?demo=1`，
   它會完全不連 Firebase，只用瀏覽器裡的假資料跑一遍。
 

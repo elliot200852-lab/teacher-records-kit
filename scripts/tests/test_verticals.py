@@ -500,8 +500,10 @@ class TestSyncStudentCard(unittest.TestCase):
             calls.append({"path": path, "body": body, "mask": kw.get("mask")})
             return {}
         lib.http = fake_http
-        baseline = lib.card_fingerprint({"goals": baseline_of})
-        state = {"_cards": {"S-02": baseline}}
+        if baseline_of is None:                      # 還沒有基準＝這位學生的第一次同步
+            state = {}
+        else:
+            state = {"_cards": {"S-02": lib.card_fingerprint({"goals": baseline_of})}}
         fp = sync.sync_student_card("S-02", "students/S-02", "base", "tok",
                                     state, dry, notes)
         return calls, notes, fp, lib.load_card("S-02")
@@ -532,6 +534,30 @@ class TestSyncStudentCard(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(card["goals"][0]["學年目標"], "本機版")
         self.assertTrue(any("預演" in n for n in notes), notes)
+
+    def test_first_sync_pushes_local_when_the_cloud_card_is_empty(self):
+        """第一次同步沒有基準，雲端那張卡是空的——這不是衝突，是「還沒推上去」。
+
+        沒有這條，安裝時寫進 card.json 的 IEP 目標與個案概念化每次都被報成衝突，
+        一輩子上不了網頁。
+        """
+        calls, notes, fp, card = self.call(self.G_LOCAL, [], None)
+        self.assertEqual(len(calls), 1, notes)
+        self.assertEqual(calls[0]["body"]["goals"][0]["學年目標"], "本機版")
+        self.assertFalse([n for n in notes if "衝突" in n], notes)
+        self.assertEqual(fp, lib.card_fingerprint({"goals": self.G_LOCAL}))
+
+    def test_first_sync_pulls_when_local_is_empty(self):
+        """反過來：本機還沒有卡片、網頁上已經建了目標 → 寫回來，不要用空的蓋掉他。"""
+        calls, notes, fp, card = self.call([], self.G_CLOUD, None)
+        self.assertEqual(calls, [])
+        self.assertEqual(card["goals"][0]["學年目標"], "網頁版")
+
+    def test_first_sync_with_content_on_both_sides_is_still_a_conflict(self):
+        calls, notes, fp, card = self.call(self.G_LOCAL, self.G_CLOUD, None)
+        self.assertEqual(calls, [])
+        self.assertEqual(card["goals"][0]["學年目標"], "本機版")
+        self.assertTrue(any("衝突 卡片" in n for n in notes), notes)
 
     def test_same_on_both_sides_is_a_no_op(self):
         calls, notes, fp, card = self.call(self.G_LOCAL, self.G_LOCAL, [])

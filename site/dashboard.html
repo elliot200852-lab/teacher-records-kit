@@ -5,6 +5,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>教學記錄</title>
+<!-- 加到手機主畫面（不裝 service worker：資料的離線快取由 Firestore 自己做，
+     多一層 SW 只會讓「改了設定卻還是舊頁面」變成更難解釋的問題）。
+     manifest.json 與 icon.svg 就放在 dashboard.html 隔壁；
+     build_preview.py 產的單檔預覽抓不到它們，只會在主控台留個 404，不影響功能。 -->
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="教學記錄">
+<meta name="theme-color" content="#2F7AC4">
 <style>
   :root { --brand: #2F7AC4; --ok: #2f7a3d; --todo: #c8483e; --line: #e0e0e0; --muted: #777; }
   * { box-sizing: border-box; }
@@ -33,7 +45,13 @@
   .statusbar { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: center; font-size: .84rem; color: #666;
                background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: .5rem .9rem; margin-bottom: .8rem; }
   .statusbar .stale { color: var(--todo); font-weight: 600; }
+  /* 琥珀色＝同步跑完了，但有東西被擋下來還沒寫回電腦（衝突／真名攔截） */
+  .statusbar .warn { color: #8a5a00; font-weight: 600; background: #fff6e0; border: 1px solid #f0dcae; border-radius: 6px; padding: .1rem .5rem; }
   .statusbar .hint { color: #999; }
+
+  /* ── 離線提示（navigator.onLine）── */
+  .offline-bar { background: #fff6e0; border: 1px solid #f0dcae; border-radius: 8px; padding: .45rem .9rem; margin-bottom: .8rem;
+                 font-size: .84rem; color: #8a5a00; line-height: 1.7; }
 
   /* ── 每頁「這一頁需要什麼資料」說明框 ── */
   .help-box { background: #f4f8fc; border: 1px solid #d6e3f3; border-radius: 10px; margin: .9rem 0 .2rem; overflow: hidden; }
@@ -68,6 +86,9 @@
   .record-head { font-size: .9rem; color: #555; margin-bottom: .5rem; display: flex; justify-content: space-between; gap: .8rem; flex-wrap: wrap; }
   .rc-date { font-weight: 600; color: #333; }
   .record-tag { display: inline-block; margin-left: .4rem; padding: .1rem .5rem; background: #eef4fb; color: var(--brand); border-radius: 4px; font-size: .78rem; }
+  /* 記錄類型標籤：長得像 .record-tag，但**不是** .record-tag——編輯存檔時只重畫 #標籤，
+     兩者共用 class 的話，那一次 querySelectorAll('.record-tag').remove() 會順手把類型標籤也刪掉。 */
+  .record-stream { display: inline-block; margin-left: .4rem; padding: .1rem .5rem; background: #f1eefb; color: #5b4b8a; border-radius: 4px; font-size: .78rem; }
   .record-body { margin: 0; line-height: 1.75; white-space: pre-wrap; word-wrap: break-word; }
   .editor, .add-form { margin-top: .6rem; }
   .add-form { background: #fff; border: 1px solid var(--ok); border-radius: 8px; padding: .9rem; margin-bottom: 1rem; }
@@ -89,6 +110,11 @@
   .rc-btns { display: flex; gap: .4rem; align-items: center; }
   .rc-edit { padding: .25rem .7rem; background: #fff; border: 1px solid var(--brand); color: var(--brand); border-radius: 4px; cursor: pointer; font: inherit; font-size: .8rem; }
   .rc-del { padding: .25rem .7rem; background: #fff; border: 1px solid #ddc0bc; color: var(--todo); border-radius: 4px; cursor: pointer; font: inherit; font-size: .8rem; }
+  /* 「載入更多」：明細頁一次只抓最近 50 則，其餘按這顆再往下翻一頁 */
+  .more-row { text-align: center; margin: .2rem 0 1rem; }
+  .more-btn { padding: .45rem 1.4rem; background: #fff; border: 1px solid var(--brand); color: var(--brand);
+              border-radius: 999px; cursor: pointer; font: inherit; font-size: .88rem; }
+  .more-note { display: block; font-size: .78rem; color: #999; margin-top: .35rem; }
   .tag-chips { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0 0 .5rem; }
   .tag-chips button { padding: .2rem .6rem; background: #eef4fb; color: var(--brand); border: 1px solid #d6e3f3; border-radius: 999px; cursor: pointer; font: inherit; font-size: .8rem; }
   .tag-chips button.on { background: var(--brand); color: #fff; border-color: var(--brand); }
@@ -262,6 +288,12 @@
     /* 窄螢幕上欄位表比較容易撐寬——只讓表格自己橫向捲，頁面本身不捲 */
     .rc-fields { overflow-x: auto; }
     .exp-menu { right: auto; left: 0; min-width: 10rem; max-width: calc(100vw - 2.4rem); }
+    /* 手指點得到：手機上這幾顆是最常按的（編輯／刪除／分類詞），一律 ≥40px 高 */
+    .rc-edit, .rc-del { min-height: 40px; padding: .5rem 1rem; font-size: .85rem; }
+    .rc-btns { gap: .5rem; }
+    .tag-chips { gap: .45rem; }
+    .tag-chips button { min-height: 40px; padding: .5rem 1rem; font-size: .85rem; }
+    .more-btn { min-height: 40px; }
   }
 </style>
 </head>
@@ -276,6 +308,7 @@
   <h1>教學記錄</h1>
   <p class="subtitle" id="subtitle">只有擁有者本人能讀寫；資料受 Firestore 伺服器端規則保護。</p>
 
+  <div id="offline-bar" class="offline-bar" hidden>離線中，會在連線後送出</div>
   <div id="statusbar" class="statusbar" hidden></div>
 
   <div id="no-config" class="empty-state" hidden>
@@ -319,7 +352,7 @@
 
         <div id="stream-none" class="stream-none" hidden>
           還沒選任何學生記錄類型。<br>
-          學生記錄可以分成好幾種各記各的——導師的班級觀察、任課老師的科目觀察、個案追蹤、IEP、輔導晤談。<br>
+          學生記錄可以分成好幾種各記各的——導師的班級觀察、任課老師的科目觀察、個案追蹤、IEP、會談紀錄（SOAP）。<br>
           先選你要用的那幾種。
           <div style="margin-top:.9rem"><button class="add-btn" id="stream-none-add" type="button">＋ 選擇類型</button></div>
         </div>
@@ -481,6 +514,8 @@ function isDenied(err) {
     .test(`${(err && err.code) || ''} ${(err && err.message) || ''}`);
 }
 function errText(err) { return (err && err.message) || String(err); }
+// 信箱比對一律走這支（大小寫與前後空白都不算數）
+function lc(s) { return String(s == null ? '' : s).trim().toLowerCase(); }
 
 // ── 設定 ────────────────────────────────────────────────────────────
 const DEFAULT_TABS = {
@@ -508,7 +543,7 @@ const DEFAULT_TAB = ENABLED_TABS[0] || 'students';
 const KIT_VERSION = (KIT && KIT.version) ? String(KIT.version) : '';
 
 // ══ 記錄類型（stream）══════════════════════════════════════════════════
-// 學生記錄再分類型：導師班級紀錄／任課老師紀錄／個案／IEP／輔導晤談…
+// 學生記錄再分類型：導師班級紀錄／任課老師紀錄／個案／IEP／會談紀錄（SOAP）…
 // 每一種有自己的欄位、分類詞，以及「哪些學生在裡面」：
 //   scope 'class' ＝名冊上每一位都在；'case' ＝只有 roster.students[].streams 列到的。
 // 老師安裝時勾的那幾種在 KIT.tabs.students.streams；在網頁上臨時加的存在
@@ -861,7 +896,9 @@ function demoSeed() {
     roster: { students, protectedPhrases: [] },
     cards, records,
     status: { lastSyncAt: new Date(now.getTime() - 2 * 86400000).toISOString(),
-              lastBackupAt: new Date(now.getTime() - 9 * 86400000).toISOString() },
+              lastBackupAt: new Date(now.getTime() - 9 * 86400000).toISOString(),
+              // 示範模式順便示範一下狀態列的琥珀色那一格
+              lastSyncConflicts: 1, lastSyncPii: 0, lastError: '' },
   };
 }
 
@@ -932,10 +969,24 @@ function DemoStore() {
     data.cards[kind] = data.cards[kind] || {};
     data.cards[kind][id] = Object.assign({}, data.cards[kind][id], d); save();
   };
-  self.listRecords = async function (kind, target, streamId) {
+  // opts 與 FirestoreStore 同形狀：{ limit, after（上一頁最後一則的 rid）, out }
+  self.listRecords = async function (kind, target, streamId, opts) {
+    const o = opts || {};
     const recs = bag(kind, target);
-    return Object.keys(recs).sort().reverse().map(rid => Object.assign({ rid }, recs[rid]))
+    let all = Object.keys(recs).sort().reverse().map(rid => Object.assign({ rid }, recs[rid]))
       .filter(r => !streamId || recStream(r) === streamId);
+    if (o.after) {
+      const i = all.findIndex(r => r.rid === o.after);
+      if (i !== -1) all = all.slice(i + 1);
+    }
+    const n = Number(o.limit) > 0 ? Number(o.limit) : 0;
+    const page = n ? all.slice(0, n) : all;
+    if (o.out) {
+      const more = !!(n && all.length > n);
+      o.out.cursor = more ? page[page.length - 1].rid : null;
+      o.out.done = !more;
+    }
+    return page;
   };
   self.getRecord = async function (kind, target, rid) {
     const r = bag(kind, target)[rid];
@@ -965,9 +1016,43 @@ function FirestoreStore() {
     const cfg = window.FIREBASE_CONFIG;
     if (!cfg || !cfg.projectId) throw new Error('找不到 Firebase 設定（js/firebase-config.js）');
     const app = appMod.getApps().length ? appMod.getApp() : appMod.initializeApp(cfg);
-    fb = Object.assign({}, authMod, fsMod, { app, auth: authMod.getAuth(app), db: fsMod.getFirestore(app) });
+    fb = Object.assign({}, authMod, fsMod, { app, auth: authMod.getAuth(app), db: firestoreWithCache(fsMod, app) });
     return fb;
   };
+
+  // 離線快取：讀過的東西留在瀏覽器裡，手機在教室沒訊號也打得開；寫入會排隊，
+  // 連上線自動送出（Firestore 自己處理，不需要 service worker）。
+  // v10 的新 API 是 initializeFirestore(app, { localCache: persistentLocalCache(...) })；
+  // 舊版沒有這組就退回 enableIndexedDbPersistence；兩個都不行（無痕視窗、
+  // 同一個 app 已經 getFirestore 過）就只用記憶體快取，功能照舊、只是關掉分頁就沒了。
+  function firestoreWithCache(fsMod, app) {
+    if (fsMod.initializeFirestore && fsMod.persistentLocalCache && fsMod.persistentMultipleTabManager) {
+      try {
+        return fsMod.initializeFirestore(app, {
+          localCache: fsMod.persistentLocalCache({ tabManager: fsMod.persistentMultipleTabManager() }),
+        });
+      } catch (e) { console.error('離線快取（persistentLocalCache）啟用失敗，改用記憶體快取：', e); }
+    }
+    const db = fsMod.getFirestore(app);
+    if (fsMod.enableIndexedDbPersistence) {
+      try {
+        const p = fsMod.enableIndexedDbPersistence(db, { forceOwnership: false });
+        if (p && p.catch) p.catch(e => console.error('離線快取（IndexedDB）啟用失敗，改用記憶體快取：', e));
+      } catch (e) { console.error('離線快取（IndexedDB）啟用失敗，改用記憶體快取：', e); }
+    }
+    return db;
+  }
+
+  // 離線時寫入：Firestore 會把這筆寫進本機快取並排隊，但回傳的 Promise
+  // 要等到伺服器收下才 resolve——照原樣 await 下去，畫面會永遠停在「儲存中…」。
+  // 所以離線時只等本機那一段（不 await 送出），錯誤還是記進主控台。
+  function offlineAware(p) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      if (p && p.catch) p.catch(e => console.error('離線排隊中的寫入之後失敗了：', e));
+      return Promise.resolve();
+    }
+    return p;
+  }
   self.fb = () => fb;
 
   // ── 單租戶 Firestore 路徑（全部在頂層，只有擁有者能讀寫）──
@@ -999,11 +1084,15 @@ function FirestoreStore() {
     return { recordCount, lastRecordDate: last.date || '', lastFields: last.fields || {} };
   }
   // 依記錄類型算的版本。故意不用 where('stream','==',…)＋orderBy('date')——那要
-  // 一個複合索引，老師得自己去 Console 建，第一次開頁就會整片壞掉。一位學生的
-  // 紀錄本來就是幾十則的量級，抓回來在瀏覽器裡篩比較穩。
+  // 一個複合索引，老師得自己去 Console 建，第一次開頁就會整片壞掉（firestore.indexes.json
+  // 必須保持空的）。所以還是抓回來在瀏覽器裡篩，但**加上限**：一覽卡只要
+  // 「最近一則是哪天、本月記了沒、大概幾則」，不需要把一位學生三年份的紀錄整本拉下來。
+  // date desc 的前 DERIVE_SCAN 則一定含最近的那一則，所以日期與欄位永遠是對的；
+  // 只有「則數」在超過上限時會顯示成「150+」。
+  const DERIVE_SCAN = 150;
   async function deriveByStream(col, streamId) {
     try {
-      const snap = await fb.getDocs(fb.query(col, fb.orderBy('date', 'desc')));
+      const snap = await fb.getDocs(fb.query(col, fb.orderBy('date', 'desc'), fb.limit(DERIVE_SCAN)));
       let recordCount = 0, lastRecordDate = '', lastFields = {}, got = false;
       snap.forEach(d => {
         const r = d.data();
@@ -1011,7 +1100,7 @@ function FirestoreStore() {
         recordCount++;
         if (!got) { got = true; lastRecordDate = r.date || ''; lastFields = r.fields || {}; }
       });
-      return { recordCount, lastRecordDate, lastFields };
+      return { recordCount, lastRecordDate, lastFields, partialCount: snap.size >= DERIVE_SCAN };
     } catch (e) { console.error(e); return { recordCount: 0, lastRecordDate: '', lastFields: {} }; }
   }
 
@@ -1024,7 +1113,7 @@ function FirestoreStore() {
   // 名冊：哪些學生列入哪些個案型記錄類型（students[].streams）。整份覆寫，
   // 因為呼叫端手上就是完整名單（網頁只改 streams 這一欄）。
   self.setRoster = async function (list) {
-    await fb.setDoc(fb.doc(fb.db, 'roster', 'main'), { students: list || [] }, { merge: true });
+    await offlineAware(fb.setDoc(fb.doc(fb.db, 'roster', 'main'), { students: list || [] }, { merge: true }));
   };
   self.getConfig = async function () {
     try {
@@ -1033,15 +1122,22 @@ function FirestoreStore() {
     } catch (e) { console.error(e); return {}; }
   };
   self.setConfig = async function (patch) {
-    await fb.setDoc(fb.doc(fb.db, 'meta', 'config'), patch, { merge: true });
+    await offlineAware(fb.setDoc(fb.doc(fb.db, 'meta', 'config'), patch, { merge: true }));
   };
+  // meta/status 由電腦上的 scripts/sync.py、scripts/backup.py 寫。
+  // lastSyncConflicts／lastSyncPii／lastError 是 v3 才加的，舊的狀態文件沒有這幾欄（當 0／空字串）。
   self.status = async function () {
     try {
       const snap = await fb.getDoc(fb.doc(fb.db, 'meta', 'status'));
       if (!snap.exists()) return {};
       const d = snap.data();
       const iso = v => (v && typeof v.toDate === 'function') ? v.toDate().toISOString() : v;
-      return { lastSyncAt: iso(d.lastSyncAt), lastBackupAt: iso(d.lastBackupAt) };
+      return {
+        lastSyncAt: iso(d.lastSyncAt), lastBackupAt: iso(d.lastBackupAt),
+        lastSyncConflicts: Number(d.lastSyncConflicts || 0) || 0,
+        lastSyncPii: Number(d.lastSyncPii || 0) || 0,
+        lastError: (d.lastError == null ? '' : String(d.lastError)),
+      };
     } catch (e) { return { error: e }; }
   };
   self.listCards = async function (kind, streamId) {
@@ -1075,6 +1171,7 @@ function FirestoreStore() {
       c.recordCount = counts[i].recordCount;
       c.lastRecordDate = counts[i].lastRecordDate;
       c.lastFields = counts[i].lastFields || {};
+      c.partialCount = !!counts[i].partialCount;
     });
     return list;
   };
@@ -1085,24 +1182,46 @@ function FirestoreStore() {
       return snap.exists() ? Object.assign({ id }, snap.data()) : { id };
     } catch (e) { console.error(e); return { id }; }
   };
-  self.setCard = async function (kind, id, d) { await fb.setDoc(cardRef(kind, id), d, { merge: true }); };
-  self.listRecords = async function (kind, target, streamId) {
-    const snap = await fb.getDocs(fb.query(recCol(kind, target), fb.orderBy('date', 'desc')));
-    const out = []; snap.forEach(d => out.push(Object.assign({ rid: d.id }, d.data())));
-    // 類型過濾在這裡做，理由同 deriveByStream：不要求老師去建複合索引
-    return streamId ? out.filter(r => recStream(r) === streamId) : out;
+  self.setCard = async function (kind, id, d) { await offlineAware(fb.setDoc(cardRef(kind, id), d, { merge: true })); };
+  // opts（選填）：{ limit: 一次抓幾則, after: 上一頁的游標, out: 接住下一頁游標的物件 }
+  //   · 不給 opts＝整本抓（匯出、期末素材包走這條，它們本來就要全部）
+  //   · 給了 limit＝明細頁分頁載入；下一頁的游標寫進 opts.out.cursor（沒有下一頁＝null）
+  // 類型過濾還是在瀏覽器裡做（理由同 deriveByStream：不要求老師去建複合索引），
+  // 所以一頁 50 則原始文件篩完可能不足 50——這裡會自己再往下翻，湊到 limit 或抓完為止。
+  self.listRecords = async function (kind, target, streamId, opts) {
+    const o = opts || {};
+    const pageSize = Number(o.limit) > 0 ? Number(o.limit) : 0;
+    const col = recCol(kind, target);
+    const out = [];
+    let cursor = o.after || null, more = false;
+    for (;;) {
+      const parts = [fb.orderBy('date', 'desc')];
+      if (cursor) parts.push(fb.startAfter(cursor));
+      if (pageSize) parts.push(fb.limit(pageSize));
+      const snap = await fb.getDocs(fb.query(col, ...parts));
+      snap.forEach(d => {
+        const r = Object.assign({ rid: d.id }, d.data());
+        if (!streamId || recStream(r) === streamId) out.push(r);
+      });
+      if (!pageSize) { cursor = null; more = false; break; }
+      if (snap.size < pageSize) { cursor = null; more = false; break; }   // 抓完了
+      cursor = snap.docs[snap.docs.length - 1];
+      if (out.length >= pageSize) { more = true; break; }
+    }
+    if (o.out) { o.out.cursor = more ? cursor : null; o.out.done = !more; }
+    return out;
   };
   self.getRecord = async function (kind, target, rid) {
     const snap = await fb.getDoc(recRef(kind, target, rid));
     return snap.exists() ? Object.assign({ rid }, snap.data()) : null;
   };
   self.createRecord = async function (kind, target, rid, d) {
-    await fb.setDoc(recRef(kind, target, rid), Object.assign({}, d, { editedOnWeb: true, webEditedAt: fb.serverTimestamp() }));
+    await offlineAware(fb.setDoc(recRef(kind, target, rid), Object.assign({}, d, { editedOnWeb: true, webEditedAt: fb.serverTimestamp() })));
   };
   self.updateRecord = async function (kind, target, rid, patch) {
-    await fb.updateDoc(recRef(kind, target, rid), Object.assign({}, patch, { editedOnWeb: true, webEditedAt: fb.serverTimestamp() }));
+    await offlineAware(fb.updateDoc(recRef(kind, target, rid), Object.assign({}, patch, { editedOnWeb: true, webEditedAt: fb.serverTimestamp() })));
   };
-  self.deleteRecord = async function (kind, target, rid) { await fb.deleteDoc(recRef(kind, target, rid)); };
+  self.deleteRecord = async function (kind, target, rid) { await offlineAware(fb.deleteDoc(recRef(kind, target, rid))); };
 }
 
 const store = DEMO ? new DemoStore() : new FirestoreStore();
@@ -1133,13 +1252,41 @@ let activeCtx = null;      // { kind, target, title, categories, fields, backHas
 let focusRid = null;       // 從關聯連結跳過來時要捲到哪一則
 const existingRids = new Set();
 
+// ── 離線提示 ────────────────────────────────────────────────────────
+// 手機在教室、走廊常常斷線。Firestore 會把寫入排進本機快取、連上線自動送出，
+// 但畫面上要讓人看得到「現在是離線的」，不然他會以為記錄不見了。
+function renderOfflineBar() {
+  const el = $('offline-bar');
+  if (!el) return;
+  const offline = (typeof navigator !== 'undefined' && navigator.onLine === false);
+  el.hidden = DEMO || !offline;
+}
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('online', () => { renderOfflineBar(); renderStatusBar().catch(e => console.error(e)); });
+  window.addEventListener('offline', renderOfflineBar);
+}
+
 // ── 頂端狀態列 ──────────────────────────────────────────────────────
+// 狀態列的來源是 meta/status（電腦上的 sync.py／backup.py 寫的）：
+//   lastSyncAt / lastBackupAt   超過七天沒跑＝紅字
+//   lastSyncConflicts / lastSyncPii  上次同步被擋下來、還沒寫回電腦的則數＝琥珀色
+//   lastError                   上次同步／備份自己出錯了＝紅字
+// 讀不到（沒網路、規則擋掉、meta/status 不存在但 getDoc 炸了）不再把整條列藏起來——
+// 「什麼都沒有」跟「一切正常」在畫面上長得一樣，是最容易讓人漏掉排程掛掉的寫法。
+let statusBarLoadedAt = 0;
+let statusBarTimer = null;
 async function renderStatusBar() {
   const bar = $('statusbar');
+  if (!bar) return;
+  renderOfflineBar();
   let st;
   try { st = await store.status(); } catch (e) { st = { error: e }; }
+  statusBarLoadedAt = Date.now();
   if (!st || st.error) {
-    bar.hidden = true;
+    bar.innerHTML = '<span class="stale">讀不到同步狀態</span>' +
+      '<span class="hint">可能是暫時連不上、或安全規則還沒讓你讀 <code>meta/status</code>；' +
+      '一直是這樣的話，跟 AI 說「幫我看同步跟備份是不是掛了」。</span>';
+    bar.hidden = false;
     return;
   }
   const cell = (label, iso) => {
@@ -1148,10 +1295,35 @@ async function renderStatusBar() {
     const txt = n === 0 ? '今天' : n + ' 天前';
     return `<span class="${n > 7 ? 'stale' : ''}">${label}：${txt}</span>`;
   };
-  bar.innerHTML = cell('上次同步', st.lastSyncAt) + cell('上次備份', st.lastBackupAt) +
-    ((daysSince(st.lastSyncAt) > 7 || daysSince(st.lastBackupAt) > 7 || !st.lastSyncAt || !st.lastBackupAt)
-      ? '<span class="hint">紅字＝超過七天沒跑，排程可能停了，請跟 AI 說「幫我看同步跟備份是不是掛了」。</span>' : '');
+  let html = cell('上次同步', st.lastSyncAt) + cell('上次備份', st.lastBackupAt);
+  const conflicts = Number(st.lastSyncConflicts || 0) || 0;
+  const pii = Number(st.lastSyncPii || 0) || 0;
+  if (conflicts > 0 || pii > 0) {
+    const parts = [];
+    if (conflicts > 0) parts.push(conflicts + ' 則衝突');
+    if (pii > 0) parts.push(pii + ' 則真名攔截');
+    html += `<span class="warn">上次同步有 ${parts.join('／')}，尚未寫回電腦</span>`;
+  }
+  const lastError = String(st.lastError || '').trim();
+  if (lastError) html += `<span class="stale">上次同步／備份出錯：${esc(lastError)}</span>`;
+  html += ((daysSince(st.lastSyncAt) > 7 || daysSince(st.lastBackupAt) > 7 || !st.lastSyncAt || !st.lastBackupAt)
+    ? '<span class="hint">紅字＝超過七天沒跑，排程可能停了，請跟 AI 說「幫我看同步跟備份是不是掛了」。</span>' : '');
+  if (conflicts > 0 || pii > 0) {
+    html += '<span class="hint">琥珀色＝那幾則還留在雲端等你處理，跟 AI 說「幫我看同步擋下了什麼」。</span>';
+  }
+  bar.innerHTML = html;
   bar.hidden = false;
+}
+// 切分頁時順手重讀（但 30 秒內不重複打），另外每 5 分鐘自己更新一次——
+// 只在登入當下讀一次的話，早上開著的那個分頁一整天都顯示同一句話。
+const STATUS_REFRESH_MS = 5 * 60 * 1000;
+function refreshStatusBarSoon() {
+  if (Date.now() - statusBarLoadedAt < 30000) return;
+  renderStatusBar().catch(e => console.error(e));
+}
+function startStatusBarTimer() {
+  if (statusBarTimer) clearInterval(statusBarTimer);
+  statusBarTimer = setInterval(() => { renderStatusBar().catch(e => console.error(e)); }, STATUS_REFRESH_MS);
 }
 
 // ── 分頁列與說明框 ──────────────────────────────────────────────────
@@ -1204,6 +1376,7 @@ function setTab(tab) {
     const pane = $('pane-' + t); if (pane) pane.hidden = t !== tab;
   });
   renderHelp(tab);
+  refreshStatusBarSoon();
   monthSummaryEl.innerHTML = '';
   if (tab === 'students') loadStudents();
   else if (tab === 'courses') loadCourses();
@@ -1322,7 +1495,7 @@ function renderStudents() {
       soapLine = `<div class="sc-meta">第 ${esc(nth)} 次 · 風險 ${esc(lf['風險評估'] || '未評')}</div>`;
     }
     card.innerHTML = `<div><span class="sc-name">${esc(s.name || s.id)}</span><span class="sc-id">${esc(s.id)}</span></div>
-      <div class="sc-meta">${s.recordCount || 0} 則 · ${s.lastRecordDate ? '最後 ' + esc(s.lastRecordDate) : '尚無記錄'}</div>
+      <div class="sc-meta">${(s.recordCount || 0) + (s.partialCount ? '+' : '')} 則 · ${s.lastRecordDate ? '最後 ' + esc(s.lastRecordDate) : '尚無記錄'}</div>
       ${soapLine}
       <span class="badge ${isDone ? 'done' : 'todo'}">${isDone ? '本月已記' : '本月未記'}</span>`;
     card.onclick = () => { location.hash = '#s/' + encodeURIComponent(s.id) + '/' + encodeURIComponent(st.id); };
@@ -2017,7 +2190,7 @@ $('add-save').onclick = async (e) => {
     // 記錄類型：學生／班級記錄一定要帶（安全規則 create 會擋沒有 stream 的），
     // 也是本機檔要寫進 students/<id>/<streamId>.md 哪一個檔的依據。
     if (activeCtx.stream) rec.stream = activeCtx.stream;
-    // 欄位表單：業務組有、學生記錄類型也有（個案、IEP、輔導晤談都有自己的欄位）
+    // 欄位表單：業務組有、學生記錄類型也有——個案、IEP、會談紀錄（SOAP）都有自己的欄位
     if (Object.keys(fields).length) rec.fields = fields;
     await store.createRecord(activeCtx.kind, activeCtx.target, rid, rec);
     existingRids.add(rid);
@@ -2090,7 +2263,7 @@ function recordCard(rid, r) {
   const flag = r.editedOnWeb ? '<em>（已編輯，待同步）</em>' : '';
   // 記錄類型標籤：明細頁一次只看一種，但關聯跳過來、或本機檔回寫時仍看得出這則是哪一種
   const stTag = (activeCtx && (activeCtx.kind === 'students' || activeCtx.kind === 'class') && r.stream)
-    ? `<span class="record-tag" style="background:#f1eefb;color:#5b4b8a">${esc(streamLabel(r.stream))}</span>` : '';
+    ? `<span class="record-stream">${esc(streamLabel(r.stream))}</span>` : '';
   card.innerHTML = `<div class="record-head">
       <span><span class="rc-date">${esc((r.date || '') + ridTimeLabel(rid, r.date))}</span> ${stTag}${tags} <span class="flag">${flag}</span></span>
       <span class="rc-btns"><button class="rc-edit" type="button">編輯</button><button class="rc-del" type="button">刪除</button></span>
@@ -2130,8 +2303,8 @@ function recordCard(rid, r) {
       await store.updateRecord(activeCtx.kind, activeCtx.target, rid, { body: de.text, tags: nt, editedOnWeb: true });
       bodyEl.textContent = de.text;
       card.querySelector('.flag').innerHTML = '<em>（已編輯，待同步）</em>';
-      const tagSpan = card.querySelectorAll('.record-tag');
-      tagSpan.forEach(t => t.remove());
+      // 只重畫 #標籤。記錄類型標籤是 .record-stream（另一個 class），不能一起刪掉。
+      card.querySelectorAll('.record-head .record-tag').forEach(t => t.remove());
       const head = card.querySelector('.record-head span');
       nt.slice().reverse().forEach(t => {
         const s = document.createElement('span'); s.className = 'record-tag'; s.textContent = t;
@@ -2159,7 +2332,10 @@ function recordCard(rid, r) {
         currentRecords = currentRecords.filter(x => x.rid !== rid);
         refreshDetailCards();
         card.remove();
-        if (!recordListEl.querySelector('.record-card')) recordListEl.innerHTML = '<div class="empty-state">還沒有記錄——點上方「＋ 新增一則記錄」開始。</div>';
+        if (!recordListEl.querySelector('.record-card')) {
+          recordListEl.innerHTML = '<div class="empty-state">還沒有記錄——點上方「＋ 新增一則記錄」開始。</div>';
+          renderMoreRow();   // 這一頁被刪光了但後面還有更舊的，別把「載入更多」一起吃掉
+        }
       } catch (err) {
         console.error(err);
         btns.innerHTML = keep; rebind();
@@ -2205,15 +2381,26 @@ async function openRecords(ctx) {
   // 學生／班級記錄一定要屬於某一種記錄類型；一種都還沒選就先不讓新增
   if ((ctx.kind === 'students' || ctx.kind === 'class') && !ctx.stream) addBtn.hidden = true;
   recordListEl.innerHTML = '<div class="empty-state">載入中…</div>';
+  recordPage = { cursor: null, done: true, loading: false };
   try {
-    const list = await store.listRecords(ctx.kind, ctx.target, ctx.stream);
+    const page = {};
+    const list = await store.listRecords(ctx.kind, ctx.target, ctx.stream, { limit: RECORD_PAGE, out: page });
+    recordPage = { cursor: page.cursor || null, done: !!page.done, loading: false };
     currentRecords = list.slice();          // 新→舊；目標清單的「已記 N 則」用它算
     await renderDetailCards(ctx);           // 目標清單／個案概念化（依當前類型才出現）
     recordListEl.innerHTML = '';
     if (!list.length) recordListEl.innerHTML = '<div class="empty-state">還沒有記錄——點上方「＋ 新增一則記錄」開始。</div>';
     else list.forEach(r => { existingRids.add(r.rid); recordListEl.appendChild(recordCard(r.rid, r)); });
+    renderMoreRow();
     if (focusRid) {
-      const el = recordListEl.querySelector(`[data-rid="${CSS && CSS.escape ? CSS.escape(focusRid) : focusRid}"]`);
+      // 關聯指到的那一則可能比這一頁（最近 50 則）還舊——先往下翻幾頁找找看，
+      // 找到才停。找不到再去判斷是不是屬於別種記錄類型。
+      let el = findFocusEl();
+      for (let i = 0; !el && i < 10 && !recordPage.done && recordPage.cursor; i++) {
+        await loadMoreRecords();
+        if (activeCtx !== ctx) return;
+        el = findFocusEl();
+      }
       if (el) { el.classList.add('focused'); el.scrollIntoView({ block: 'center' }); focusRid = null; }
       else if (ctx.kind === 'students' && ctx.stream) {
         // 關聯指到的那一則屬於別種記錄類型——換過去，不要讓人看到空白
@@ -2266,6 +2453,63 @@ function renderDetailStreams(ctx) {
 let currentGoalsList = [];   // 當前這位學生的 goals
 let currentConcept = {};     // 當前這位學生的 conceptualization
 let currentRecords = [];     // 當前明細頁載進來的記錄（新→舊）——目標統計用它算
+
+// ── 明細頁分頁載入 ────────────────────────────────────────────────────
+// 一位帶三年的學生會有好幾百則；一次全抓回來，手機上開一次明細頁就是幾百次讀取。
+// 預設只抓最近 50 則，更舊的按「載入更多」再往下翻一頁（游標＝startAfter）。
+// 匯出與期末素材包**不走這條**（它們本來就要全部，呼叫時不給 limit）。
+const RECORD_PAGE = 50;
+let recordPage = { cursor: null, done: true, loading: false };
+function renderMoreRow() {
+  const old = recordListEl.querySelector('.more-row');
+  if (old) old.remove();
+  if (recordPage.done || !recordPage.cursor) return;
+  const row = document.createElement('div');
+  row.className = 'more-row';
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'more-btn';
+  b.textContent = recordPage.loading ? '載入中…' : '載入更多（較舊的記錄）';
+  b.disabled = !!recordPage.loading;
+  b.onclick = () => loadMoreRecords();
+  row.appendChild(b);
+  const note = document.createElement('span');
+  note.className = 'more-note';
+  note.textContent = '目前顯示最近 ' + currentRecords.length + ' 則；匯出與期末素材包一律含全部記錄。';
+  row.appendChild(note);
+  recordListEl.appendChild(row);
+}
+function findFocusEl() {
+  if (!focusRid) return null;
+  return recordListEl.querySelector(`[data-rid="${CSS && CSS.escape ? CSS.escape(focusRid) : focusRid}"]`);
+}
+async function loadMoreRecords() {
+  if (!activeCtx || recordPage.loading || recordPage.done || !recordPage.cursor) return;
+  recordPage.loading = true; renderMoreRow();
+  const ctx = activeCtx;
+  try {
+    const page = {};
+    const more = await store.listRecords(ctx.kind, ctx.target, ctx.stream,
+      { limit: RECORD_PAGE, after: recordPage.cursor, out: page });
+    if (activeCtx !== ctx) return;          // 這期間他已經切走了
+    recordPage = { cursor: page.cursor || null, done: !!page.done, loading: false };
+    const empty = recordListEl.querySelector('.empty-state');
+    if (empty && more.length) empty.remove();
+    more.forEach(r => {
+      if (existingRids.has(r.rid)) return;
+      existingRids.add(r.rid);
+      currentRecords.push(r);
+      const row = recordListEl.querySelector('.more-row');
+      const card = recordCard(r.rid, r);
+      if (row) recordListEl.insertBefore(card, row); else recordListEl.appendChild(card);
+    });
+    refreshDetailCards();
+  } catch (err) {
+    console.error(err);
+    recordPage.loading = false;
+    alert('載入更多失敗：' + errText(err));
+  }
+  renderMoreRow();
+}
 function currentGoals() { return currentGoalsList; }
 
 // 一個目標記過幾則、最近一次的達成情形（currentRecords 是新→舊，所以第一個就是最近的）
@@ -3340,7 +3584,9 @@ async function startFirebase() {
   fb.onAuthStateChanged(fb.auth, async (user) => {
     if (!user) { authBox.hidden = false; authInitial.hidden = false; authWrong.hidden = true; content.hidden = true; return; }
     const email = ownerEmailOf(user);
-    if (email !== OWNER_EMAIL) {
+    // 信箱大小寫不敏感：Google 回來的可能是 Teacher@Gmail.com，設定裡寫的是 teacher@gmail.com。
+    // （build_config.py 也把 owner_email 轉成小寫，兩邊都轉才不會有一邊漏掉。）
+    if (lc(email) !== lc(OWNER_EMAIL)) {
       authBox.hidden = false; authInitial.hidden = true; authWrong.hidden = false;
       wrongEmail.textContent = email || '(no email)'; content.hidden = true; return;
     }
@@ -3348,6 +3594,7 @@ async function startFirebase() {
     try { rosterStudents = (await store.roster()).students || []; } catch (_) { rosterStudents = []; }
     await initStreams();
     await renderStatusBar();
+    startStatusBarTimer();
     await route();
   });
 }
@@ -3390,6 +3637,7 @@ async function boot() {
     await initStreams();
     $('content').hidden = false;
     await renderStatusBar();
+    startStatusBarTimer();
     await route();
     return;
   }

@@ -11,19 +11,32 @@
   · 欄位列解析要寬鬆：設定裡沒有的欄位名照收（改欄位名不需要搬資料）。
   · content_hash 要穩定：同樣的內容換個欄位順序、多幾個空白，指紋不能變。
 """
+import io
 import os
 import sys
+import json
+import shutil
+import contextlib
+import subprocess
 import unittest
 import tempfile
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SCRIPTS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, SCRIPTS)
 import lib
 
 
 def write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
     return path
+
+
+def run(script, *args):
+    return subprocess.run([sys.executable, os.path.join(SCRIPTS, script), *args],
+                          capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", timeout=300)
 
 
 class TestRid(unittest.TestCase):
@@ -179,7 +192,7 @@ class TestRoster(unittest.TestCase):
         rows = lib.load_roster_rows({"id_prefix": "S"}, self.data)
         self.assertEqual(rows["S-01"]["streams"], [])
         self.assertEqual(rows["S-02"]["streams"], ["case"])
-        self.assertEqual(rows["S-03"], {"name": "學生丙", "streams": ["case", "iep"]})
+        self.assertEqual(rows["S-03"], {"name": "學生丙", "streams": ["case", "iep"], "extra": []})
 
     def test_two_column_roster_still_reads(self):
         """v2 的兩欄名冊照樣讀得進來（第三欄當成沒列入任何個案型類型）。"""
@@ -193,14 +206,56 @@ class TestRoster(unittest.TestCase):
         self.assertEqual(lib.load_roster({}, self.data), {})     # 姓名對照表裡沒有他
 
     def test_save_round_trip(self):
-        rows = {"S-02": {"name": "學生乙", "streams": ["case", "iep"]},
-                "S-01": {"name": "學生甲", "streams": []}}
+        rows = {"S-02": {"name": "學生乙", "streams": ["case", "iep"], "extra": []},
+                "S-01": {"name": "學生甲", "streams": [], "extra": []}}
         lib.save_roster_rows(rows, self.data)
-        with open(os.path.join(self.data, "roster.csv"), encoding="utf-8") as f:
+        with open(os.path.join(self.data, "roster.csv"), encoding="utf-8-sig") as f:
             text = f.read()
         self.assertTrue(text.startswith("代號,姓名,類型"))
         self.assertIn("S-02,學生乙,case;iep", text)
         self.assertEqual(lib.load_roster_rows({}, self.data), rows)
+
+    def test_saved_roster_has_bom_for_excel(self):
+        """名冊是唯一老師會用 Excel 打開的檔——沒有 BOM 的話 zh-TW 版 Excel 會亂碼。"""
+        lib.save_roster_rows({"S-01": {"name": "學生甲", "streams": []}}, self.data)
+        with open(os.path.join(self.data, "roster.csv"), "rb") as f:
+            raw = f.read()
+        self.assertTrue(raw.startswith(b"\xef\xbb\xbf"), "roster.csv 要寫 BOM")
+        self.assertNotIn(b"\r", raw, "還是要寫 LF")
+
+    def test_extra_columns_survive_a_write_back(self):
+        """SPEC §3.1 的第四欄之後（學號／性別／家長信箱）是老師自己加的，回寫第三欄不准弄丟。"""
+        write(os.path.join(self.data, "roster.csv"),
+              "代號,姓名,類型,學號,性別,家長信箱\n"
+              "01,學生甲,,A123,男,parent1@example.com\n"
+              "02,學生乙,case,B456,女,parent2@example.com\n")
+        rows = lib.load_roster_rows({"id_prefix": "S"}, self.data)
+        self.assertEqual(rows["S-01"]["extra"], ["A123", "男", "parent1@example.com"])
+        rows["S-01"]["streams"] = ["iep"]                     # 網頁上把他列入 IEP → 回寫
+        lib.save_roster_rows(rows, self.data)
+        with open(os.path.join(self.data, "roster.csv"), encoding="utf-8-sig") as f:
+            text = f.read()
+        self.assertIn("代號,姓名,類型,學號,性別,家長信箱", text, "表頭多出來的欄位名也要留著")
+        self.assertIn("S-01,學生甲,iep,A123,男,parent1@example.com", text)
+        self.assertIn("S-02,學生乙,case,B456,女,parent2@example.com", text)
+
+    def test_short_prefixed_id_is_padded(self):
+        """老師手打的 S-1 跟程式產生的 S-01 必須是同一個人，不然那一列的姓名對不上。"""
+        write(os.path.join(self.data, "roster.csv"), "代號,姓名,類型\nS-1,學生甲,\nS-12,學生乙,\n")
+        rows = lib.load_roster_rows({"id_prefix": "S"}, self.data)
+        self.assertEqual(sorted(rows), ["S-01", "S-12"])
+        self.assertEqual(rows["S-01"]["name"], "學生甲")
+
+    def test_duplicate_id_warns_on_stderr(self):
+        """S-1 與 S-01 是同一個代號：後面那一列會蓋掉前一列，至少要吭一聲。"""
+        write(os.path.join(self.data, "roster.csv"),
+              "代號,姓名,類型\nS-1,學生甲,\nS-01,學生乙,\n")
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            rows = lib.load_roster_rows({"id_prefix": "S"}, self.data)
+        self.assertEqual(rows["S-01"]["name"], "學生乙")
+        self.assertIn("S-01", buf.getvalue())
+        self.assertIn("→", buf.getvalue())
 
 
 class TestTargets(unittest.TestCase):
@@ -318,6 +373,83 @@ class TestStreamHelpers(unittest.TestCase):
         self.assertIn("#IEP", by_id["iep"]["tags"])
         self.assertIn("counseling", by_id["soap"]["aliases"], "舊 id 要留在 aliases")
         self.assertEqual(lib.stream_ids(by_id["soap"]), ["soap", "counseling"])
+
+
+class TestAppendChannel(unittest.TestCase):
+    """唯一寫入通道的三件事：寫出來一定是 LF、同集合不撞紀錄 id、欄位不准帶換行。
+
+    紀錄 id 就是雲端的文件 id，而一位學生的所有記錄類型共用同一個集合——
+    兩種類型在同一天各記一則卻取到同一個 id 的話，後推上去的那一則會被
+    ALREADY_EXISTS 擋掉（配上同步狀態的舊邏輯，甚至會反過來把本機那一則刪掉）。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="trk-append-")
+        write(os.path.join(self.tmp, "config", "kit.json"), json.dumps(
+            {"owner_email": "t@example.com", "id_prefix": "S",
+             "firebase": {"project_id": "p"}}, ensure_ascii=False))
+        write(os.path.join(self.tmp, "config", "tabs.json"), json.dumps(
+            {"students": {"enabled": True, "streams": [
+                {"id": "homeroom", "label": "導師班級學生紀錄", "scope": "class"},
+                {"id": "case", "label": "個案追蹤", "scope": "case"}]},
+             "courses": {"enabled": False},
+             "business": {"enabled": False}}, ensure_ascii=False))
+        write(os.path.join(self.tmp, "data", "roster.csv"), "代號,姓名,類型\n01,,case\n")
+        for name in ("observations.md", "case.md"):
+            write(os.path.join(self.tmp, "data", "students", "S-01", name), "# S-01\n\n")
+        self.draft = write(os.path.join(self.tmp, "draft.md"), "今天主動收拾了教具。\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def append(self, *args):
+        return run("append_record.py", "--root", self.tmp, "--content-file", self.draft, *args)
+
+    def test_appended_file_has_no_crlf(self):
+        r = self.append("--kind", "students", "--target", "S-01", "--stream", "homeroom",
+                        "--date", "2026-09-10")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(os.path.join(self.tmp, "data", "students", "S-01", "observations.md"), "rb") as f:
+            raw = f.read()
+        self.assertNotIn(b"\r", raw, "唯一的寫入通道也必須寫 LF（Windows 上要 O_BINARY）")
+
+    def test_sibling_stream_same_day_gets_a_different_rid(self):
+        r1 = self.append("--kind", "students", "--target", "S-01", "--stream", "homeroom",
+                         "--date", "2026-09-10", "--json")
+        self.assertEqual(r1.returncode, 0, r1.stdout + r1.stderr)
+        rid1 = json.loads(r1.stdout.strip().splitlines()[-1])["rid"]
+        r2 = self.append("--kind", "students", "--target", "S-01", "--stream", "case",
+                         "--date", "2026-09-10", "--json")
+        self.assertEqual(r2.returncode, 0, r2.stdout + r2.stderr)
+        rid2 = json.loads(r2.stdout.strip().splitlines()[-1])["rid"]
+        self.assertEqual(rid1, "2026-09-10")
+        self.assertNotEqual(rid2, rid1,
+                            "兩種類型共用 students/S-01/records，紀錄 id 不能撞")
+        self.assertTrue(rid2.startswith("2026-09-10-"))
+
+    def test_explicit_time_that_collides_with_sibling_is_refused(self):
+        """自己指定 --time 剛好撞到兄弟檔用掉的 id：擋下來並說清楚，不要留一則上不了雲的紀錄。"""
+        r = self.append("--kind", "students", "--target", "S-01", "--stream", "case",
+                        "--date", "2026-09-10", "--time", "14:35")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r2 = self.append("--kind", "students", "--target", "S-01", "--stream", "homeroom",
+                         "--date", "2026-09-10", "--time", "14:35")
+        self.assertEqual(r2.returncode, 2, r2.stdout + r2.stderr)
+        self.assertIn("→", r2.stderr)
+        with open(os.path.join(self.tmp, "data", "students", "S-01", "observations.md"),
+                  encoding="utf-8") as f:
+            self.assertNotIn("2026-09-10", f.read())
+
+    def test_field_with_newline_is_refused(self):
+        r = self.append("--kind", "students", "--target", "S-01", "--stream", "case",
+                        "--date", "2026-09-10",
+                        "--fields-json", json.dumps({"來源": "導師轉介\n第二行"}, ensure_ascii=False))
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("換行", r.stderr)
+        self.assertIn("→", r.stderr)
+        with open(os.path.join(self.tmp, "data", "students", "S-01", "case.md"),
+                  encoding="utf-8") as f:
+            self.assertNotIn("第二行", f.read())
 
 
 class TestNames(unittest.TestCase):

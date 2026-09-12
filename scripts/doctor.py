@@ -65,6 +65,13 @@ def check_version(r, kit, skip_network):
     """
     ver = lib.version()
     r.add("version", "kit 版本", True, ver)
+    if lib.is_local(kit):
+        # 本機模式沒有資料庫，所以沒有「資料庫上次部署的版本」這回事。
+        # 這一項**留著但標成略過**，不是拿掉：CI 與 AI 代理都靠固定的 key 清單判斷，
+        # 少一個 key 它們會以為健檢改名壞掉了。
+        r.add("cloud_version", "資料庫上次部署的版本（meta/config.version）", False,
+              "本機模式，沒有資料庫", required=False, skipped=True)
+        return
     if skip_network:
         r.add("cloud_version", "資料庫上次部署的版本（meta/config.version）", False,
               "--skip-network", required=False, skipped=True)
@@ -110,20 +117,28 @@ def check_platform(r):
 
 def check_tools(r, kit, skip_network):
     v = sys.version_info
-    r.add("python", "Python 3.8 以上", v >= (3, 8), "目前 %d.%d.%d（%s）" % (v[0], v[1], v[2], sys.executable),
+    r.add("python", "Python 3.9 以上", hostos.python_ok(9), "目前 %d.%d.%d（%s）" % (v[0], v[1], v[2], sys.executable),
           "macOS 內建的 python3 就夠；Windows 到 https://www.python.org/downloads/ 裝（勾 Add to PATH）；"
           "Linux 用 apt-get install python3。")
+
+    # 本機模式用不到這三支（它們全是為了「把東西送上雲端」而存在的）。
+    # 一樣是留著項目、標成略過，不是拿掉——key 清單要穩定。
+    CLOUD_TOOLS = ("node", "firebase", "gcloud")
+    local = lib.is_local(kit)
 
     for name in hostos.TOOL_ORDER:
         spec = hostos.TOOLS[name]
         if spec.get("win_only") and hostos.OS != "win":
             continue
+        if local and name in CLOUD_TOOLS:
+            r.add(name.replace("-cli", ""), spec["label"], bool(hostos.exe(name)),
+                  "本機模式不需要", required=False, skipped=True)
+            continue
         if name == "gws":
             continue                                   # 下面依 drive.mode 另外判
         if name == "vcredist":
-            sysroot = os.environ.get("SystemRoot", r"C:\Windows")
-            p = os.path.join(sysroot, "System32", "vcruntime140.dll")
-            r.add("vcredist", spec["label"], os.path.exists(p), p if os.path.exists(p) else "找不到 vcruntime140.dll",
+            ok, detail = hostos.vcredist_present()     # 兩個 dll 都要驗；正本在 hostos，install_tools 問同一支
+            r.add("vcredist", spec["label"], ok, detail,
                   hostos.install_hint("vcredist"), required=False)
             continue
         path = hostos.exe(name)
@@ -146,6 +161,15 @@ def check_tools(r, kit, skip_network):
         r.add("gws", "gws（只有 drive.mode=gws 才需要）", True, "目前是 desktop 模式，不需要",
               required=False)
 
+    found = hostos.agent_clis_found()
+    names = [hostos.AGENT_CLIS[n]["cmd"] for n in hostos.AGENT_ORDER if found.get(n)]
+    r.add("agent_cli", "AI 代理的 CLI（claude／codex／gemini）", bool(names),
+          ("找到：%s" % "、".join(names)) if names else "這台電腦上找不到 claude、codex 或 gemini",
+          "只是報告用，不影響 kit 本身。要裝一支：`%s scripts/install_tools.py --agent claude`"
+          "（或 codex／gemini）；什麼都還沒有的新電腦跑 setup/bootstrap.sh（Windows 按兩下 setup\\bootstrap.cmd）。"
+          % hostos.PY,
+          required=False)
+
     chrome = hostos.chrome_candidates()
     r.add("chrome", "Chrome／Edge（export_docs.py 印 PDF 用）", bool(chrome),
           chrome[0] if chrome else "找不到 Chrome、Chromium 或 Edge",
@@ -161,7 +185,10 @@ def check_tools(r, kit, skip_network):
           "也可以手動抓 https://huggingface.co/ggerganov/whisper.cpp 放到 %s" % (lib.PY, hostos.model_dir()),
           required=False)
 
-    if skip_network:
+    if lib.is_local(kit):
+        r.add("gcloud_auth", "gcloud 已登入", False, "本機模式不連雲端，不需要",
+              required=False, skipped=True)
+    elif skip_network:
         r.add("gcloud_auth", "gcloud 已登入", False, "--skip-network", required=True, skipped=True)
     elif lib.emulator_host():
         r.add("gcloud_auth", "gcloud 已登入", True, "模擬器模式（FIRESTORE_EMULATOR_HOST=%s），不需要" % lib.emulator_host())
@@ -188,13 +215,24 @@ def check_config(r, kit, tabs, skip_network):
         r.add("cfg_" + key, "設定檔 %s" % rel, ok, detail or (p if ok else "還沒產生"),
               "跑 `python3 scripts/setup.py` 安裝精靈；它會照你的回答產生這個檔。", required=required)
 
-    for key, rel in [("kitjs", "site/js/kit-config.js"),
-                     ("fbjs", "site/js/firebase-config.js"),
-                     ("rules", "firestore.rules")]:
+    local = lib.is_local(kit)
+    r.add("mode", "資料庫模式", True,
+          "local——只放這台電腦，沒有 Firebase、沒有網頁" if local
+          else "cloud——你自己的 Firebase 專案＋手機網頁")
+
+    # 產生檔。本機模式只會有 kit-config.js；另外兩個**不是「還沒產生」而是「不該產生」**，
+    # 所以標成略過而不是 ✗（key 一個都不能少，CI 與 AI 代理靠固定清單判斷）。
+    for key, rel, cloud_only in [("kitjs", "site/js/kit-config.js", False),
+                                 ("fbjs", "site/js/firebase-config.js", True),
+                                 ("rules", "firestore.rules", True)]:
         p = lib.rpath(rel)
+        if local and cloud_only:
+            r.add("gen_" + key, "產生檔 %s" % rel, False, "本機模式不產生這個檔",
+                  required=False, skipped=True)
+            continue
         r.add("gen_" + key, "產生檔 %s" % rel, os.path.exists(p),
               p if os.path.exists(p) else "還沒產生",
-              "跑 `python3 scripts/build_config.py`（這三個檔一律由腳本產生，不要手寫）。")
+              "跑 `python3 scripts/build_config.py`（這幾個檔一律由腳本產生，不要手寫）。")
 
     email = (kit.get("owner_email") or "").strip()
     r.add("owner", "owner_email 已填", bool(email) and email != "you@example.com",
@@ -202,10 +240,17 @@ def check_config(r, kit, tabs, skip_network):
           "重跑 `python3 scripts/setup.py` 填你的 Google 信箱。")
 
     rules = lib.rpath("firestore.rules")
-    if os.path.exists(rules) and email:
+    if local:
+        r.add("rules_email", "安全規則裡的信箱與設定一致", False, "本機模式沒有安全規則",
+              required=False, skipped=True)
+        r.add("rules_fresh", "安全規則比設定新", False, "本機模式沒有安全規則",
+              required=False, skipped=True)
+    elif os.path.exists(rules) and email:
         with open(rules, encoding="utf-8") as f:
             text = f.read()
-        good = email in text and "{{OWNER_EMAIL}}" not in text
+        # 規則檔裡寫的是小寫的信箱（build_config 會 lower()），設定檔裡老師可能打成大寫——
+        # 兩邊都轉小寫再比，不然明明產對了卻報「規則裡沒有你的信箱」。
+        good = email.strip().lower() in text.lower() and "{{OWNER_EMAIL}}" not in text
         r.add("rules_email", "安全規則裡的信箱與設定一致", good,
               "" if good else "規則檔裡沒有你的信箱，或佔位符沒被換掉",
               "跑 `python3 scripts/build_config.py`，再 `firebase deploy --only firestore:rules`。")
@@ -228,7 +273,7 @@ def check_config(r, kit, tabs, skip_network):
               "、".join("%s（%s）" % (s.get("label") or s["id"], s["id"]) for s in streams)
               if streams else "一種都沒勾——學生分頁不會有紀錄",
               "重跑 `python3 scripts/setup.py`，在「勾選你要的記錄類型」那題勾起來"
-              "（導師班級學生紀錄、任課老師學生紀錄、個案追蹤、IEP、輔導晤談）。",
+              "：質性評量觀察、導師班級學生紀錄、任課老師學生紀錄、個案追蹤、IEP、會談紀錄（SOAP）。",
               required=False)
         roster = lib.load_roster(kit)
         r.add("roster", "名冊 data/roster.csv", bool(roster),
@@ -236,6 +281,70 @@ def check_config(r, kit, tabs, skip_network):
               "用試算表打開 data/roster.csv，填「代號,姓名,類型」三欄再存成 CSV"
               "（第三欄＝這位學生列入哪些個案型記錄類型，分號分隔，可以空著）。真名只會留在你電腦上。",
               required=False)
+
+
+def check_headless(r, kit, skip_network):
+    """無頭交辦（選用）。沒開就只留一項「關著」，不吵人。
+
+    開了的話這五項全部是必要的——少任何一項，老師在手機上講的話就會靜靜地掉在雲端，
+    而他完全不會知道（他唯一的回饋就是那句「收到了」，那句是 relay 回的，不代表有人處理）。
+    """
+    h = lib.headless_cfg(kit)
+    if not lib.headless_on(kit):
+        r.add("headless", "無頭交辦（LINE 語音／文字 → 紀錄）", True,
+              "沒有開（本機模式不支援）" if lib.is_local(kit) else "沒有開",
+              required=False)
+        return
+    r.add("headless", "無頭交辦（LINE → %s）" % (h["agent"] or "？"), True,
+          "開著，逾時 %d 秒" % h["timeout_sec"])
+
+    # ① 兩個金鑰的環境變數。排程跑的時候讀不到 ＝ 每 5 分鐘失敗一次，而且沒有人看 log。
+    missing = [h["line"][k] for k in ("channel_secret_env", "channel_token_env")
+               if not (os.environ.get(h["line"][k]) or "").strip()]
+    r.add("headless_secrets", "LINE 金鑰的環境變數都設好了", not missing,
+          "現在這個終端機讀不到：%s" % "、".join(missing) if missing else "兩個都讀得到",
+          "到 LINE Developers → 你的 Messaging API 頻道拿 Channel secret 與 Channel access token，"
+          "寫進**登入時會載入**的設定檔（macOS／Linux：~/.bashrc 或 ~/.zshrc；"
+          "Windows：系統內容 → 環境變數）——只在終端機臨時 export 的話，排程跑起來讀不到。"
+          "細節見 docs/HEADLESS.md。")
+
+    # ② 配對碼
+    r.add("headless_paired", "已經跟你的 LINE 帳號配對", bool(h["line"]["owner_user_id"]),
+          h["line"]["owner_user_id"][:8] + "…" if h["line"]["owner_user_id"] else "還沒配對",
+          "用手機傳一句話給你的官方帳號，它會回「配對碼：Uxxxx…」；"
+          "或在電腦上跑 `%s scripts/headless.py --pair`。拿到之後填進 config/kit.json 的 "
+          "headless.line.owner_user_id，再跑 `%s scripts/build_config.py`。" % (lib.PY, lib.PY))
+
+    # ③ 代理的 CLI 真的在這台電腦上
+    path = hostos.exe((hostos.AGENT_CLIS.get(h["agent"]) or {}).get("cmd") or h["agent"])
+    r.add("headless_agent", "AI 代理 %s 叫得出來" % (h["agent"] or "？"), bool(path),
+          path or "找不到指令 %s" % h["agent"],
+          "%s 裝好之後要登入過一次（在終端機直接跑一次它、照它的指示登入），"
+          "不然無頭模式會卡在登入畫面然後逾時。" % hostos.agent_install_hint(h["agent"]))
+
+    # ④ 雲端那一半：relay 部署了沒、配對碼有沒有送上去
+    if skip_network:
+        r.add("headless_cloud", "雲端收件端（Cloud Function ＋ 配對碼）", False,
+              "--skip-network", required=False, skipped=True)
+        return
+    tok = lib.token(quiet=True)
+    if not tok:
+        r.add("headless_cloud", "雲端收件端（Cloud Function ＋ 配對碼）", False,
+              "gcloud 沒登入，這次沒檢查", required=False, skipped=True)
+        return
+    try:
+        fs, _ = lib.get_doc(lib.fb_base(kit), "meta/headless", tok, raise_errors=True)
+    except Exception as e:                          # noqa: BLE001 連不上不該讓健檢整個掛掉
+        r.add("headless_cloud", "雲端收件端（Cloud Function ＋ 配對碼）", False,
+              str(e)[:120], required=False, skipped=True)
+        return
+    cloud_uid = (fs or {}).get("ownerUserId") or ""
+    same = bool(cloud_uid) and cloud_uid == h["line"]["owner_user_id"]
+    r.add("headless_cloud", "配對碼已經送上雲端（meta/headless）", same,
+          "雲端還沒有配對碼" if not cloud_uid else
+          ("雲端記的是另一個人（%s…）" % cloud_uid[:8] if not same else "一致"),
+          "跑一次 `%s scripts/headless.py --once`，它會把 config/kit.json 裡的配對碼寫上去。"
+          "relay 讀的是雲端那一份——沒寫上去的話它會一直停在「回配對碼」的狀態。" % lib.PY)
 
 
 def check_drive(r, kit, skip_network):
@@ -301,10 +410,13 @@ def main():
     check_version(r, kit, a.skip_network)
     check_tools(r, kit, a.skip_network)
     check_config(r, kit, tabs, a.skip_network)
+    check_headless(r, kit, a.skip_network)
     check_drive(r, kit, a.skip_network)
 
     if a.as_json:
-        print(json.dumps({"root": lib.root(), "version": lib.version(), "ok": not r.failed,
+        print(json.dumps({"root": lib.root(), "version": lib.version(),
+                          "mode": lib.mode(kit), "headless": lib.headless_on(kit),
+                          "ok": not r.failed,
                           "failed": len(r.failed), "warned": len(r.warned),
                           "items": r.items}, ensure_ascii=False, indent=2))
         sys.exit(1 if r.failed else 0)
