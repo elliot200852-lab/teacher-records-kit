@@ -239,6 +239,15 @@
 | 真的 AI 代理跑無頭 | 沒有。測試與 CI 一律走 `TRK_HEADLESS_AGENT_CMD` 假代理 |
 | 錄音轉逐字稿 | CI 只驗到 `whisper-cli` 裝得起來、叫得動。repo 裡沒有轉錄的自動化測試 |
 
+### 補記（tag 之後同一天）
+- `docs/USER-GUIDE.md`：給不懂電腦老師的圖文操作書；截圖與 PDF 由 `scripts/docs/shoot_user_guide_screens.mjs`＋
+  `build_user_guide_pdf.sh` 重現產生（PNG 不進 repo）。工程師版仍是 `docs/PRODUCT-MANUAL.md`。
+- `site/dashboard.html` 匯出樣板裡的 `</body></html>`／`</style></head>` 字串改寫成 `<\/…>`——
+  任何會後處理 HTML 的托管（例如把工具列注到第一個 `</body>` 前的靜態站建置）都不會再把腳本切斷。
+- v3.0.0-alpha.4 這個 tag 打在 Windows CI 還紅的 commit 上；紅的是三個測試本身的 Windows 假設
+  （測試 helper 寫成 CRLF、`bash -n` 在 Windows 的 WSL 殼、headless 子行程主控台編碑）與 CI 閘那一步的
+  stdout 編碼，程式本體沒改。修正在下一個 commit，三平台全綠；tag 不動。
+
 ## v3.0.0-alpha.3 — 2026-09-11（尚未發行）
 
 - **連網路徑第一次真的跑過**：`scripts/tests/emulator_smoke.py` 在 Firestore 模擬器（真的 Firestore 引擎，

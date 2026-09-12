@@ -1,0 +1,51 @@
+/* ══════════════════════════════════════════════════════════════════════
+   manual.css — 把 docs/*.md 印成 A4 手冊的版面
+
+   誰用它：scripts/docs/build_user_guide_pdf.sh
+     markdown → （pandoc gfm→html5，-c manual.css）→ 無頭 Chrome --print-to-pdf
+
+   圖的規則（老師操作書靠這個）：
+     · 所有圖 max-width: 100%，不會撐破頁面
+     · 檔名裡有 phone 的（手機截圖）只佔 45%——兩張並排在同一段就會並排印出來
+     · figure/figcaption：圖說小一號、灰字，跟正文分得開
+   ══════════════════════════════════════════════════════════════════════ */
+
+@page { size: A4; margin: 18mm 16mm; }
+body { font-family: "PingFang TC", "Noto Sans TC", "Heiti TC", sans-serif; font-size: 10.5pt; line-height: 1.65; color: #222; max-width: 100%; }
+h1 { font-size: 20pt; border-bottom: 2px solid #2F7AC4; padding-bottom: 4px; margin-top: 0; }
+h2 { font-size: 15pt; color: #2F7AC4; margin-top: 1.6em; page-break-after: avoid; }
+h3 { font-size: 12pt; margin-top: 1.2em; page-break-after: avoid; }
+h4 { font-size: 11pt; page-break-after: avoid; }
+code { font-family: Menlo, "SF Mono", monospace; font-size: 9pt; background: #f3f4f6; padding: 0 3px; border-radius: 3px; }
+pre { background: #f3f4f6; padding: 8px 10px; border-radius: 4px; font-size: 8.5pt; white-space: pre-wrap; word-break: break-all; page-break-inside: avoid; }
+pre code { background: none; padding: 0; font-size: 8.5pt; }
+table { border-collapse: collapse; width: 100%; font-size: 9pt; margin: .6em 0; page-break-inside: auto; }
+th, td { border: 1px solid #cfd4da; padding: 4px 6px; vertical-align: top; }
+th { background: #eef3f8; text-align: left; }
+tr { page-break-inside: avoid; }
+blockquote { border-left: 3px solid #cfd4da; margin: .6em 0; padding: .2em .8em; color: #444; }
+a { color: #2F7AC4; text-decoration: none; }
+hr { border: 0; border-top: 1px solid #ddd; margin: 1.4em 0; }
+li { margin: .15em 0; }
+
+/* ── 圖 ────────────────────────────────────────────────────────────── */
+img {
+  max-width: 100%;
+  max-height: 200mm;          /* 直的長圖不要一張吃掉兩頁 */
+  height: auto;
+  border: 1px solid #dde2e8;
+  border-radius: 4px;
+  background: #fff;
+}
+/* 手機截圖（檔名帶 phone）：兩張並排剛好，單張也不會大到佔滿一頁 */
+img[src*="phone"] { max-width: 45%; max-height: 150mm; }
+/* 小塊特寫（原圖只有幾百 px 寬）：撐到滿版會被放大成一片模糊 */
+img[src*="tag-chips"] { max-width: 48%; }
+
+figure { margin: .9em 0 1.1em; text-align: center; page-break-inside: avoid; }
+figure img { display: inline-block; margin: 0 .4% ; }
+figcaption { font-size: 8.5pt; color: #6b7280; line-height: 1.6; margin-top: .35em; text-align: center; }
+
+/* 一段裡放兩張圖（手機截圖並排）時，段落本身也置中 */
+p > img { vertical-align: top; }
+p:first-child > img:only-child { margin: 0 auto; }

@@ -3212,15 +3212,15 @@ function exportWordShell(title, inner) {
     'xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
     '<head><meta charset="utf-8"><title>' + esc(title) + '</title>' +
     '<style>@page{size:A4;margin:2cm}body{font-family:"Noto Sans TC","微軟正黑體","PingFang TC",sans-serif}' +
-    EXPORT_CSS + '</style></head><body>' + inner + '</body></html>';
+    EXPORT_CSS + '<\/style><\/head><body>' + inner + '<\/body><\/html>';
 }
 function exportPrintShell(title, inner) {
   return '<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
-    '<title>' + esc(title) + '</title><style>' + EXPORT_CSS + EXPORT_PRINT_CSS + '</style></head><body>' +
+    '<title>' + esc(title) + '</title><style>' + EXPORT_CSS + EXPORT_PRINT_CSS + '<\/style><\/head><body>' +
     '<p class="ex-hint">要存成 PDF：在列印視窗把「目的地／印表機」選成<strong>「儲存為 PDF」</strong>' +
     '（手機是「列印」→ 左下角分享 →「儲存到檔案」）。沒有自動跳出列印視窗的話按這裡：' +
-    '<button type="button" onclick="window.print()">開啟列印視窗</button></p>' + inner + '</body></html>';
+    '<button type="button" onclick="window.print()">開啟列印視窗</button></p>' + inner + '<\/body><\/html>';
 }
 
 function downloadBlob(blob, filename) {
