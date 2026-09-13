@@ -116,6 +116,12 @@
     }
   },
 
+  "_註解_auto_dim_tags": "選用的「評量維度自動補標」：同步完請 AI 代理替還沒有維度標的學生紀錄補上代表標籤（只有 cloud 模式、只有網頁會自動推導維度的記錄類型才會跑）。enabled 預設 false——零預設，要老師自己說要。agent＝claude／codex／gemini，空字串＝沿用 headless.agent（兩個都空＝視同沒設定）。說明見 config/kit.example.json 的 auto_dim_tags 註解。",
+  "auto_dim_tags": {
+    "enabled": false,
+    "agent": ""
+  },
+
   "email": {
     "method": "smtp",
     "smtp_user": ""

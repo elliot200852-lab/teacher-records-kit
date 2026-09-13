@@ -13,6 +13,10 @@ Google 帳號、套件管理程式（macOS＝Homebrew，https://brew.sh ；Windo
 > **Windows**：這份文件裡的 `python3` 一律換成 `py -3`（或 `python`），路徑的 `/` 換成 `\`；
 > 細節見 `docs/PLATFORMS.md`。
 
+## v3.0.0-alpha.6 新增（`CHANGELOG.md` 是正本，這裡只列一行一項）
+
+- **評量維度自動補標（選用，`config/kit.json` 的 `auto_dim_tags`）**：`sync.py` 做完正常同步之後，把網頁會自動推導維度的學生紀錄裡、還沒有任何代表標籤的那幾則交給 AI 代理判斷並補上代表標籤（只加不刪，雲端寫入帶前置條件）。安裝精靈會問（零預設）；`--no-auto-tags` 跳過這一段、`--dry-run` 只列會送判斷的則數；`doctor.py` 開著時檢查代理 CLI。規則不用重新部署。
+
 ## v3.0.0-alpha.5 新增（`CHANGELOG.md` 是正本，這裡只列一行一項）
 
 - **共同擁有者 `co_owner_emails`**：`config/kit.json` 多一個信箱清單，裡面的帳號跟 `owner_email` 權限完全一樣；`setup.py --answers` 可以帶，安裝精靈本身不問這一題。
@@ -142,6 +146,10 @@ python3 scripts/setup.py --answers /tmp/answers.json
 
 其他旗標：`--resume`（續裝）、`--upgrade`（轉 v2 設定）、`--skip-network`、`--skip-doctor`、
 `--root`、`--mark-step N`（＋選填的 `--note 文字`）。
+
+答案檔最外層的 `auto_dim_tags`（評量維度自動補標，選用、預設關）：`{"enabled": true, "agent": "claude"}`，
+`agent` 空字串＝沿用 `headless.agent`。它只在雲端模式、而且勾了會自動推導維度的記錄類型（例如 `homeroom`）時才有作用，
+說明在 `config/kit.example.json` 的註解。
 
 `setup.py` 會自動呼叫 `build_config.py`。手改過 `config/kit.json` 或 `config/tabs.json` 之後要單獨重跑：
 
@@ -427,6 +435,7 @@ python3 scripts/doctor.py               # 「無頭交辦」那一區五項要�
 
 ```bash
 python3 scripts/sync.py                                   # 同步
+python3 scripts/sync.py --no-auto-tags                    # 同步，但這一次不跑評量維度補標（開了才有那一段）
 python3 scripts/backup.py                                 # 備份
 python3 scripts/schedule.py --status                      # 排程現況
 python3 scripts/schedule.py --uninstall                   # 拆掉排程

@@ -152,6 +152,94 @@ print("<<REPORT>>已記到 S-01 的導師班級紀錄：%s<<END>>" % body[:40])
 '''
 
 
+FAKE_TAG_AGENT = r'''# -*- coding: utf-8 -*-
+"""假的 AI 代理（評量維度補標）：讀 stdin 的提示詞，每一則都回「人際互動」，每叫一次記一行。"""
+import os, sys, json
+text = sys.stdin.buffer.read().decode("utf-8")
+items = json.loads(text[text.index("\n[") + 1:])
+with open(os.environ["FAKE_ADT_LOG"], "a", encoding="utf-8") as f:
+    f.write("%d\n" % len(items))
+sys.stdout.buffer.write(json.dumps({i["id"]: ["人際互動"] for i in items}, ensure_ascii=False).encode("utf-8"))
+'''
+
+
+def auto_tags_steps(root, kit, base):
+    """評量維度補標接在真的 Firestore 引擎上：網頁新增一則只有主題標籤的紀錄 → 同步 →
+    本機與雲端都補上代表標籤（前置條件、updateMask 走真的 commit）→ 緊接著再同步一次零變化、零 AI 呼叫。
+    AI 代理是假的（TRK_AUTO_TAGS_AGENT_CMD），永遠不會叫到真的模型。"""
+    print("\n── 評量維度補標 ──")
+    kit_path = os.path.join(root, "config", "kit.json")
+    k = json.loads(read(kit_path))
+    k["auto_dim_tags"] = {"enabled": True, "agent": "claude", "timeout_sec": 120}
+    write(kit_path, json.dumps(k, ensure_ascii=False, indent=1))
+    agent = os.path.join(root, "fake-tag-agent.py")
+    write(agent, FAKE_TAG_AGENT)
+    log = os.path.join(root, "fake-tag-agent.log")
+    env = {"TRK_AUTO_TAGS_AGENT_CMD": agent, "FAKE_ADT_LOG": log}
+
+    def n_calls():
+        return len(read(log).splitlines()) if os.path.exists(log) else 0
+
+    rc, out = py("sync.py", root=root, env=env)          # 既有紀錄先判斷完，下面只看新增的那一則
+    step("補標：開了之後同步照常完成", rc == 0, out.strip().splitlines()[0] if out.strip() else "")
+    before = n_calls()
+    rid = "2026-09-11"
+    lib.http("PATCH", base, "students/S-03/records/%s" % rid, "owner",
+             body={"date": rid, "stream": "homeroom", "tags": ["#課堂"], "fields": {}, "related": [],
+                   "body": "分組時主動邀請落單的同學加入。", "editedOnWeb": True,
+                   "webEditedAt": lib.now_iso(), "source": "web"}, precondition_exists=False)
+    rc, out = py("sync.py", root=root, env=env)
+    p3 = os.path.join(root, "data", "students", "S-03", "observations.md")
+    md = read(p3)
+    fs, _ = lib.get_doc(base, "students/S-03/records/%s" % rid, "owner", raise_errors=True)
+    _, blocks = lib.parse_file(p3)
+    blk = [b for b in blocks if b["rid"] == rid]
+    step("補標：網頁新增的那則送了 AI", n_calls() > before, "%d → %d" % (before, n_calls()))
+    step("補標：本機補上代表標籤、原標籤在前", rc == 0 and ("## %s #課堂 #人際" % rid) in md,
+         out.strip().splitlines()[-1] if out.strip() else "")
+    step("補標：雲端 tags 一樣、contentHash 對得上、editedOnWeb 沒被設回 true",
+         fs.get("tags") == ["#課堂", "#人際"] and bool(blk) and fs.get("contentHash") == blk[0]["hash"]
+         and fs.get("editedOnWeb") is False,
+         json.dumps({k_: fs.get(k_) for k_ in ("tags", "editedOnWeb")}, ensure_ascii=False))
+    calls = n_calls()
+    rc, out = py("sync.py", root=root, env=env)
+    step("補標：緊接著再同步一次零變化",
+         rc == 0 and "上傳 0、回寫 0、從網頁新增 0、刪除 0、衝突 0" in out,
+         out.strip().splitlines()[0] if out.strip() else "")
+    step("補標：第二次同步沒有再叫 AI", n_calls() == calls, "%d → %d" % (calls, n_calls()))
+
+    # 本機寫不進去時的回滾靠「PATCH 回傳的 updateTime」當前置條件：真的 commit 回應要拿得到它，
+    # 而且拿舊的 updateTime 去改要被擋。
+    import auto_dim_tags as adt
+    path = "students/S-03/records/%s" % rid
+    fs0, ut0 = lib.get_doc(base, path, "owner", raise_errors=True)
+    ok_rb, detail = False, ""
+    try:
+        res = lib.http("PATCH", base, path, "owner", {"tags": fs0["tags"] + ["#回滾測試"], "contentHash": "x"},
+                       mask=["tags", "contentHash"], precondition_update_time=ut0, raise_errors=True)
+        ut1 = adt.update_time_of(res)
+        stale_blocked = False
+        try:
+            lib.http("PATCH", base, path, "owner", {"tags": fs0["tags"], "contentHash": fs0["contentHash"]},
+                     mask=["tags", "contentHash"], precondition_update_time=ut0, raise_errors=True)
+        except lib.Precondition:
+            stale_blocked = True
+        lib.http("PATCH", base, path, "owner", {"tags": fs0["tags"], "contentHash": fs0["contentHash"]},
+                 mask=["tags", "contentHash"], precondition_update_time=ut1, raise_errors=True)
+        fs2, _ = lib.get_doc(base, path, "owner", raise_errors=True)
+        ok_rb = (bool(ut1) and stale_blocked and fs2.get("tags") == fs0["tags"]
+                 and fs2.get("contentHash") == fs0["contentHash"])
+        detail = "updateTime=%s、舊的被擋=%s" % (ut1, stale_blocked)
+    except Exception as e:                  # noqa: BLE001
+        detail = str(e)[:200]
+    step("補標回滾：PATCH 回傳的 updateTime 當前置條件改得回雲端（舊的 updateTime 會被擋）", ok_rb, detail)
+    rc, out = py("sync.py", "--no-auto-tags", root=root)
+    step("補標回滾：改回之後同步零變化", rc == 0 and "上傳 0、回寫 0、從網頁新增 0、刪除 0、衝突 0" in out,
+         out.strip().splitlines()[0] if out.strip() else "")
+    k["auto_dim_tags"] = {"enabled": False, "agent": "", "timeout_sec": 600}   # 關回去，後面照原樣
+    write(kit_path, json.dumps(k, ensure_ascii=False, indent=1))
+
+
 def headless_steps(root, kit, base):
     """無頭交辦的電腦端：假造一則 headless_events，讓 headless.py 真的處理一輪。
 
@@ -412,7 +500,10 @@ def inner(root):
          raw_post(kit, "students/S-01/records", "2026-09-10",
                   {"date": "2026-09-10", "stream": "homeroom", "body": "x", "tags": [], "fields": {}}, stranger_tok) == 403)
 
-    # 14. 無頭交辦：假造一則事件文件，讓 headless.py 真的跑一輪（AI 代理是假的）
+    # 14. 評量維度補標：寫入走真的前置條件，寫完再同步一次零變化（AI 代理是假的）
+    auto_tags_steps(root, kit, base)
+
+    # 15. 無頭交辦：假造一則事件文件，讓 headless.py 真的跑一輪（AI 代理是假的）
     headless_steps(root, kit, base)
 
     print()

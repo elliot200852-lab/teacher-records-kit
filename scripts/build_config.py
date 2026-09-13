@@ -192,6 +192,29 @@ def validate(kit, tabs, problems, notes, allow_placeholders=False):
                          "任何傳訊息給你的人。拿配對碼：手機傳一句話給你的官方帳號，"
                          "或在電腦上跑 `python3 scripts/headless.py --pair`。")
 
+    # 評量維度自動補標（選用）
+    ad = lib.auto_dim_tags_cfg(kit)
+    if ad["enabled"]:
+        if ad["agent_own"] and ad["agent_own"] not in hostos.AGENT_ORDER:
+            problems.append(("auto_dim_tags.agent 要是 claude、codex、gemini 或空字串（現在是 %r）"
+                             % ad["agent_own"],
+                             "空字串＝沿用 headless.agent；要填就填這台電腦上裝好、而且登入過的那一支。"))
+        elif ad["agent"] and ad["agent"] not in hostos.AGENT_ORDER:
+            problems.append(("auto_dim_tags.agent 是空的，沿用的 headless.agent 卻不認得（%r）" % ad["agent"],
+                             "把 auto_dim_tags.agent 填成 claude、codex 或 gemini。"))
+        elif not ad["agent"]:
+            notes.append("auto_dim_tags.enabled 開著，但 auto_dim_tags.agent 與 headless.agent 都是空的"
+                         "——視同沒設定，同步時不會補標。填一支代理（claude／codex／gemini）或重跑安裝精靈。")
+        if ad["timeout_sec"] < 60:
+            problems.append(("auto_dim_tags.timeout_sec 太短（%d 秒）" % ad["timeout_sec"],
+                             "一批最多 30 則，AI 要讀完才回答；預設 600（10 分鐘）。"))
+        mb = (kit.get("auto_dim_tags") or {}).get("max_batches")
+        if mb is not None and (isinstance(mb, bool) or not isinstance(mb, int) or mb < 1):
+            problems.append(("auto_dim_tags.max_batches 要是 1 以上的整數（現在是 %r）" % (mb,),
+                             "一次同步最多送幾批（一批最多 30 則）；預設 2。"))
+        if local:
+            notes.append("本機模式沒有同步，auto_dim_tags 開著也不會跑（補標接在 sync.py 後面）。")
+
     drive = kit.get("drive") or {}
     mode = drive.get("mode", "desktop")
     if mode not in ("desktop", "gws"):
@@ -416,6 +439,12 @@ def main():
                                       % (h["tool"], h["agent"] or "（還沒選代理）",
                                          "" if h["line"]["owner_user_id"] else "，還沒配對")
                                       if lib.headless_on(kit) else "關"))
+            ad = lib.auto_dim_tags_cfg(kit)
+            print("  評量維度補標：%s" % (
+                "開（%s%s）" % (ad["agent"], "，沿用無頭交辦那一支" if ad["agent_inherited"] else "")
+                if lib.auto_dim_tags_on(kit) else
+                ("開著但不會跑（%s）" % ("本機模式" if lib.is_local(kit) else "沒有代理可叫")
+                 if ad["enabled"] else "關")))
             streams = (tabs.get("students") or {}).get("streams")
             groups = (tabs.get("business") or {}).get("groups") or []
             print("  分頁：學生 %s／課程 %s／業務 %s" % (

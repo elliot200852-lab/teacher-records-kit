@@ -10,6 +10,68 @@
 `sync.py` 把它寫進 Firestore `meta/config.version`（＝這個資料庫最後一次是哪一版同步／部署的），
 `doctor.py` 連得上網時會拿兩邊比對，程式比資料庫新就提醒重新部署規則。
 
+## v3.0.0-alpha.6 — 2026-09-13（尚未發行）
+
+> **規則沒有動**，不用重新部署 `firestore.rules`。升級＝拉新程式 → `python3 scripts/build_config.py`；
+> 想用新功能就重跑 `python3 scripts/setup.py`，在「評量維度自動補標」那一題說要、選代理。
+
+### 評量維度自動補標（選用，`config/kit.json` 的 `auto_dim_tags`）
+
+- 網頁學生卡的五維度小籤是讀取時用 `tagMap`＋`keywords` 當場推的、不寫回，所以本機 md 與匯出檔看不到維度標，
+  關鍵詞也會漏。開了這一項，`sync.py` **在正常同步做完之後**把「還沒有任何代表標籤」的學生紀錄正文交給
+  老師自己選的 AI 代理判斷，照實補上代表標籤（`tagMap` 裡各維度排第一個的標）。
+  **補上的標籤跟手打的一模一樣**（沒有「AI 補的」記號、網頁外觀不變）；維度則數仍由網頁照標籤算，AI 只負責打標。
+- 適用範圍跟 `dashboard.html` 的 `deriveFormatFor()` 同一個判斷：只看學生紀錄、只看沒有「報告維度」欄位、
+  不是 IEP／SOAP、格式庫有帶推導表的格式吃它的記錄類型（現行＝`homeroom` 走 `waldorf-homeroom`）。
+  維度名稱、說明（`sections` 的 hint）、代表標籤全部從 `config/report-formats.library.json` 讀，程式零硬編。
+- 挑哪些：本機與雲端一致（沒軟刪、沒 `editedOnWeb`、`contentHash` 對得上）、正文不空、標籤裡沒有任何代表標籤
+  （只有主題標籤的照送）、正文過得了真名攔截（**只比對名冊上的全名**，只寫名、沒寫姓的攔不到——正文一律寫代號）、
+  而且「同一則＋同一份正文」還沒判斷過。
+  判斷紀錄在 `data/.auto-dim-tags.json`（**判定零個維度也記**）；正文改了才重判；
+  老師自己把補上的標拿掉而正文沒改，就不會再補回去。
+- 呼叫：一批最多 30 則、**每次同步最多 `max_batches` 批**（預設 2＝60 則，剩下的印「還有 N 則等下次同步」；
+  老師多半是叫互動式 AI 跑同步，舊紀錄多時一口氣全送會被那個代理的指令逾時殺掉），**只送「代號/紀錄 id」與正文**（不含名冊、欄位、原標籤），提示詞走 stdin；
+  要求只回 JSON（id → 維度名陣列），只收這一批的 id 與格式裡的維度名。JSON 壞掉、逾時（`timeout_sec`，
+  預設 600 秒）、代理非 0 結束、找不到 CLI → **這一批一個字都不寫、印一行警告、不記為判斷過、後面的批次不跑**；
+  同步本身照常完成，**退出碼不變**。
+- 寫入：**只加不刪**（原標籤順序不動、代表標籤接在後面、去重）。
+  - 叫 AI **之前**先確認本機 md、它的 `.prev.md` 與所在資料夾寫得進去；寫不進去整個目標不送、印警告。
+  - 本機**只在那一則的標題列尾端接上缺的代表標籤**，其他每一行一個位元組都不動（標題列上的非標籤文字、
+    重複鍵的欄位列、行尾 `\r`、BOM 都留著）；接完用 `lib.parse_block` 讀回，tags＝預期、欄位／正文雜湊不變才寫，
+    不符就兩邊都不寫、不記、印警告。（驗收時抓到：原本用 `render_block` 整則重畫會吃掉那些字。）
+  - 先寫雲端——`updateMask` 只有 `tags`／`contentHash`，一定帶 `currentDocument.updateTime` 前置條件，
+    不成立＝網頁上正在改 → 跳過、不記、下次再來；再寫本機（先備份 `.<檔名>.prev.md`，暫存檔＋`os.replace`）。
+  - **本機沒寫成就回滾**：用剛才 PATCH 回傳的 updateTime 當前置條件把雲端 `tags`／`contentHash` 改回原值；
+    回滾也失敗就印清楚的警告（下一輪可能報衝突，要老師比對）。
+  - `contentHash` 一起換，**緊接著再同步一次零推送、零回寫、零衝突、零 AI 呼叫**；不碰 `editedOnWeb`。
+- 不卡隊：同一份正文 AI 給不出能用的判斷（JSON 壞、維度名不對、沒回）或本機沒寫成（雲端已改回），在
+  `data/.auto-dim-tags.json` 記一次失敗（rid＋正文雜湊）；失敗過的排到最後，**滿 2 次就記成看不出維度、不再送**
+  並印警告——免得每次同步最前面那 60 則都是同一批、後面的永遠補不到，也免得本機一直寫不成時每輪白叫 AI＋寫兩次雲端。
+  找不到 CLI、逾時、代理非 0 結束算環境問題，不記失敗。
+- 防呆：換檔前重讀本機檔、跟一開始讀到的逐位元組比，不同（例如 `append_record.py` 剛好追加了一則）就不換、雲端改回、
+  記一次失敗；md 是捷徑（symlink）的目標整個跳過（`os.replace` 會把捷徑換成一般檔）；標題列尾端只去半形空白，
+  全形空白 U+3000 留著；接不上標籤的檔（例如只用 `\r` 換行）同一份內容只警告一次。
+- 旗標：`--dry-run` 不叫 AI，只列「這一輪會送判斷的 N 則」（超出 `max_batches` 的另列「還有 N 則等下次同步」）；新增 `--no-auto-tags` 跳過這一段；`--only` 照舊生效。
+- 三家代理的非互動叫法進 `hostos.AGENT_CLIS[*]["oneshot"]`（2026-09-13 照本機 `--help` 對過，對不到的標【未驗證】，
+  見 `docs/PLATFORMS.md`；claude 從 stdin 讀提示詞已實呼叫驗過：回 0、7.4 秒、JSON 可解析）：`claude -p --tools "" --strict-mcp-config …`（不給任何工具）、
+  `codex exec --sandbox read-only --ephemeral -o <檔> -`、`gemini -p <一句 ASCII> --approval-mode default`。
+- AI 代理叫起來的同步不再補標（環境變數 `TRK_NO_AUTO_TAGS`；`headless.py` 叫代理時自動帶上）——
+  免得無頭交辦被「AI 叫 AI」拖過逾時，補標留給排程的一般同步。
+- 安裝精靈多一題（只在雲端模式、而且勾了會自動推導維度的記錄類型時才問；零預設），選代理時可選
+  「跟無頭交辦用同一支」（`agent: ""`）；`setup.py --answers` 吃 `auto_dim_tags`。
+  `build_config.py` 擋不認得的代理與太短的逾時；`doctor.py` 多兩項 `auto_dim_tags`／`auto_dim_tags_agent`
+  （開著才檢查代理 CLI 叫不叫得出來）。
+- 已知：
+  - 本機模式沒有同步，這一項開著也不會跑。
+  - **本機檔整檔重寫時的並發寫入**：補標換檔前會重讀比對，剩下「重讀到 `os.replace`」之間的極短窗口擋不掉。
+    **`sync.py` 原本的本機回寫（網頁改的寫回、網頁新增、網頁刪除，`scripts/sync.py` 的 `sync_target` 整檔重寫
+    `data/**/*.md`）是「讀檔 → 改 → 整檔寫回」、沒有重讀比對**：那段期間 `append_record.py`（例如無頭交辦）
+    剛好追加的一則會從 md 消失（`.prev.md` 也不會有）。窗口是毫秒級，這一版不修（`docs/ARCHITECTURE.md` §5「已知限制」）。
+  - 真名攔截只比對名冊上的全名，只寫名、沒寫姓的正文照樣會送出去。
+  - `claude -p` 仍會載入使用者層 `~/.claude` 的設定與 hooks（旗標關不掉那一層）。
+- 測試 296→346（新檔 `scripts/tests/test_auto_dim_tags.py`：假代理＋記憶體 Firestore，零真名）；
+  `scripts/tests/emulator_smoke.py` 多一段真 Firestore 引擎上的端到端（網頁新增 → 補標 → 再同步零變化、零 AI 呼叫）。
+
 ## v3.0.0-alpha.5 — 2026-09-13（尚未發行）
 
 > **規則有動——要重新部署 `firestore.rules`（與啟用無頭時的 `storage.rules`）。**

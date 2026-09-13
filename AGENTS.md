@@ -507,6 +507,28 @@ python3 scripts/doctor.py
 列入誰會寫進 `data/roster.csv` 的第三欄（分號分隔，例如 `case;iep`），
 他之後在網頁上也能自己「列入／移出」。
 
+**勾了「網頁會自動推導評量維度」的類型（現行＝`homeroom` 導師班級學生紀錄），而且是雲端模式的，多問一題**
+（本機模式不要問——它接在同步後面，本機模式沒有同步）：
+
+> 「你勾的導師班級學生紀錄，網頁上每位學生的卡片會自動算『評量五維度』，看哪一塊還沒觀察到。
+> 但那是打開網頁的時候用你打的 #標籤 跟內文關鍵詞當場猜的：**不會寫回你的紀錄**，而且關鍵詞只是粗篩，會漏。
+>
+> 有一個選用的做法：**每次同步完，把還沒有任何維度標籤的紀錄正文交給你電腦上的 AI 判斷，
+> 照實補上代表標籤**（例如 `#人際`）。補上去的標籤跟你自己打的一模一樣，網頁看起來也一樣。
+> 三件事先講清楚：①送出去的只有學生代號跟正文，名冊不會送，正文出現名冊上全名的那一則不送
+> （只寫名字、沒寫姓的攔不到——所以正文一律寫代號）；
+> ②只加不刪，你打的標籤一個都不動，網頁上剛好在改的那一則會跳過、下次再來；
+> ③會用到那支 AI 的額度（大約每 30 則問一次、每次同步最多問 2 次，判斷過的不會再問）。
+>
+> 要開嗎？」
+
+他說要 → 再問一句用哪一支代理（念 `python3 scripts/doctor.py` 列出來找得到的那幾支；
+開了無頭交辦的話多一個選項「跟無頭交辦用同一支」）。**他說不要或再想想，就不開**——這一題零預設。
+答案檔寫在最外層 `auto_dim_tags`：`{"enabled": true, "agent": "claude"}`（`agent` 留空字串＝沿用
+`headless.agent`；兩個都空＝視同沒設定）。一種類型算不算「網頁會自動推導」：沒有「報告維度」欄位、
+不是 IEP／SOAP 那種帶卡片的、`config/report-formats.library.json` 裡有帶 `tagMap` 的格式吃它——
+`scripts/auto_dim_tags.py` 的 `eligible_streams()` 就是這個判斷，互動的 `setup.py` 也照它決定問不問。
+
 #### 老師去哪裡拿
 
 - **有現成名單**：請他找出來就好（校務系統匯出的 Excel／CSV、或班級座位表）。
@@ -523,7 +545,8 @@ python3 scripts/doctor.py
 每一種 `case` 型類型列入哪些學生，以及**學生卡的內容**——IEP 的 `goals`、SOAP 的 `conceptualization`。
 可以直接寫成 `templates/answers.example.json` 裡 `students` 那一段的樣子
 （`streams` / `extra_fields` / `extra_tags` / `custom_streams` / `members` / `cards`），
-方案填最外層的 `vertical`（不確定就 `"none"`）。
+方案填最外層的 `vertical`（不確定就 `"none"`）；評量維度自動補標那一題填最外層的 `auto_dim_tags`
+（沒問、或他不要，就寫 `{"enabled": false, "agent": ""}`）。
 
 **不要自己補上任何一種他沒勾的類型。** 一種都沒勾就是一種都不寫——
 `setup.py` 會提醒「學生分頁不會有任何紀錄」，那是正確的結果，不是錯誤。
@@ -866,6 +889,10 @@ python3 scripts/sync.py               # 確認沒問題再真跑
 ```
 
 只想同步一個目標時用 `--only`，例如 `python3 scripts/sync.py --only students/S-03`。
+
+**開了評量維度自動補標（`auto_dim_tags`）的話，`sync.py` 做完同步還會請 AI 判斷，可能多花一兩分鐘**
+（每次最多 2 批、60 則）——你跑它的時候**指令逾時給足**（至少 10 分鐘）。**不要為了快加 `--no-auto-tags`**：
+老師平常就是叫你同步，補標就靠這一步；剩下沒判斷到的，它會印「還有 N 則等下次同步」，下次同步自己接著做。
 
 **C. 匯入舊記錄。** 一則一則走**唯一的寫入通道**，不要自己編輯 `data/` 底下的 md 檔：
 
@@ -1637,6 +1664,16 @@ python3 scripts/doctor.py        # 「無頭交辦」那一區五項要全綠
    安全規則擋不住它，**AI 代理與無頭交辦永遠不准跑這一支**（`AGENTS-HEADLESS.md` 第 5 條明寫）
    ——個資法的刪除請求，最終完成點就是老師自己跑這一支；建議跑之前先 `python3 scripts/backup.py` 一次。
 
+8. **（開了評量維度自動補標才講）紀錄上會多出維度標籤，那是 AI 補的。** 每次同步完，
+   導師班級學生紀錄裡還沒有任何維度標籤的那幾則，會交給他選的 AI 讀正文、補上代表標籤（`#人際` 這種）。
+   補上的標籤跟他自己打的一模一樣，**覺得不對就直接在網頁或本機把那個標拿掉**——正文沒改的話，
+   同一則不會再被補回去（判斷過的記在 `data/.auto-dim-tags.json`）。
+   同步印出「評量維度補標沒有跑…」或「…這一批一個字都沒寫」＝代理叫不出來或回的東西不能用：
+   **同步本身已經完成**，跑一次 `python3 scripts/doctor.py` 看「評量維度補標的 AI 代理」那一項。
+   這一次不想跑就 `python3 scripts/sync.py --no-auto-tags`；想先看會送幾則就加 `--dry-run`（不會叫 AI）。
+   **你（AI）替他跑 `sync.py` 時會多花一兩分鐘**（每次最多 2 批、60 則，`auto_dim_tags.max_batches` 可調），
+   指令逾時給足；平常不要自己加 `--no-auto-tags`。真名攔截只比對名冊全名，正文一律寫代號。
+
 順帶一提兩支選用的腳本：`python3 scripts/pending.py` 列出「有觀察但還沒決定要不要寄家長」的記錄
 （`--all` 連已處理的也列、`--mark <代號> <日期> skip` 標記不用再提醒）；
 `python3 scripts/parent_email.py --id S-01 --subject "…" --body-file msg.txt`
@@ -1707,7 +1744,8 @@ firebase deploy --only firestore:rules --project <他的專案ID>
 | `scripts/doctor.py` | 健檢：逐項告訴你什麼好了、沒好的怎麼修 |
 | `scripts/install_tools.py` | 裝齊外部工具，三個平台同一支 |
 | `scripts/append_record.py` | **唯一被允許寫入記錄檔的通道** |
-| `scripts/sync.py` | 本機 markdown ⇄ 資料庫雙向同步（衝突不覆蓋） |
+| `scripts/sync.py` | 本機 markdown ⇄ 資料庫雙向同步（衝突不覆蓋）；開了 `auto_dim_tags` 的話，同步完再請 AI 補評量維度代表標籤 |
+| `scripts/auto_dim_tags.py` | （選用，由 `sync.py` 叫，不單獨執行）評量維度自動補標：挑紀錄、叫 AI 代理判斷、只加不刪地寫回兩邊 |
 | `scripts/transcribe.py` | 錄音 → 本機逐字稿（不出本機） |
 | `scripts/backup.py` | 本機 zip ＋ 上他自己的 Google 雲端硬碟 |
 | `scripts/ledger.py` | 台帳：本機／網站／備份三處對帳 |

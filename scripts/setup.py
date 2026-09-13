@@ -40,6 +40,7 @@ import subprocess
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
 import hostos
+import auto_dim_tags  # noqa: E402
 
 CONSOLE = "https://console.firebase.google.com"
 WEBCFG_PATH = "專案設定（左上齒輪）→ 一般 → 你的應用程式 → 網頁應用程式 → SDK 設定與配置 → Config"
@@ -645,6 +646,50 @@ def gather(ask, answers, existing_kit):
                 ask.say("    跑 `%s scripts/build_config.py` 再跑一次 `%s scripts/headless.py --once`。）"
                         % (lib.PY, lib.PY))
 
+    # ── 評量維度自動補標（選用；它接在同步後面，所以只有雲端模式有）──
+    # 只有勾了「網頁會自動推導維度」的記錄類型（例如導師班級學生紀錄）才問；零預設。
+    ad_a = a.get("auto_dim_tags") or {}
+    ad_old = existing_kit.get("auto_dim_tags") or {}
+    ad_on = bool(ad_a.get("enabled", ad_old.get("enabled", False)))
+    ad_agent = str((ad_a["agent"] if "agent" in ad_a else ad_old.get("agent")) or "").strip().lower()
+    ad_cfg = lib.auto_dim_tags_cfg(
+        {"auto_dim_tags": {"timeout_sec": ad_a.get("timeout_sec") or ad_old.get("timeout_sec"),
+                           "max_batches": ad_a.get("max_batches") or ad_old.get("max_batches")}})
+    ad_timeout, ad_max_batches = ad_cfg["timeout_sec"], ad_cfg["max_batches"]
+    ad_streams = auto_dim_tags.eligible_streams({"students": {"streams": streams}}) if students_on else []
+    if local:
+        ad_on = False
+    elif ad_streams:
+        st_label = {s_["id"]: (s_.get("label") or s_["id"]) for s_ in streams}
+        ask.say("\n── 評量維度自動補標（選用）──")
+        ask.say("你勾的「%s」網頁會自動算評量五維度（學生卡上那五個小籤），" % "、".join(st_label[x] for x in ad_streams))
+        ask.say("但那是打開網頁時用 #標籤 與內文關鍵詞當場推的：不寫回紀錄，而且關鍵詞只是粗篩、會漏。")
+        ask.say("開了這一項，每次同步完會把「還沒有任何維度標籤」的紀錄正文交給你電腦上的 AI 代理判斷，")
+        ask.say("照實補上代表標籤（例如 #人際），補上的跟你自己打的一模一樣；維度則數還是照標籤算。")
+        ask.say("  · 送給 AI 的只有學生代號與正文，不含名冊；正文出現名冊上全名的那一則不會送")
+        ask.say("    （只寫名、沒寫姓的攔不到——正文一律寫代號）。")
+        ask.say("  · 只加不刪，你打的標籤一個都不動；網頁上剛好在改的那一則會跳過、下次再來。")
+        ask.say("  · 會用到那支 AI 代理的額度（大約每 30 則問一次、每次同步最多問 2 次；判斷過的不會再問）。")
+        if ask.interactive:
+            ad_on = ask.yes("⑩ 要不要開「評量維度自動補標」", False)
+            if ad_on:
+                found = hostos.agent_clis_found()
+                values, labels = [], []
+                if headless_on and h_agent in hostos.AGENT_ORDER:
+                    values.append("")
+                    labels.append("跟無頭交辦用同一支（%s）" % hostos.AGENT_CLIS[h_agent]["label"])
+                for n in hostos.AGENT_ORDER:
+                    values.append(n)
+                    labels.append("%s%s" % (hostos.AGENT_CLIS[n]["label"],
+                                            "（這台電腦上找得到）" if found.get(n) else "（這台電腦上還沒裝）"))
+                default = (values.index(ad_agent) if ad_agent in values else
+                           next((i for i, v in enumerate(values) if v and found.get(v)), 0))
+                ad_agent = values[ask.pick("   要叫哪一支 AI 代理來判斷？（要是你已經裝好、也登入過的那一支）",
+                                           labels, default)]
+    if ad_on and not (ad_agent or (h_agent if headless_on else "")):
+        lib.warn("評量維度自動補標開著，但沒有指定 AI 代理（無頭交辦也沒開）——視同沒設定，同步時不會補標。"
+                 "在 auto_dim_tags.agent 填 claude、codex 或 gemini。")
+
     kit = json.loads(json.dumps(lib._strip_comments(kit_ex)))  # 以範本為底，保留所有預設欄位
     # 重跑安裝＝在現有設定上疊答案，不是從範本重蓋一份：安裝精靈沒問到的區塊
     # （email.smtp_user、voice、parents 的欄位位置…）老師是手填進 config/kit.json 的，
@@ -671,6 +716,9 @@ def gather(ask, answers, existing_kit):
             "owner_user_id": h_uid,
         },
     }
+    # 評量維度自動補標：agent 空字串＝沿用 headless.agent（沒開就一律清成空的，跟無頭交辦同一條規矩）
+    kit["auto_dim_tags"] = {"enabled": bool(ad_on), "agent": ad_agent if ad_on else "",
+                            "timeout_sec": ad_timeout, "max_batches": ad_max_batches}
     kit["drive"] = {"mode": mode, "desktop_dir": desktop_dir,
                     "backup_folder_id": folder_id,
                     "keep_backups": int(d_a.get("keep_backups",
@@ -934,6 +982,9 @@ def main():
         print("  無頭交辦：開（LINE → %s）%s"
               % (lib.headless_cfg(kit)["agent"],
                  "" if lib.headless_cfg(kit)["line"]["owner_user_id"] else "，還沒配對"))
+    if lib.auto_dim_tags_on(kit):
+        print("  評量維度自動補標：開（同步完請 %s 替還沒有維度標的紀錄補代表標籤）"
+              % lib.auto_dim_tags_cfg(kit)["agent"])
     if tabs.get("vertical"):
         v = lib.find_vertical(tabs["vertical"])
         print("  方案：%s（期末預設格式 %s；只是預設，report_pack.py --format 隨時可換）"

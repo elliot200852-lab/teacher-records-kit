@@ -48,6 +48,25 @@
 代理自己會開一堆子行程，只殺父行程的話孫子還抓著同一個檔案繼續跑。
 改這幾個旗標的時候，`scripts/tests/test_headless.py` 的 `test_hostos_headless_forms` 要一起改。
 
+**評量維度補標（`scripts/auto_dim_tags.py`）怎麼叫它們**——同一張表的 `oneshot` 欄位。這個用途只要「讀一段文字、回一段 JSON」，
+**不需要任何工具權限，能關的全關**；**提示詞一律從 stdin 餵，不放在參數裡**：一批 30 則正文會超過 Windows 命令列
+32767 字元的上限，npm 裝的 codex／gemini 又是 `.cmd`（參數經 cmd.exe 再解析一次，換行會被截斷）。
+2026-09-13 在 macOS 上照各家 `--help` 對過（claude 2.1.270／codex-cli 0.144.6／gemini 0.46.0）：
+
+| 代理 | 補標叫法 | 對過 `--help` 的 | 【未驗證】 |
+|---|---|---|---|
+| Claude Code | `claude -p --tools "" --strict-mcp-config --disable-slash-commands --no-session-persistence --output-format text` | `--tools ""` 關掉全部內建工具；`--strict-mcp-config`（不給 `--mcp-config`）不載入任何 MCP；`--disable-slash-commands` 不載入技能；`--no-session-persistence` 只在 `-p` 有效；沒給提示詞參數時從 stdin 讀（help 沒寫，但 2026-09-13 驗收時實呼叫過：回 0、7.4 秒、JSON 解析得了） | （無） |
+| OpenAI Codex CLI | `codex exec --sandbox read-only --skip-git-repo-check --ephemeral --color never -o <暫存檔> -` | `-`＝提示詞從 stdin 讀；`--sandbox read-only`；`--ephemeral` 不留 session 檔；`-o/--output-last-message` 只寫最後一則訊息（回答從這個檔讀，不怕 stdout 夾進度） | 它的 shell 工具關不掉，只能靠唯讀沙箱擋寫入 |
+| Gemini CLI | `gemini -p "<一句 ASCII>" --approval-mode default --output-format text` | `-p` 的內容「接在 stdin 後面」，所以真正的提示詞走 stdin、`-p` 只放一句純 ASCII；`--approval-mode default` | 非互動下 default 模式會排除需要核准的寫檔／shell 工具（help 沒寫）；沒選 `plan`（help 寫 read-only），因為回答形狀不保證（未實測） |
+
+代理的工作目錄是 `hostos.work_dir()`（保證 ASCII，而且不在 kit 資料夾裡，讀不到這份 kit 的 `CLAUDE.md`／`AGENTS.md` 安裝指示）。
+**但 `claude -p` 仍會載入使用者層 `~/.claude` 的設定與 hooks**——上面那幾個旗標關不掉那一層（`--bare` 才會跳過，
+可是它不讀訂閱登入，老師用不了）；老師自己在 `~/.claude` 掛的 hooks 每一批都會跑一次。
+送出去的只有「代號/rid」與正文；**真名攔截只比對名冊上的全名**，正文只寫名、沒寫姓的攔不到、會照送。
+
+逾時一樣用 `hostos.kill_tree()` 殺整棵行程樹。改這幾個旗標時，`scripts/tests/test_auto_dim_tags.py` 的
+`test_hostos_oneshot_forms` 要一起改。
+
 已經有 Python 的電腦不必走 bootstrap：`python3 scripts/install_tools.py --agent claude` 就是同一張表。
 裝完之後 `doctor.py` 會多印一行「AI 代理的 CLI」告訴你找到哪幾支（**只是報告，不是必要項目**）。
 

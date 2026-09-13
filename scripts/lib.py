@@ -264,6 +264,40 @@ def headless_on(kit):
     return bool(headless_cfg(kit)["enabled"]) and not is_local(kit)
 
 
+# 評量維度自動補標（選用）：同步做完之後，請 AI 代理替還沒有維度標的學生紀錄補上代表標籤。
+# 邏輯全在 scripts/auto_dim_tags.py；這裡只管讀設定（跟上面兩個開關一樣：老師自己勾、零預設）。
+AUTO_DIM_TIMEOUT_DEFAULT = 600       # 秒：一批（最多 30 則）最多讓 AI 想多久，超過就停掉、這一批不寫
+AUTO_DIM_MAX_BATCHES_DEFAULT = 2     # 一次同步最多送幾批：老師多半是叫互動式 AI 跑同步，第一次開、舊紀錄多時
+                                     # 一口氣全送會跑到被那個代理的指令逾時殺掉；剩下的等下次同步
+
+
+def auto_dim_tags_cfg(kit):
+    """評量維度自動補標的設定（正規化過，一定有全部的鍵）。沒設就是「沒開」。
+
+    agent 空字串＝沿用 headless.agent；兩者都空＝視同沒設定（auto_dim_tags_on 為假）。
+    """
+    a = dict((kit or {}).get("auto_dim_tags") or {})
+    own = str(a.get("agent") or "").strip().lower()
+    inherited = headless_cfg(kit or {})["agent"]
+    try:
+        timeout = int(a.get("timeout_sec") or AUTO_DIM_TIMEOUT_DEFAULT)
+    except (TypeError, ValueError):
+        timeout = AUTO_DIM_TIMEOUT_DEFAULT
+    try:
+        max_batches = int(a.get("max_batches") or AUTO_DIM_MAX_BATCHES_DEFAULT)
+    except (TypeError, ValueError):
+        max_batches = AUTO_DIM_MAX_BATCHES_DEFAULT
+    return {"enabled": bool(a.get("enabled")), "agent": own or inherited, "agent_own": own,
+            "agent_inherited": bool(inherited and not own), "timeout_sec": timeout,
+            "max_batches": max(1, max_batches)}
+
+
+def auto_dim_tags_on(kit):
+    """補標會不會真的跑：開著、有代理可叫、而且不是本機模式（本機模式沒有同步可以接）。"""
+    c = auto_dim_tags_cfg(kit)
+    return c["enabled"] and bool(c["agent"]) and not is_local(kit or {})
+
+
 def project_id(kit):
     pid = (kit.get("firebase") or {}).get("project_id", "")
     if not pid or pid.startswith("your-"):

@@ -22,6 +22,7 @@ Google 雲端硬碟或 Chrome 裝在哪——一律問這支：
   install_hint(tool)      這個平台上怎麼裝某個工具的一句話（doctor.py 的「→ 怎麼修」用）
   TOOLS / DOWNLOADS       工具表：每個工具在每個平台怎麼裝（install_tools.py 只照這張表做事）
   AGENT_CLIS              AI 代理的 CLI 表：claude／codex／gemini 在每個平台怎麼裝、裝完怎麼叫起來
+                          （無頭交辦 headless、評量維度補標 oneshot 兩種非互動叫法也住這張表）
 
 人讀的平台說明在 docs/PLATFORMS.md；那份文件講「為什麼」，這支管「怎麼做」。
 零第三方相依。這支不 import lib（lib 會 import 它）。
@@ -840,6 +841,10 @@ def install_hint(tool):
 # ——那一層是唯一被允許重複平台事實的地方，理由寫在 docs/PLATFORMS.md「bootstrap 層」。
 AGENT_STARTER_PROMPT = "請完整讀 AGENTS.md，然後帶我從步驟 0 開始安裝"
 
+# 評量維度補標（oneshot）給 gemini 的 -p：真正的提示詞走 stdin，-p 只放一句純 ASCII——
+# npm 裝的 gemini 是 .cmd，參數要經 cmd.exe 再解析一次，中文、換行、& | < > ^ % 都不放在參數裡。
+ONESHOT_GEMINI_P = "Follow the instructions given on standard input. Reply with the JSON object only."
+
 AGENT_CLIS = {
     "claude": {
         "label": "Claude Code（要有 Claude 訂閱）", "cmd": "claude", "launch": 'claude "%s"',
@@ -848,6 +853,15 @@ AGENT_CLIS = {
         # 工具收斂到這四樣：無頭交辦只需要「讀檔、寫暫存草稿、跑 append_record.py」。
         "headless": ["claude", "-p", "{prompt}", "--permission-mode", "acceptEdits",
                      "--allowedTools", "Bash Read Write Edit"],
+        # 評量維度補標（scripts/auto_dim_tags.py）：一問一答、不給任何工具，提示詞走 stdin。
+        # 2026-09-13 在 macOS 上照 `claude --help`（2.1.270）對過：-p/--print＝非互動；
+        # --tools ""＝關掉全部內建工具；--strict-mcp-config 而且不給 --mcp-config＝不載入任何 MCP；
+        # --disable-slash-commands＝不載入技能；--no-session-persistence＝不留對話紀錄（只在 -p 有效）；
+        # --output-format text。沒有提示詞參數時從 stdin 讀：--help 沒寫，但 2026-09-13 驗收時實呼叫過
+        # （這一串旗標＋stdin 餵提示詞：回 0、7.4 秒、輸出的 JSON 解析得了）。
+        # 注意 -p 仍會載入使用者層 ~/.claude 的設定與 hooks（這幾個旗標關不掉那一層）。
+        "oneshot": ["claude", "-p", "--tools", "", "--strict-mcp-config", "--disable-slash-commands",
+                    "--no-session-persistence", "--output-format", "text"],
         "mac": ("sh-installer", "https://claude.ai/install.sh"),
         "win": ("winget", "Anthropic.ClaudeCode"),
         "linux": ("sh-installer", "https://claude.ai/install.sh"),
@@ -865,6 +879,12 @@ AGENT_CLIS = {
         # --skip-git-repo-check 是因為老師的 kit 資料夾多半不是 git repo。
         "headless": ["codex", "exec", "--sandbox", "workspace-write",
                      "--skip-git-repo-check", "{prompt}"],
+        # 評量維度補標：2026-09-13 照 `codex exec --help`（codex-cli 0.144.6）對過：
+        # --sandbox read-only（它的 shell 工具關不掉，只能讓沙箱只准讀）、--skip-git-repo-check、
+        # --ephemeral（不留 session 檔）、--color never、-o/--output-last-message <檔>（只寫最後一則
+        # 訊息，不怕 stdout 夾進度）、提示詞參數寫 `-`＝從 stdin 讀。{out_file} 由呼叫端換成暫存檔路徑。
+        "oneshot": ["codex", "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
+                    "--color", "never", "-o", "{out_file}", "-"],
         "mac": ("sh-installer", "https://chatgpt.com/codex/install.sh"),
         "win": ("npm", "@openai/codex"),
         "linux": ("sh-installer", "https://chatgpt.com/codex/install.sh"),
@@ -879,6 +899,13 @@ AGENT_CLIS = {
         # 2026-09-12 在 macOS 上照 `gemini --help` 對過：-p/--prompt＝非互動，
         # --approval-mode yolo＝不問直接做（等同 --yolo，但這個名字比較不會哪天被拿掉）。
         "headless": ["gemini", "-p", "{prompt}", "--approval-mode", "yolo"],
+        # 評量維度補標：2026-09-13 照 `gemini --help`（0.46.0）對過：-p/--prompt＝非互動，而且
+        # 「Appended to input on stdin」——提示詞走 stdin、-p 只放 ONESHOT_GEMINI_P；
+        # --approval-mode default（需要核准的工具在非互動下沒有人能核准）；--output-format text。
+        # 【未驗證】非互動 default 模式會把寫檔／shell 工具排除——--help 沒寫。
+        # 沒選 plan（help 寫 read-only mode）：那是替改程式寫計畫用的模式，回答形狀不保證（未實測）。
+        "oneshot": ["gemini", "-p", ONESHOT_GEMINI_P, "--approval-mode", "default",
+                    "--output-format", "text"],
         "mac": ("brew", "gemini-cli"),
         "win": ("npm", "@google/gemini-cli"),
         "linux": ("npm", "@google/gemini-cli"),
@@ -936,6 +963,20 @@ def agent_headless_argv(agent, prompt):
     if not tmpl:
         return []
     return [prompt if part == "{prompt}" else part for part in tmpl]
+
+
+def agent_oneshot_argv(agent, out_file=""):
+    """評量維度補標要跑的 argv：一問一答、不給工具。不認得的代理回 []。
+
+    **提示詞不在 argv 裡，一律從 stdin 餵**：一批三十則正文會超過 Windows 命令列 32767 字元的上限，
+    而 npm 裝的 codex／gemini 是 .cmd，參數裡的換行會被 cmd.exe 截斷。
+    `{out_file}` 換成呼叫端給的暫存檔路徑（codex 把最後一則訊息寫在那裡）。
+    """
+    spec = AGENT_CLIS.get(agent)
+    tmpl = (spec or {}).get("oneshot")
+    if not tmpl:
+        return []
+    return [out_file if part == "{out_file}" else part for part in tmpl]
 
 
 def agent_clis_found():

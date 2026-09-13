@@ -19,6 +19,7 @@ import argparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
 import hostos
+import auto_dim_tags  # noqa: E402
 
 
 class Report:
@@ -351,6 +352,44 @@ def check_headless(r, kit, skip_network):
           "relay 讀的是雲端那一份——沒寫上去的話它會一直停在「回配對碼」的狀態。" % lib.PY)
 
 
+def check_auto_dim_tags(r, kit, tabs):
+    """評量維度自動補標（選用）。沒開只留一項「關著」；開了多檢查一項：代理 CLI 叫不叫得出來。
+
+    代理叫不出來的時候同步照常完成、只印一行警告——排程的 log 沒有人看，
+    老師最可能永遠不知道它其實一則都沒補。健檢是他唯一會看到的地方。
+    """
+    c = lib.auto_dim_tags_cfg(kit)
+    label = "評量維度自動補標（同步時請 AI 補代表標籤）"
+    if not c["enabled"]:
+        r.add("auto_dim_tags", label, True, "沒有開", required=False)
+        return
+    if lib.is_local(kit):
+        r.add("auto_dim_tags", label, True, "開著，但本機模式沒有同步，這一項不會跑", required=False)
+        return
+    if not c["agent"]:
+        r.add("auto_dim_tags", label, False,
+              "開著，但 auto_dim_tags.agent 與 headless.agent 都是空的——視同沒設定，同步時不會補標",
+              "重跑 `%s scripts/setup.py` 在「評量維度自動補標」那一題選一支代理；或在 config/kit.json 的 "
+              "auto_dim_tags.agent 填 claude、codex 或 gemini。" % lib.PY, required=False)
+        return
+    try:
+        streams = auto_dim_tags.eligible_streams(tabs or {})
+    except (Exception, SystemExit):     # noqa: BLE001 格式庫讀不到：健檢不該因此整個掛掉
+        streams = []
+    r.add("auto_dim_tags", "評量維度自動補標（%s%s）"
+          % (c["agent"], "，沿用無頭交辦那一支" if c["agent_inherited"] else ""), True,
+          ("開著，會補標的記錄類型：%s" % "、".join(streams)) if streams else
+          "開著，但你勾的記錄類型沒有一種是網頁會自動推導維度的（例如導師班級學生紀錄），目前一則都不會補",
+          required=False)
+    spec = hostos.AGENT_CLIS.get(c["agent"])
+    path = hostos.exe(spec["cmd"]) if spec else None
+    r.add("auto_dim_tags_agent", "評量維度補標的 AI 代理 %s 叫得出來" % c["agent"], bool(path),
+          path or ("找不到指令 %s" % spec["cmd"] if spec else "不認得的代理 %r" % c["agent"]),
+          ("%s 裝好之後要登入過一次（在終端機直接跑一次它、照指示登入）。叫不出來的話同步照常完成，"
+           "但每次都只印一行警告、一則也不會補。" % hostos.agent_install_hint(c["agent"])) if spec else
+          "config/kit.json 的 auto_dim_tags.agent 只能是 claude、codex、gemini 或空字串（空＝沿用 headless.agent）。")
+
+
 def check_drive(r, kit, skip_network):
     drive = kit.get("drive") or {}
     mode = drive.get("mode", "desktop")
@@ -416,6 +455,7 @@ def main():
     check_tools(r, kit, a.skip_network)
     check_config(r, kit, tabs, a.skip_network)
     check_headless(r, kit, a.skip_network)
+    check_auto_dim_tags(r, kit, tabs)
     check_drive(r, kit, a.skip_network)
 
     if a.as_json:

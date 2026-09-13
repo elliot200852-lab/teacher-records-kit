@@ -276,6 +276,9 @@ def run_agent(argv, timeout):
     # 子行程的主控台在 Windows 上預設是 cp1252／cp950，代理印回報裡的中文會直接 UnicodeEncodeError；
     # 逼它用 UTF-8（Python 子行程認 PYTHONIOENCODING／PYTHONUTF8，node 本來就是 UTF-8）。
     env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+    # 代理照 AGENTS-HEADLESS.md 會自己跑一次 sync.py——那一次不准再叫另一支 AI 補評量維度標
+    # （AI 叫 AI 會把這則交辦拖過逾時；補標留給排程的一般同步做）。見 scripts/auto_dim_tags.py。
+    env["TRK_NO_AUTO_TAGS"] = "1"
     p = subprocess.Popen(argv, cwd=lib.PKG, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                          stdin=subprocess.DEVNULL, env=env, **kw)
     try:

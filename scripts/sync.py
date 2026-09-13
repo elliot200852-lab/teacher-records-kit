@@ -30,22 +30,33 @@
   · 網頁上開的新課：本機自動補一個空的 records.md，下一輪它就是正式目標（其餘網頁新增的
     記錄類型／業務組只提醒，不自動改 config）。
   · 去識別化：正文出現名冊真名就攔下不同步（兩個方向都攔）。
+  · 評量維度補標（選用，config/kit.json 的 auto_dim_tags；scripts/auto_dim_tags.py）：上面全部做完
+    才跑——網頁會自動推導維度的學生紀錄裡，還沒有任何代表標籤的那幾則交給 AI 代理判斷，**只加不刪**
+    地補上代表標籤。雲端 PATCH 只動 tags／contentHash、一定帶 updateTime 前置條件（不成立＝網頁上
+    正在改 → 跳過、不記為判斷過、下次再來），本機只在那一則的標題列尾端接上標籤（其他行逐位元組不動，
+    先備份），本機沒寫成就用 PATCH 回傳的 updateTime 把雲端改回去；每次同步最多 max_batches 批。
+    contentHash 一起換，所以
+    緊接著再同步一次零推送、零回寫、零衝突，也不會再問 AI。editedOnWeb 不碰。AI 回壞 JSON、逾時、
+    找不到 CLI 都只印一行警告、那一批一個字都不寫——同步照常完成，退出碼不因此改變。
 
 用法：
   python3 scripts/sync.py                 同步
   python3 scripts/sync.py --dry-run       只看會發生什麼，不寫任何東西
   python3 scripts/sync.py --only students/S-03     只同步某一個目標
+  python3 scripts/sync.py --no-auto-tags  這一次不跑評量維度補標（沒開的話本來就不會跑）
   python3 scripts/sync.py --root DIR
 需求：gcloud 以專案擁有者登入（`gcloud auth login`）。
 """
 import os
 import sys
 import json
+import time
 import shutil
 import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
+import auto_dim_tags
 
 STATE_FILE = ".sync-state.json"
 
@@ -589,9 +600,12 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="只看會發生什麼，不寫任何東西")
     ap.add_argument("--only", metavar="種類/代號", help="只同步一個目標，例如 students/S-03")
     ap.add_argument("--quiet", action="store_true", help="沒事就不出聲（排程用）")
+    ap.add_argument("--no-auto-tags", action="store_true",
+                    help="這一次不跑「評量維度補標」（config/kit.json 的 auto_dim_tags 開著才有這一段）")
     lib.add_root_arg(ap)
     a = ap.parse_args()
     lib.apply_root(a)
+    started = time.time()          # 評量維度補標用：這一輪同步已經回寫過的檔，.prev.md 不要再蓋
 
     kit = lib.load_kit()
     tabs = lib.load_tabs()
@@ -679,6 +693,18 @@ def main():
         print("\n%s衝突與真名攔截都不會自動處理——上面每一則都要你自己看過。%s" % (lib.YELLOW, lib.RESET))
         print("  衝突：打開那個檔案跟網頁比對，決定留哪一邊，改完再跑一次。")
         print("  真名：把正文裡的姓名改成代號（真名只放 data/roster.csv）。")
+
+    # 評量維度補標（選用）：正常同步整個做完才跑——網頁上新增的紀錄這時候已經落到本機了。
+    # auto_dim_tags.run 保證不丟例外、不結束行程：這一段出任何事都只印警告，退出碼不因它改變。
+    if not a.no_auto_tags:
+        auto = auto_dim_tags.run(kit, tabs, tg, base, tok, names, dry=a.dry_run, since=started,
+                                 progress=None if a.quiet else print)
+        if auto:
+            if not a.quiet or auto["counts"]["tagged"] or auto["warnings"]:
+                for line in auto["lines"]:
+                    print(line)
+            for w in auto["warnings"]:
+                lib.warn(w)
 
 
 if __name__ == "__main__":

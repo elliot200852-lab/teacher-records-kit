@@ -55,6 +55,14 @@
     }
   },
 
+  "_註解_auto_dim_tags": "選用，而且要先是 cloud 模式（它接在 sync.py 的同步後面）。評量維度自動補標＝網頁學生卡上的五維度小籤是打開網頁時用 #標籤與內文關鍵詞當場推的，不寫回紀錄，關鍵詞也會漏；開了這一項，每次同步完會把「網頁會自動推導維度的記錄類型」（例如導師班級學生紀錄）裡、還沒有任何代表標籤的紀錄正文交給 AI 代理判斷，照實補上代表標籤（例如 #人際；正本是 config/report-formats.library.json 的 tagMap，各維度排第一個的那個標），補上的跟你手打的一模一樣。只加不刪；送出去的只有學生代號與正文，不含名冊。enabled 由安裝精靈問你要不要（預設關）。agent＝要叫哪一支 AI 代理（claude／codex／gemini），空字串＝沿用 headless.agent，兩個都空就視同沒設定。timeout_sec＝一批（最多 30 則）最多讓 AI 想多久（秒），超過就停掉、那一批一個字都不寫、下次同步再來。max_batches＝一次同步最多送幾批（預設 2＝60 則；你多半是叫 AI 幫你同步，第一次開、舊紀錄多時一口氣全送會跑太久被那支 AI 的指令逾時砍掉），剩下的印「還有 N 則等下次同步」。判斷過哪幾則記在 data/.auto-dim-tags.json（刪掉它＝全部重判，已經有代表標籤的不會再送）。完整說明：docs/ARCHITECTURE.md §5。",
+  "auto_dim_tags": {
+    "enabled": false,
+    "agent": "",
+    "timeout_sec": 600,
+    "max_batches": 2
+  },
+
   "_註解_email": "選用。只有要寄家長信、每月提醒才需要。method 選 smtp（通用）時，密碼放環境變數 KIT_SMTP_APP_PASSWORD（Google 帳號 → 安全性 → 兩步驟驗證 → 應用程式密碼），絕不要寫進這個檔。",
   "email": {
     "method": "smtp",
