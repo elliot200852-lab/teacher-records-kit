@@ -550,6 +550,7 @@ def main():
 
     local, source_note = pick_source(kit, tabs, a.local)
     lib.ok("資料來源：%s" % source_note)
+    # 連網模式：網頁上刪掉的那些（軟刪 deleted: true）在 collect() 就排掉了，不會進 Word／PDF。
     data = export_records.collect(kit, tabs, local)
     sections, title = gather(data, a.kind, a.target, a.stream, dfrom, dto, a.with_class)
     sub = subtitle(source_note, dfrom, dto, a.stream)

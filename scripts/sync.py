@@ -17,6 +17,11 @@
     （紅隊 #9：沒有這條，老師在手機上打字會被靜默蓋掉）。
   · 刪除：雲端那則被刪掉（以前同步過、現在不見了）→ 從本機檔案也刪掉，並寫進 data/audit.jsonl。
     但**整個檔案不見或變成空的時候一律不刪任何東西**——那多半是檔案出事，不是老師要刪。
+  · 軟刪（兩段式刪除的第一段）：雲端那則帶 `deleted: true`（網頁上刪的）＝視同雲端已刪——
+    本機區塊照樣刪掉、照樣寫 audit（不帶正文），但雲端原文原封不動留著，等老師自己跑
+    `scripts/purge_deleted.py` 才真的消失。軟刪的那則**絕不會**被當成「雲端新增」寫回本機；
+    本機本來就沒有那一則（例如網頁新增後立刻刪）就什麼都不做。刪完本機區塊就沒了，
+    下一輪自然不會再刪一次。
   · 回寫前先備份成 `.<檔名>.prev.md`。
   · 學生卡片上的兩塊底稿（IEP 的 goals、個案概念化）也雙向同步：只有一邊改就照那一邊，
     兩邊都改就印出來讓老師自己決定——跟記錄同一條規則。
@@ -123,8 +128,13 @@ def sync_target(t, base, tok, names, state, dry, notes, counters, cards):
     """
     key = t["key"]
     known = set(state.get(key, {}).get("rids") or [])
-    cloud = {rid: (fs, ut) for rid, fs, ut in lib.list_docs(base, t["records"], tok)
-             if not t["stream"] or doc_stream(fs) == t["stream"]}
+    all_cloud = {rid: (fs, ut) for rid, fs, ut in lib.list_docs(base, t["records"], tok)
+                 if not t["stream"] or doc_stream(fs) == t["stream"]}
+    # 兩段式刪除：網頁上刪掉的那則只是被標成 deleted，文件還留在雲端。
+    # 這裡把它從 cloud 拿掉＝本機視同已刪：本機有就刪本機區塊，本機沒有就什麼都不做，
+    # 而且它永遠不會走到下面那個「雲端有、本機沒有 → 寫回檔案」的迴圈。
+    soft = {rid for rid, (fs, _ut) in all_cloud.items() if lib.is_deleted(fs)}
+    cloud = {rid: pair for rid, pair in all_cloud.items() if rid not in soft}
     lines, blocks = lib.parse_file(t["path"])
     file_exists = os.path.exists(t["path"])
     by_rid = {b["rid"]: b for b in blocks}
@@ -132,6 +142,11 @@ def sync_target(t, base, tok, names, state, dry, notes, counters, cards):
     pend_push, pend_write, pend_new, pend_del = [], [], [], []
 
     for b in blocks:
+        if b["rid"] in soft:
+            # 網頁軟刪了這一則：本機區塊要刪（真名閘不用管——刪掉不會外洩任何東西），
+            # 而且不可以走下面的 pend_push，否則會把雲端那份軟刪的原文蓋回「沒刪」。
+            pend_del.append(b)
+            continue
         hit = leaks(names, b["body"], b["tags"], list(b["fields"].values()))
         if hit:
             counters["pii"] += 1
@@ -192,9 +207,11 @@ def sync_target(t, base, tok, names, state, dry, notes, counters, cards):
         for rid, _ in pend_new:
             notes.append("（預演）從網頁新增到檔案 %s %s" % (key, rid))
         for b in pend_del:
-            notes.append("（預演）從檔案刪掉 %s %s（網頁上刪了）" % (key, b["rid"]))
+            notes.append("（預演）從檔案刪掉 %s %s（%s）"
+                         % (key, b["rid"],
+                            "網頁上刪了，雲端原文留著" if b["rid"] in soft else "網頁上刪了"))
         accumulate_card(cards, t, blocks)      # 預演也要累加，卡片那一段才印得出預演訊息
-        return set(cloud)
+        return set(all_cloud)
 
     # ── 改檔案（回寫、網頁新增、網頁刪除）──
     if pend_write or pend_new or pend_del:
@@ -240,8 +257,11 @@ def sync_target(t, base, tok, names, state, dry, notes, counters, cards):
                 counters["conflict"] += 1
                 notes.append("衝突 %s %s：正要清旗標時網頁又改了一次——已保留兩邊，下次再同步" % (key, rid))
         for b in pend_del:
+            # 稽核只留「哪一則、內容指紋是什麼」，不留正文——audit.jsonl 不是紀錄的第二份正本。
             lib.audit({"op": "delete", "kind": t["kind"], "target": t["id"], "rid": b["rid"],
-                       "reason": "雲端已刪，同步刪除本機區塊"})
+                       "hash": b["hash"],
+                       "reason": ("雲端軟刪，同步刪除本機區塊" if b["rid"] in soft
+                                  else "雲端已刪，同步刪除本機區塊")})
 
     # ── 推上雲 ──
     pushed = set()
@@ -261,7 +281,9 @@ def sync_target(t, base, tok, names, state, dry, notes, counters, cards):
 
     _, fb = lib.parse_file(t["path"])
     accumulate_card(cards, t, fb)
-    return set(cloud) | pushed
+    # 軟刪的那些 rid 也算「雲端真的有」（文件還在，只是被標成刪除）——記進狀態檔，
+    # 下一輪本機區塊已經沒了，不會再刪一次，也不會被當成沒同步過的新紀錄重推上去。
+    return set(all_cloud) | pushed
 
 
 def sync_student_card(sid, path, base, tok, state, dry, notes):

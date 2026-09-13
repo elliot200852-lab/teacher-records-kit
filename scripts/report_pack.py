@@ -484,6 +484,8 @@ def main():
     local, source_note = export_docs.pick_source(kit, tabs, a.local)
     lib.ok("資料來源：%s ・ 格式：%s ・ 記錄類型：%s"
            % (source_note, fmt.get("label") or fmt["id"], "、".join(streams)))
+    # 連網時 collect() 已經把網頁上刪掉的那些（軟刪 deleted: true）排除掉了——
+    # 期末素材包不可以出現老師以為已經刪掉的紀錄。
     data = export_records.collect(kit, tabs, local)
     roster = data.get("roster") or {}
 

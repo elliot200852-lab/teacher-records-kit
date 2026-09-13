@@ -15,6 +15,27 @@
 > **規則有動——要重新部署 `firestore.rules`（與啟用無頭時的 `storage.rules`）。**
 > 升級步驟：`python3 scripts/build_config.py` → `firebase deploy --only firestore:rules --project <專案ID>`。
 
+### 兩段式刪除（規則有動）
+
+- **網頁上的刪除不再是真刪**：二次確認後寫的是 `{deleted: true, deletedAt, deletedBy}`，
+  文件留在 Firestore。**規則的 `delete` 改成一律拒**（真刪只能走 Admin SDK／使用者權杖）——
+  **這一版一定要重新部署 `firestore.rules`**，否則舊規則仍允許前端真刪。
+- `sync.py`：雲端那則帶 `deleted: true` ＝視同雲端已刪——本機 md 的區塊照樣刪掉、照樣寫一筆
+  `data/audit.jsonl`（`op: delete`，只記 rid 與內容指紋，**不留正文**）。本機本來就沒有那一則
+  （例如網頁新增後立刻刪）就什麼都不做；軟刪的那則**絕不會**被當成「雲端新增」寫回本機；
+  `--dry-run` 只報不刪。摘要行的「刪除 N」計法不變。
+- **匯出、素材包、台帳一律看不到軟刪的則**：`export_records.py`（連網）、`export_docs.py`、
+  `report_pack.py`、`ledger.py --check` 的雲端計數都排除它——不排除的話三處對帳永遠差幾則。
+  **例外是 `backup.py`**：雲端全量快照 `export.json` **故意保留**軟刪的那些原文（zip 裡的本機 md
+  自然沒有它們），Drive 備份因此仍找得回誤刪的字。
+- **新增 `scripts/purge_deleted.py`——只有老師本人在終端機跑**（`AGENTS-HEADLESS.md` 第 5 條
+  明寫無頭永遠不碰）：`--list`（預設）列出所有已刪、還留著的（對象／rid／刪除時間／字數，
+  **不印正文**）；`--rid <id> --target <種類/代號> --confirm` 刪一則、`--all --confirm` 全刪；
+  **沒有 `--confirm` 一則都不刪**。每刪一則記 `{op: "purge", rid, hash, …}`。
+  它走 `gcloud` 使用者權杖（IAM 層），**安全規則擋不到它**——所以它不可逆，刪前先跑 `backup.py`。
+  個資法的刪除請求，最終完成點就是老師跑這一支。
+- 測試 287→296。
+
 ### 共同擁有者 `co_owner_emails`
 
 - `config/kit.json` 多一個選填欄位 `co_owner_emails`（清單，預設 `[]`）。清單裡的 Google 帳號

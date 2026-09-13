@@ -56,9 +56,11 @@ service cloud.firestore {
                       && request.resource.data.stream.size() > 0;
         allow update: if isOwner() && request.resource.data.date == resource.data.date
                       && request.resource.data.get('stream', '') == resource.data.get('stream', '');
-        // v3：擁有者可以刪除。未成年人的紀錄必須能應家長要求刪除；
-        // 網頁端有二次確認，sync.py 會把刪除傳播到本機檔並記進 data/audit.jsonl。
-        allow delete: if isOwner();
+        // 2026-09-13 起**禁止從網頁真刪**：網頁的「刪除」是一次 update（寫 deleted／
+        // deletedAt／deletedBy 三個欄位，date 與 stream 都沒動，上面的 update 條件本來就放行），
+        // 雲端原文一律留著當 log。真的抹掉只走終端機的 scripts/purge_deleted.py——
+        // 它用 Admin SDK／服務帳號，**這條規則管不到它**（伺服器端憑證一律繞過規則）。
+        allow delete: if false;
       }
     }
 
@@ -67,8 +69,11 @@ service cloud.firestore {
       allow read:   if isOwner();
       allow create: if isOwner() && validRid(recordId, request.resource.data.date);
       allow update: if isOwner() && request.resource.data.date == resource.data.date;
-      // v3：擁有者可以刪除（理由同上）
-      allow delete: if isOwner();
+      // 2026-09-13 起**禁止從網頁真刪**：網頁的「刪除」是一次 update（寫 deleted／
+      // deletedAt／deletedBy 三個欄位，date 與 stream 都沒動，上面的 update 條件本來就放行），
+      // 雲端原文一律留著當 log。真的抹掉只走終端機的 scripts/purge_deleted.py——
+      // 它用 Admin SDK／服務帳號，**這條規則管不到它**（伺服器端憑證一律繞過規則）。
+      allow delete: if false;
     }
 
     // 課程（主課程／科任）── 2026-07-31 加。
@@ -83,9 +88,11 @@ service cloud.firestore {
         allow read:   if isOwner();
         allow create: if isOwner() && validRid(recordId, request.resource.data.date);
         allow update: if isOwner() && request.resource.data.date == resource.data.date;
-        // v3：擁有者可以刪除。未成年人的紀錄必須能應家長要求刪除；
-        // 網頁端有二次確認，sync.py 會把刪除傳播到本機檔並記進 data/audit.jsonl。
-        allow delete: if isOwner();
+        // 2026-09-13 起**禁止從網頁真刪**：網頁的「刪除」是一次 update（寫 deleted／
+        // deletedAt／deletedBy 三個欄位，date 與 stream 都沒動，上面的 update 條件本來就放行），
+        // 雲端原文一律留著當 log。真的抹掉只走終端機的 scripts/purge_deleted.py——
+        // 它用 Admin SDK／服務帳號，**這條規則管不到它**（伺服器端憑證一律繞過規則）。
+        allow delete: if false;
       }
     }
 
@@ -101,8 +108,11 @@ service cloud.firestore {
         allow read:   if isOwner();
         allow create: if isOwner() && validRid(recordId, request.resource.data.date);
         allow update: if isOwner() && request.resource.data.date == resource.data.date;
-        // v3：擁有者可以刪除（理由同上）
-        allow delete: if isOwner();
+        // 2026-09-13 起**禁止從網頁真刪**：網頁的「刪除」是一次 update（寫 deleted／
+        // deletedAt／deletedBy 三個欄位，date 與 stream 都沒動，上面的 update 條件本來就放行），
+        // 雲端原文一律留著當 log。真的抹掉只走終端機的 scripts/purge_deleted.py——
+        // 它用 Admin SDK／服務帳號，**這條規則管不到它**（伺服器端憑證一律繞過規則）。
+        allow delete: if false;
       }
     }
 

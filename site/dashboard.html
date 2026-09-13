@@ -629,6 +629,12 @@ function streamById(id) {
 function streamLabel(id) { const s = streamById(id); return (s && s.label) || id; }
 // 沒有註明類型的舊紀錄（v2 留下來的）一律當成第一種 class 範圍的類型。
 function fallbackStream() { const s = STREAMS.find(x => x.scope !== 'case'); return s ? s.id : (STREAMS[0] ? STREAMS[0].id : ''); }
+// ── 軟刪除（2026-09-13）────────────────────────────────────────────
+// 網頁上的「刪除」只在雲端那一份上蓋 deleted/deletedAt/deletedBy 三個欄位，原文永遠留著；
+// 真的從 Firestore 刪掉只有一條路——自己在終端機跑 scripts/purge_deleted.py。
+// 所以整支網頁凡是讀紀錄的地方都要跳過它：統一在 store 層（listRecords／getRecord／計數）
+// 濾掉，畫面、統計、覆蓋推導、匯出、素材包就一次全對。
+function isDeletedRec(r) { return !!(r && r.deleted === true); }
 function recStream(r) {
   const raw = (r && r.stream) || '';
   if (!raw) return fallbackStream();
@@ -1123,6 +1129,7 @@ function DemoStore() {
       const c = Object.assign({ id }, data.cards[kind][id]);
       const all = data.records[key(kind, id)] || {};
       const recs = Object.keys(all).sort().map(r => Object.assign({ rid: r }, all[r]))
+        .filter(r => !isDeletedRec(r))
         .filter(r => !streamId || recStream(r) === streamId);
       const dates = recs.map(r => r.date || '').filter(Boolean).sort();
       c.recordCount = recs.length;
@@ -1150,6 +1157,7 @@ function DemoStore() {
     const o = opts || {};
     const recs = bag(kind, target);
     let all = Object.keys(recs).sort().reverse().map(rid => Object.assign({ rid }, recs[rid]))
+      .filter(r => !isDeletedRec(r))
       .filter(r => !streamId || recStream(r) === streamId);
     if (o.after) {
       const i = all.findIndex(r => r.rid === o.after);
@@ -1166,14 +1174,23 @@ function DemoStore() {
   };
   self.getRecord = async function (kind, target, rid) {
     const r = bag(kind, target)[rid];
-    return r ? Object.assign({ rid }, r) : null;
+    return (r && !isDeletedRec(r)) ? Object.assign({ rid }, r) : null;
   };
+  // 含已軟刪的存在性檢查（allocRid 專用）：軟刪的那一則還占著這個 rid，
+  // 新紀錄不可以用同一個 rid 寫上去把原文蓋掉。
+  self.ridExists = async function (kind, target, rid) { return !!bag(kind, target)[rid]; };
   self.createRecord = async function (kind, target, rid, d) { bag(kind, target)[rid] = Object.assign({}, d); save(); };
   self.updateRecord = async function (kind, target, rid, patch) {
     const recs = bag(kind, target);
     recs[rid] = Object.assign({}, recs[rid], patch); save();
   };
-  self.deleteRecord = async function (kind, target, rid) { delete bag(kind, target)[rid]; save(); };
+  // 軟刪除：示範模式的本機那一份也照留（形狀與 Firestore 版一致，時間戳用 ISO 字串）
+  self.deleteRecord = async function (kind, target, rid) {
+    const recs = bag(kind, target);
+    if (!recs[rid]) return;
+    recs[rid] = Object.assign({}, recs[rid], { deleted: true, deletedAt: new Date().toISOString(), deletedBy: null });
+    save();
+  };
 }
 
 // ── FirestoreStore：只在非示範模式才動態載入 Firebase SDK ─────────────
@@ -1251,12 +1268,26 @@ function FirestoreStore() {
 
   // 計數／最後日期：讀取時即時衍生，不看卡片上的摘要欄位（v2 的教訓：
   // 純網頁模式沒有任何東西會更新那些欄位，整片卡片會永遠是「0 則」）。
+  // 軟刪除的那幾則要從則數扣掉：deleted==true 是單欄位等值查詢，Firestore 自動索引
+  //（沒有跟 orderBy 一起用，所以不必請老師去 Console 建複合索引，firestore.indexes.json 仍是空的）。
+  // 「最後一則」也不能只抓 limit(1)——最新的那則可能剛被軟刪——所以往下多抓幾則找第一則沒刪的。
+  const LAST_SCAN = 20;
   async function derive(col) {
-    const [recordCount, last] = await Promise.all([
+    const [total, deletedCount, lastSnap] = await Promise.all([
       fb.getCountFromServer(col).then(s => s.data().count).catch(e => { console.error(e); return 0; }),
-      fb.getDocs(fb.query(col, fb.orderBy('date', 'desc'), fb.limit(1)))
-        .then(s => s.empty ? {} : (s.docs[0].data() || {})).catch(e => { console.error(e); return {}; }),
+      fb.getCountFromServer(fb.query(col, fb.where('deleted', '==', true)))
+        .then(s => s.data().count).catch(e => { console.error(e); return 0; }),
+      fb.getDocs(fb.query(col, fb.orderBy('date', 'desc'), fb.limit(LAST_SCAN)))
+        .catch(e => { console.error(e); return null; }),
     ]);
+    let last = {};
+    if (lastSnap) {
+      for (const d of lastSnap.docs) {
+        const r = d.data() || {};
+        if (!isDeletedRec(r)) { last = r; break; }
+      }
+    }
+    const recordCount = Math.max(0, total - deletedCount);
     return { recordCount, lastRecordDate: last.date || '', lastFields: last.fields || {} };
   }
   // 依記錄類型算的版本。故意不用 where('stream','==',…)＋orderBy('date')——那要
@@ -1272,6 +1303,7 @@ function FirestoreStore() {
       let recordCount = 0, lastRecordDate = '', lastFields = {}, got = false;
       snap.forEach(d => {
         const r = d.data();
+        if (isDeletedRec(r)) return;                  // 軟刪除的不算進則數／最後一則
         if (recStream(r) !== streamId) return;
         recordCount++;
         if (!got) { got = true; lastRecordDate = r.date || ''; lastFields = r.fields || {}; }
@@ -1380,6 +1412,7 @@ function FirestoreStore() {
       const snap = await fb.getDocs(fb.query(col, ...parts));
       snap.forEach(d => {
         const r = Object.assign({ rid: d.id }, d.data());
+        if (isDeletedRec(r)) return;                  // 軟刪除的不進畫面／統計／覆蓋／匯出／素材包
         if (!streamId || recStream(r) === streamId) out.push(r);
       });
       if (!pageSize) { cursor = null; more = false; break; }
@@ -1392,7 +1425,15 @@ function FirestoreStore() {
   };
   self.getRecord = async function (kind, target, rid) {
     const snap = await fb.getDoc(recRef(kind, target, rid));
-    return snap.exists() ? Object.assign({ rid }, snap.data()) : null;
+    if (!snap.exists()) return null;
+    const r = Object.assign({ rid }, snap.data());
+    return isDeletedRec(r) ? null : r;
+  };
+  // 含已軟刪的存在性檢查（allocRid 專用）：軟刪的那一則還躺在雲端占著這個 rid，
+  // 新紀錄不可以用同一個 rid 去 setDoc 蓋掉它的原文。
+  self.ridExists = async function (kind, target, rid) {
+    const snap = await fb.getDoc(recRef(kind, target, rid));
+    return snap.exists();
   };
   self.createRecord = async function (kind, target, rid, d) {
     await offlineAware(fb.setDoc(recRef(kind, target, rid), Object.assign({}, d, { editedOnWeb: true, webEditedAt: fb.serverTimestamp() })));
@@ -1400,7 +1441,16 @@ function FirestoreStore() {
   self.updateRecord = async function (kind, target, rid, patch) {
     await offlineAware(fb.updateDoc(recRef(kind, target, rid), Object.assign({}, patch, { editedOnWeb: true, webEditedAt: fb.serverTimestamp() })));
   };
-  self.deleteRecord = async function (kind, target, rid) { await offlineAware(fb.deleteDoc(recRef(kind, target, rid))); };
+  // 軟刪除（2026-09-13）：雲端原文一律留著，只蓋三個欄位（date／stream 都沒動，
+  // 所以 firestore.rules 的 update 條件本來就放行）。真刪只走終端機的
+  // scripts/purge_deleted.py（Admin SDK／SA，規則管不到它）。
+  self.deleteRecord = async function (kind, target, rid) {
+    await offlineAware(fb.updateDoc(recRef(kind, target, rid), {
+      deleted: true,
+      deletedAt: fb.serverTimestamp(),
+      deletedBy: (fb.auth.currentUser && fb.auth.currentUser.uid) || null,
+    }));
+  };
 }
 
 const store = DEMO ? new DemoStore() : new FirestoreStore();
@@ -2229,7 +2279,7 @@ async function allocRid(date) {
   // 把別處剛寫的那則整篇蓋掉。
   for (const rid of [date, `${date}-${hhmm(now)}`, `${date}-${hhmmss(now)}`]) {
     let exists = false;
-    try { exists = !!(await store.getRecord(activeCtx.kind, activeCtx.target, rid)); } catch (_) { exists = existingRids.has(rid); }
+    try { exists = !!(await store.ridExists(activeCtx.kind, activeCtx.target, rid)); } catch (_) { exists = existingRids.has(rid); }
     if (!exists) { pendingRid = rid; pendingRidDate = date; return rid; }
   }
   pendingRid = `${date}-${hhmmss(now)}`; pendingRidDate = date;
@@ -2538,6 +2588,18 @@ function bumpCount(kind, target, date) {
   it.recordCount = (it.recordCount || 0) + 1;
   if (!it.lastRecordDate || date > it.lastRecordDate) it.lastRecordDate = date;
 }
+// 刪除（軟刪）成功後就地把計數減一，與 bumpCount 對稱——不然一覽卡會停在刪除前的數字，
+// 老師會以為「刪了但沒刪掉」。一樣只求即時：權威數字在重新整理時由 store 重算
+//（軟刪的那幾則已經被 listCards／derive 扣掉了）。
+// rest ＝這一頁刪完剩下的紀錄（date desc）；沒剩就不動日期，免得後面還有更舊的卻顯示「尚無記錄」。
+function dropCount(kind, target, rest) {
+  const list = kind === 'students' ? students : kind === 'courses' ? courses : kind === 'business' ? groups : null;
+  if (!list) return;
+  const it = list.find(x => x.id === target);
+  if (!it) return;
+  it.recordCount = Math.max(0, (it.recordCount || 0) - 1);
+  if (rest && rest.length) it.lastRecordDate = rest[0].date || it.lastRecordDate;
+}
 
 // ── 記錄卡 ──────────────────────────────────────────────────────────
 function fieldsTable(fields) {
@@ -2656,11 +2718,12 @@ function recordCard(rid, r) {
     } catch (err) { console.error(err); msg.textContent = '儲存失敗：' + errText(err); }
     btn.disabled = false;
   };
-  // 刪除：二次確認（v3 起規則允許擁有者刪除——未成年人的紀錄必須刪得掉）
+  // 刪除：二次確認。2026-09-13 起是**軟刪除**——雲端原文留著，只從畫面／本機／備份消失；
+  // 真的刪掉要自己在終端機跑 scripts/purge_deleted.py（規則已把 delete 全關）。
   delBtn.onclick = () => {
     const btns = card.querySelector('.rc-btns');
     const keep = btns.innerHTML;
-    btns.innerHTML = '<span style="font-size:.8rem;color:#c8483e">真的要刪掉這一則？刪掉就回不來了。</span>';
+    btns.innerHTML = '<span style="font-size:.8rem;color:#c8483e">這一則會從畫面、本機與備份移除；雲端原文會保留到你自己跑 purge_deleted.py 才真的刪。確定？</span>';
     const yes = document.createElement('button'); yes.type = 'button'; yes.className = 'rc-del danger-solid'; yes.textContent = '確定刪除';
     const no = document.createElement('button'); no.type = 'button'; no.className = 'rc-edit'; no.textContent = '取消';
     btns.appendChild(yes); btns.appendChild(no);
@@ -2669,8 +2732,10 @@ function recordCard(rid, r) {
       yes.disabled = true; yes.textContent = '刪除中…';
       try {
         await store.deleteRecord(activeCtx.kind, activeCtx.target, rid);
-        existingRids.delete(rid);
+        // 這個 rid 在雲端還占著位子（軟刪不是真刪），所以**不**從 existingRids 拿掉——
+        // 拿掉的話 allocRid 的離線退路會把它當空號，新的一則就會蓋掉軟刪的原文。
         currentRecords = currentRecords.filter(x => x.rid !== rid);
+        dropCount(activeCtx.kind, activeCtx.target, currentRecords);
         refreshDetailCards();
         if (activeCtx.kind === 'students' && activeCtx.stream) refreshCoverage(activeCtx.target, activeCtx.stream);
         card.remove();
@@ -2682,7 +2747,7 @@ function recordCard(rid, r) {
         console.error(err);
         btns.innerHTML = keep; rebind();
         alert(isDenied(err)
-          ? '刪不掉：你的安全規則還是舊版（不允許刪除）。請重新部署 firestore.rules 後再試一次。'
+          ? '刪不掉：安全規則不允許更新這一則（軟刪除是一次 update）。請重新部署 firestore.rules 後再試一次。'
           : '刪除失敗：' + errText(err));
       }
     };

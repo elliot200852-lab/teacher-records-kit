@@ -1053,6 +1053,23 @@ def get_doc(base, path, tok, raise_errors=False):
     return doc_fields(d), d.get("updateTime", "")
 
 
+def delete_doc(base, path, tok, raise_errors=True):
+    """**真刪**一份 Firestore 文件（不可逆）。只有 `scripts/purge_deleted.py` 會叫它。
+
+    兩段式刪除的第二段：網頁上的刪除只是軟刪（`deleted: true`，文件留在雲端），
+    這一支才是把原文從 Firestore 抹掉。安全規則擋不住它——它走的是 gcloud 使用者權杖，
+    在 IAM 層，規則只管前端 SDK。"""
+    return http("DELETE", base, path, tok, raise_errors=raise_errors)
+
+
+def is_deleted(fs):
+    """雲端那一則是不是被網頁軟刪了（兩段式刪除的第一段）。
+
+    網頁刪除寫的是 `{deleted: true, deletedAt, deletedBy}`，文件本身留在 Firestore；
+    本機、匯出、台帳一律當它「已經刪掉」，只有 backup.py 的雲端快照照原樣帶走。"""
+    return bool((fs or {}).get("deleted"))
+
+
 def now_iso():
     return time.strftime("%Y-%m-%dT%H:%M:%S")
 

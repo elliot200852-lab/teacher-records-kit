@@ -57,8 +57,11 @@ def collect(kit, tabs, local_only):
             # 同一位學生的各種記錄類型共用一個雲端集合，抓一次就好，再依 stream 分流。
             if t["records"] not in cache:
                 cache[t["records"]] = lib.list_docs(base, t["records"], tok)
+            # 網頁上刪掉的那些（軟刪 deleted: true）文件還留在雲端，但匯出一律當它不存在——
+            # 老師看到的、交給 AI 讀的，都要跟他在網頁上看到的一樣。
             recs = [rec_from_cloud(rid, fs) for rid, fs, _ in cache[t["records"]]
-                    if not t["stream"] or (fs.get("stream") or "homeroom") == t["stream"]]
+                    if not lib.is_deleted(fs)
+                    and (not t["stream"] or (fs.get("stream") or "homeroom") == t["stream"])]
         recs.sort(key=lambda r: (r.get("date") or "", r["rid"]))
         label = t["label"]
         if t["kind"] == "students" and roster.get(t["id"]):

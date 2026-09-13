@@ -6,6 +6,7 @@
 
 每一個 test 都用 `--root <暫存目錄>`，所以不會碰到你自己的 config/ 與 data/。
 """
+import io
 import os
 import re
 import sys
@@ -14,6 +15,7 @@ import shutil
 import unittest
 import tempfile
 import subprocess
+import contextlib
 
 SCRIPTS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PKG = os.path.dirname(SCRIPTS)
@@ -1163,10 +1165,228 @@ class TestParentEmail(unittest.TestCase):
                          "沒寄出去就不該記進已寄台帳")
 
 
+class SoftDeleteBase(unittest.TestCase):
+    """兩段式刪除共用的替身：雲端那則只被標成 `deleted: true`，文件還在。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="trk-softdel-")
+        self.old_root = lib.root()
+        lib.set_root(self.tmp)
+        self.orig = (lib.list_docs, lib.http, lib.get_doc, lib.token,
+                     lib.targets, lib.delete_doc)
+        self.path = os.path.join(self.tmp, "data", "students", "S-01", "observations.md")
+        os.makedirs(os.path.dirname(self.path))
+        self.t = {"kind": "students", "id": "S-01", "stream": "homeroom", "scope": "class",
+                  "streamLabel": "導師班級學生紀錄", "label": "S-01（導師班級學生紀錄）",
+                  "path": self.path, "sourceFile": "students/S-01/observations.md",
+                  "records": "students/S-01/records", "card": None,
+                  "key": "students/S-01/homeroom"}
+
+    def tearDown(self):
+        (lib.list_docs, lib.http, lib.get_doc, lib.token,
+         lib.targets, lib.delete_doc) = self.orig
+        lib.set_root(self.old_root)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def block(self, rid):
+        _, blocks = lib.parse_file(self.path)
+        return [b for b in blocks if b["rid"] == rid][0]
+
+    def cloud_doc(self, rid, body, hash_="", **extra):
+        fs = {"date": rid[:10], "stream": "homeroom", "tags": [], "fields": {},
+              "related": [], "body": body, "contentHash": hash_, "editedOnWeb": False}
+        fs.update(extra)
+        return (rid, fs, "t1")
+
+    def audit_lines(self):
+        p = os.path.join(self.tmp, "data", "audit.jsonl")
+        if not os.path.exists(p):
+            return []
+        return [json.loads(x) for x in read(p).splitlines() if x.strip()]
+
+
+class TestSyncSoftDelete(SoftDeleteBase):
+    """網頁刪除＝軟刪：雲端文件留著（`deleted: true`），本機區塊要刪、要記一筆稽核。
+
+    稽核那一行**不可以帶正文**——audit.jsonl 不是紀錄的第二份正本。
+    """
+
+    def sync(self, docs, dry=False, state=None):
+        import sync
+        lib.list_docs = lambda base, path, tok, **kw: list(docs)
+        lib.http = lambda *a, **kw: {}
+        notes, counters, cards = [], dict.fromkeys(
+            ("push", "write", "new", "delete", "conflict", "pii"), 0), {}
+        rids = sync.sync_target(self.t, "base", "tok", [], state or {}, dry,
+                                notes, counters, cards)
+        return rids, notes, counters
+
+    def two_records(self):
+        write(self.path, "# S-01\n\n## 2026-09-01\n\n第一則留著。\n\n"
+                         "## 2026-09-02\n\n第二則在網頁上刪掉了。\n")
+        keep, gone = self.block("2026-09-01"), self.block("2026-09-02")
+        docs = [self.cloud_doc("2026-09-01", keep["body"], keep["hash"]),
+                self.cloud_doc("2026-09-02", gone["body"], gone["hash"],
+                               deleted=True, deletedAt="2026-09-13T10:00:00",
+                               deletedBy="t@example.com")]
+        state = {self.t["key"]: {"rids": ["2026-09-01", "2026-09-02"]}}
+        return docs, state
+
+    def test_local_block_is_removed_and_audited_without_the_body(self):
+        docs, state = self.two_records()
+        _, notes, counters = self.sync(docs, state=state)
+        self.assertEqual(counters["delete"], 1, notes)
+        text = read(self.path)
+        self.assertNotIn("第二則在網頁上刪掉了。", text, "軟刪的那則要從本機檔消失")
+        self.assertIn("第一則留著。", text, "沒刪的那則不准動")
+        rows = self.audit_lines()
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(rows[0]["op"], "delete")
+        self.assertEqual(rows[0]["rid"], "2026-09-02")
+        self.assertTrue(rows[0]["hash"], "稽核要留內容指紋")
+        self.assertNotIn("第二則在網頁上刪掉了", json.dumps(rows[0], ensure_ascii=False),
+                         "稽核那一行不可以帶正文")
+
+    def test_record_the_file_never_had_is_a_no_op(self):
+        """網頁上新增後馬上刪掉：本機從來沒有那一則——不做事，也不可以報錯或寫回檔案。"""
+        write(self.path, "# S-01\n\n## 2026-09-01\n\n只有這一則。\n")
+        keep = self.block("2026-09-01")
+        docs = [self.cloud_doc("2026-09-01", keep["body"], keep["hash"]),
+                self.cloud_doc("2026-09-09", "網頁上打完就刪了", "h9", deleted=True,
+                               deletedAt="2026-09-13T10:00:00")]
+        before = read(self.path)
+        rids, notes, counters = self.sync(docs)
+        self.assertEqual(counters["delete"], 0, notes)
+        self.assertEqual(counters["new"], 0, "軟刪的那則絕不可以被當成『雲端新增』寫回本機")
+        self.assertEqual(read(self.path), before)
+        self.assertNotIn("網頁上打完就刪了", read(self.path))
+        self.assertEqual(self.audit_lines(), [])
+        self.assertFalse([n for n in notes if "本機少了" in n], notes)
+        self.assertIn("2026-09-09", rids, "文件還在雲端，狀態檔要記得它（下一輪才不會重推）")
+
+    def test_dry_run_deletes_nothing_and_the_next_round_does_not_repeat(self):
+        docs, state = self.two_records()
+        before = read(self.path)
+        _, notes, counters = self.sync(docs, dry=True, state=state)
+        self.assertEqual(counters["delete"], 1, "預演也要算給老師看")
+        self.assertEqual(read(self.path), before, "預演不准動檔案")
+        self.assertEqual(self.audit_lines(), [], "預演不准寫稽核")
+        self.assertTrue([n for n in notes if "預演" in n and "2026-09-02" in n], notes)
+
+        rids, _, counters = self.sync(docs, state=state)          # 真的跑一次
+        self.assertEqual(counters["delete"], 1)
+        self.assertEqual(len(self.audit_lines()), 1)
+
+        _, notes3, counters3 = self.sync(docs, state={self.t["key"]: {"rids": sorted(rids)}})
+        self.assertEqual(counters3["delete"], 0, "第二輪不可以再刪一次")
+        self.assertEqual(counters3["push"], 0, "也不可以把刪掉的那則重推上雲")
+        self.assertEqual(len(self.audit_lines()), 1, "稽核不可以重複寫")
+
+
+class TestSoftDeleteExcludedFromReads(SoftDeleteBase):
+    """匯出、期末素材包、台帳都不可以看到軟刪的那則——老師在網頁上已經看不到它了。"""
+
+    def fixture(self):
+        write(self.path, "# S-01\n\n## 2026-09-01\n\n留下來的觀察。\n")
+        keep = self.block("2026-09-01")
+        lib.token = lambda *a, **kw: "tok"
+        lib.targets = lambda *a, **kw: [self.t]
+        lib.list_docs = lambda base, path, tok, **kw: [
+            self.cloud_doc("2026-09-01", keep["body"], keep["hash"]),
+            self.cloud_doc("2026-09-02", "刪掉的那一則正文", "h2", deleted=True,
+                           deletedAt="2026-09-13T10:00:00")]
+        return {"firebase": {"project_id": "p"}}, {}
+
+    def test_export_records_skips_them(self):
+        import export_records
+        kit, tabs = self.fixture()
+        data = export_records.collect(kit, tabs, False)
+        recs = data["targets"][0]["records"]
+        self.assertEqual([r["rid"] for r in recs], ["2026-09-01"])
+        self.assertNotIn("刪掉的那一則正文", json.dumps(data, ensure_ascii=False))
+
+    def test_report_pack_material_skips_them(self):
+        import export_records
+        import report_pack
+        kit, tabs = self.fixture()
+        data = export_records.collect(kit, tabs, False)
+        recs = data["targets"][0]["records"]
+        pack = report_pack.build_pack(report_pack.load_format("waldorf-homeroom"),
+                                      "S-01", "S-01", recs, lib.load_card("S-01"),
+                                      ["homeroom"], "", "")
+        self.assertIn("留下來的觀察。", pack)
+        self.assertNotIn("刪掉的那一則正文", pack, "期末素材包不可以出現老師已經刪掉的紀錄")
+
+    def test_ledger_does_not_count_them_as_cloud(self):
+        import ledger
+        kit, tabs = self.fixture()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = ledger.check(kit, tabs, False, True)
+        out = json.loads(buf.getvalue())
+        row = [r for r in out["rows"] if r["target"] == self.t["key"]][0]
+        self.assertEqual(row["cloud"], 1, "軟刪的不算『網站有』，否則三處永遠對不上")
+        self.assertEqual(row["onlyCloud"], [])
+        self.assertEqual(rc, 0, out["problems"])
+
+
+class TestPurgeDeleted(SoftDeleteBase):
+    """真刪那一段：沒有 `--confirm` 一則都不准刪，刪了要記 `op: purge`。"""
+
+    def run_purge(self, *args):
+        import purge_deleted
+        write(self.path, "# S-01\n\n## 2026-09-01\n\n留下來的觀察。\n")
+        keep = self.block("2026-09-01")
+        calls = []
+        lib.token = lambda *a, **kw: "tok"
+        lib.targets = lambda *a, **kw: [self.t]
+        lib.list_docs = lambda base, path, tok, **kw: [
+            self.cloud_doc("2026-09-01", keep["body"], keep["hash"]),
+            self.cloud_doc("2026-09-02", "刪掉的那一則正文", "h2", deleted=True,
+                           deletedAt="2026-09-13T10:00:00")]
+        lib.delete_doc = lambda base, path, tok, **kw: calls.append(path) or {}
+        old_kit, old_tabs, argv = lib.load_kit, lib.load_tabs, sys.argv
+        lib.load_kit = lambda *a, **kw: {"mode": "cloud", "firebase": {"project_id": "p"}}
+        lib.load_tabs = lambda *a, **kw: {}
+        sys.argv = ["purge_deleted.py", "--root", self.tmp, *args]
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                purge_deleted.main()
+        finally:
+            lib.load_kit, lib.load_tabs, sys.argv = old_kit, old_tabs, argv
+        return calls, buf.getvalue()
+
+    def test_list_writes_nothing(self):
+        calls, out = self.run_purge("--list")
+        self.assertEqual(calls, [], "--list 不准刪任何東西")
+        self.assertEqual(self.audit_lines(), [])
+        self.assertIn("2026-09-02", out, "清單要看得到是哪一則")
+        self.assertIn("正文 8 字", out, "清單要有字數")
+        self.assertNotIn("刪掉的那一則正文", out, "清單不印正文")
+
+    def test_without_confirm_nothing_is_deleted(self):
+        calls, out = self.run_purge("--all")
+        self.assertEqual(calls, [], "沒有 --confirm 就不准刪")
+        self.assertEqual(self.audit_lines(), [])
+        self.assertIn("沒有 --confirm，一則都沒刪", out)
+
+    def test_confirm_deletes_and_audits(self):
+        calls, out = self.run_purge("--all", "--confirm")
+        self.assertEqual(calls, ["students/S-01/records/2026-09-02"],
+                         "只准刪被標成已刪的那一則")
+        rows = self.audit_lines()
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(rows[0]["op"], "purge")
+        self.assertEqual(rows[0]["rid"], "2026-09-02")
+        self.assertEqual(rows[0]["hash"], "h2")
+        self.assertNotIn("刪掉的那一則正文", json.dumps(rows[0], ensure_ascii=False))
+
+
 class TestHelpAndHygiene(unittest.TestCase):
     SCRIPTS = ["setup.py", "build_config.py", "doctor.py", "sync.py", "append_record.py",
                "transcribe.py", "backup.py", "ledger.py", "export_records.py", "export_docs.py",
-               "parent_email.py", "pending.py", "monthly_reminder.py"]
+               "parent_email.py", "pending.py", "monthly_reminder.py", "purge_deleted.py"]
 
     def test_help_runs(self):
         for s in self.SCRIPTS:

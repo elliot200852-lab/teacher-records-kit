@@ -159,9 +159,12 @@ def check(kit, tabs, offline, as_json):
                         # 一位學生的各種記錄類型共用一個集合，抓一次就好
                         cache[t["records"]] = lib.list_docs(base, t["records"], tok,
                                                             raise_errors=True)
+                    # 軟刪（deleted: true）的不算「網站有」——它在網頁上已經看不到、
+                    # 本機區塊也被 sync 刪掉了。算進來的話三處永遠對不上。
                     cloud[t["key"]] = {
                         rid: fs for rid, fs, _ in cache[t["records"]]
-                        if not t["stream"] or (fs.get("stream") or "homeroom") == t["stream"]}
+                        if not lib.is_deleted(fs)
+                        and (not t["stream"] or (fs.get("stream") or "homeroom") == t["stream"])}
                 except Exception as e:
                     cloud_err = "讀 Firestore 失敗：%s" % e
                     cloud = {}

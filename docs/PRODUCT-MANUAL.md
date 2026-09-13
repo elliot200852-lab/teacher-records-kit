@@ -410,8 +410,22 @@ Android（Chrome）按右上角選單 →「加到主畫面」。之後點桌面
 表單長相由那一種記錄類型（或那一組業務）的 `fields` 決定，型別有 `text`／`date`／`select`／
 `multiselect`／`goal`，每個欄位帶一行提示。**標籤**那排按鈕點一下就加上去。
 正文提示字是「記錄內容（客觀描述具體事件；請用代號、勿寫真名）…」；
-寫入前網頁會**自動把名冊上的真名換成代號**。**刪除要二次確認**（v3 的安全規則才允許擁有者刪除，
-配合個資法的刪除請求），刪除會由 `sync.py` 傳播到本機檔並寫一筆進 `data/audit.jsonl`。
+寫入前網頁會**自動把名冊上的真名換成代號**。
+
+**刪除是兩段式的**（要二次確認）。在網頁上按刪除＝**隱藏起來、並從本機與備份的 md 移除**：
+那則會被標成已刪、網頁上不再出現，`sync.py` 下一次會把本機 `data/*.md` 的那個區塊刪掉並寫一筆
+進 `data/audit.jsonl`，匯出（Word／PDF／.md）、期末素材包、台帳對帳也都當它不存在。
+但**雲端那份原文還留著**（備份 zip 的 `export.json` 裡也還有），為的是防手滑——
+真的要抹掉，只有你自己在終端機跑：
+
+```
+python3 scripts/purge_deleted.py                  # 先看有哪些（不會印正文、不會刪）
+python3 scripts/purge_deleted.py --all --confirm  # 真的刪（不可逆）
+```
+
+沒有 `--confirm` 一則都不會刪。**個資法的刪除請求，最終完成點是你跑這一支**——
+網頁上按刪除只完成了一半。這支腳本 AI 代理與無頭交辦一律不碰（安全規則也擋不住它，
+它走的是你自己的 gcloud 權杖）。刪之前先跑一次 `python3 scripts/backup.py` 比較安心。
 **日期改不了**：`date` 欄位與記錄 id 建立後就鎖死（安全規則擋著）。
 
 **學生卡**：明細頁頂端會依當前記錄類型出現兩張卡的其中一張——`iep` 出「**目標清單**」
@@ -526,7 +540,7 @@ python3 scripts/sync.py --quiet                # 沒事就不出聲（排程用�
 | 檔案裡有、雲端沒有、以前沒同步過 | 推上去（一定帶 `stream` 與 `sourceFile`） |
 | 雲端那則被網頁改過，本機那則自上次同步後沒動 | 寫回檔案（先備份成 `.<檔名>.prev.md`） |
 | **兩邊都改** | **不覆蓋**，印出來讓你自己決定 |
-| 雲端那則被刪掉（以前同步過、現在不見了） | 從本機檔也刪掉，寫進 `data/audit.jsonl`。**整檔不見或變空就一律不刪任何東西** |
+| 雲端那則被刪掉（網頁上刪的＝標成已刪，或以前同步過、現在不見了） | 從本機檔也刪掉，寫進 `data/audit.jsonl`（只記 id 與指紋，不記正文）。雲端原文留著，等你自己跑 `purge_deleted.py`。**整檔不見或變空就一律不刪任何東西** |
 | 任一方向出現名冊真名 | 攔下不同步 |
 
 學生卡的 `goals`／`conceptualization` 與名冊第三欄走同一條「不覆蓋」規則。
@@ -813,7 +827,7 @@ data/class/<類型id>.md                 其餘每一種 scope:class 類型各�
 data/courses/<課程id>/records.md
 data/business/<組id>/records.md
 data/ledger.jsonl                     台帳
-data/audit.jsonl                      寫入稽核＋同步刪除的稽核
+data/audit.jsonl                      寫入稽核＋同步刪除（op:delete）＋清除雲端原文（op:purge）
 data/backups.jsonl                    每次備份的 zip 路徑、md5、Drive file id
 data/.sync-state.json                 上次同步的基準
 ```

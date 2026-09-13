@@ -252,7 +252,7 @@ match /business/{groupId} { allow read, write: if isOwner();
   match /records/{recordId} { …與 students/{id}/records 同款… } }
 match /meta/{doc} { allow read, write: if isOwner(); }
 ```
-**v3 改為允許擁有者刪除**（`allow delete: if isOwner();`，紅隊 #6：未成年人個資必須能應家長要求刪除）。網頁刪除要二次確認；sync 把刪除傳播到本機檔（整檔遺失時不刪，沿用 David 5A 規則）；`data/audit.jsonl` 記一筆 `{op:"delete", kind, target, rid, at}`。
+**v3 改為允許擁有者刪除**（紅隊 #6：未成年人個資必須能應家長要求刪除），alpha.5 起改成**兩段式**：網頁刪除＝軟刪（二次確認後 `updateDoc({deleted:true, deletedAt, deletedBy})`，規則的 `delete` 一律拒，真刪只走 Admin SDK／使用者權杖），sync 把它當「雲端已刪」傳播到本機檔（整檔遺失時不刪，沿用 David 5A 規則）並記 `{op:"delete", kind, target, rid, hash, at}`；雲端原文保留到老師自己在終端機跑 `scripts/purge_deleted.py --confirm`（不可逆，另記 `{op:"purge", …}`）——個資法刪除請求的最終完成點在那一步。匯出、素材包、台帳一律排除軟刪的則；`backup.py` 的 `export.json` 故意保留（Drive 快照裡還有＝可接受）。
 
 ## 8. 引導流程 `AGENTS.md`（精靈）
 

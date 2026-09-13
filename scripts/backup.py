@@ -87,6 +87,9 @@ def collect_export(kit, tabs):
                 cache[t["records"]] = lib.list_docs(base, t["records"], tok, raise_errors=True)
             if t["card"] and t["card"] not in cards:
                 cards[t["card"]], _ = lib.get_doc(base, t["card"], tok, raise_errors=True)
+            # 這裡**故意**不排除軟刪（deleted: true）的那些：備份就是雲端的全量快照，
+            # 網頁上刪掉、還沒跑 purge_deleted.py 的那些原文要留在 export.json 裡
+            # （zip 裡的本機 md 自然沒有它們——sync 已經把區塊刪掉了）。
             out["targets"][t["key"]] = {
                 "card": cards.get(t["card"]), "stream": t["stream"],
                 "sourceFile": t["sourceFile"],
