@@ -10,6 +10,7 @@
 import os
 import re
 import sys
+import json
 import shutil
 import zipfile
 import datetime
@@ -227,6 +228,31 @@ class TestBusinessAndPdf(ExportDocsBase):
         self.assertIn("size: A4", page)
         self.assertIn("學年會議", page)
         self.assertIn("列印", r.stdout + r.stderr)
+
+    def test_course_overview_comes_before_the_records(self):
+        """整體課程紀錄（課程卡上的 overview）：排在那門課的逐日紀錄前面，而且是段落不是表格。
+
+        Word 的表格儲存格會把一整篇敘述擠成一個框、分頁時整塊跳頁——所以它走段落。
+        """
+        card = os.path.join(self.tmp, "data", "courses", "main-block", "card.json")
+        os.makedirs(os.path.dirname(card), exist_ok=True)
+        write(card, json.dumps({"overview": "這門課從觀察月亮開始。\n\n後半段走到曆法。"},
+                               ensure_ascii=False))
+        self.addCleanup(os.remove, card)
+        r = self.export("--kind", "courses", "--target", "main-block", "--local", "--html")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        xml_text = docx_xml(self.only(".docx"))
+        text = plain(xml_text)
+        self.assertIn("整體課程紀錄", text)
+        self.assertIn("這門課從觀察月亮開始。", text)
+        self.assertIn("後半段走到曆法。", text, "空行分開的每一段都要在")
+        self.assertLess(text.index("整體課程紀錄"), text.index("（無記錄）"),
+                        "整體課程紀錄要排在紀錄前面")
+        self.assertNotIn("<w:tbl>", xml_text, "它是段落，不是欄位表的儲存格")
+        with open(self.only(".html"), encoding="utf-8") as f:
+            page = f.read()
+        self.assertIn("<h3>整體課程紀錄</h3>", page)
+        self.assertIn('<p class="body">這門課從觀察月亮開始。</p>', page)
 
     def test_prints_source_and_pii_warning(self):
         r = self.export("--kind", "courses", "--target", "main-block", "--local")

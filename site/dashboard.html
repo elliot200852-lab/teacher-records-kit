@@ -174,6 +174,13 @@
   .conc-view dt { font-size: .8rem; font-weight: 700; color: #5b4b8a; margin-top: .45rem; }
   .conc-view dd { margin: 0; font-size: .88rem; color: #333; line-height: 1.7; word-break: break-word; }
   .conc-view dd.none { color: #bbb; }
+  /* ── 課程明細頁的「整體課程紀錄」（不分天、一段就好）── */
+  .ov-text { margin: 0; font-size: .9rem; color: #222; line-height: 1.8; white-space: pre-wrap; word-break: break-word; }
+  .ov-form textarea { width: 100%; padding: .5rem; border: 1px solid #ccc; border-radius: 4px; font: inherit;
+                      line-height: 1.8; background: #fff; resize: vertical; }
+  .ov-count { font-size: .78rem; color: #999; margin: .25rem 0 .4rem; }
+  .ov-count.over { color: var(--todo); font-weight: 600; }
+  .chip.ov-chip { color: var(--ok); background: #eaf4ec; }
 
   /* ── 方案卡（「你最像哪一種？」；點一張只加建議徽章，不自動勾）── */
   .vert-box { border-bottom: 1px solid #eee; padding-bottom: .7rem; margin-bottom: .7rem; }
@@ -371,7 +378,8 @@
           <!-- 匯出所有學生：一份文件、每位學生一節（含姓名與代號），沒有記錄的也列出來 -->
           <div id="export-all-panel" class="new-form exp-panel" hidden>
             <p class="nc-hint">一份文件、每位學生一節（姓名＋代號），沒有記錄的學生也會列一行「（無記錄）」。
-              Word 直接下載；PDF 會開一個列印版面，在列印視窗裡選「儲存為 PDF」。<br>
+              Word 直接下載；PDF 會開一個列印版面，在列印視窗裡選「儲存為 PDF」；
+              .md 是給 AI 讀的純文字（正文只有代號，真名放在檔尾的對照表），一律含全部記錄類型。<br>
               匯出檔含名冊姓名（這是給你自己用的），別放到公開的地方。</p>
             <div class="exp-streams" id="exp-streams"></div>
             <div class="exp-range">
@@ -383,6 +391,8 @@
             <div class="editbtns">
               <button id="exp-word" class="save" type="button">匯出 Word</button>
               <button id="exp-pdf" class="save exp-btn" type="button">匯出 PDF</button>
+              <!-- .md ＝給 AI 讀的純文字副本（全班所有學生、所有記錄類型一個檔） -->
+              <button id="exp-md" class="save exp-btn" type="button">匯出 .md（給 AI）</button>
               <button id="exp-cancel" class="cancel" type="button">取消</button>
               <span id="exp-msg" class="msg"></span>
             </div>
@@ -398,7 +408,9 @@
 
       <!-- 分頁二：課程記錄 -->
       <div id="pane-courses" hidden>
-        <div class="toolbar"><button class="add-btn" id="add-course-btn" type="button">＋ 新增課程</button></div>
+        <div class="toolbar"><button class="add-btn" id="add-course-btn" type="button">＋ 新增課程</button>
+          <!-- 全部課程一個 .md（每門課一節：整體課程紀錄＋逐日紀錄），給 AI 讀 -->
+          <button class="add-btn exp-btn" id="export-courses-md-btn" type="button">全部課程匯出 .md</button></div>
         <div id="new-course-form" class="new-form" hidden>
           <p class="nc-hint">「課程」是你想分開記的一門課或一段教學（例如某一塊主課程、某一門科任課）。
             只有課程名稱是必填，其餘留空就好——留空的欄位不會顯示。</p>
@@ -971,6 +983,9 @@ function DemoStore() {
     data.cards[kind] = data.cards[kind] || {};
     data.cards[kind][id] = Object.assign({}, data.cards[kind][id], d); save();
   };
+  // 「伺服器時間」在示範模式沒有伺服器：用本機時間的 ISO 字串頂替，
+  // 形狀不同但兩邊都只是拿來記「最後改的時間」，不參與比較。
+  self.stamp = function () { return new Date().toISOString(); };
   // opts 與 FirestoreStore 同形狀：{ limit, after（上一頁最後一則的 rid）, out }
   self.listRecords = async function (kind, target, streamId, opts) {
     const o = opts || {};
@@ -1185,6 +1200,9 @@ function FirestoreStore() {
     } catch (e) { console.error(e); return { id }; }
   };
   self.setCard = async function (kind, id, d) { await offlineAware(fb.setDoc(cardRef(kind, id), d, { merge: true })); };
+  // 卡片上的「最後改的時間」欄位（courses.overviewUpdatedAt）用它取值；
+  // DemoStore 有同名的一支，所以呼叫端不必知道自己在哪一種模式。
+  self.stamp = function () { return fb.serverTimestamp(); };
   // opts（選填）：{ limit: 一次抓幾則, after: 上一頁的游標, out: 接住下一頁游標的物件 }
   //   · 不給 opts＝整本抓（匯出、期末素材包走這條，它們本來就要全部）
   //   · 給了 limit＝明細頁分頁載入；下一頁的游標寫進 opts.out.cursor（沒有下一頁＝null）
@@ -1680,7 +1698,9 @@ function renderCourses() {
 function courseCard(c) {
   const card = document.createElement('button');
   card.type = 'button'; card.className = 'item-card';
-  const chips = [c.season, c.weeks, c.teacherName].filter(Boolean).map(x => `<span class="chip">${esc(x)}</span>`).join('');
+  // 有寫整體課程紀錄的課打一個勾（只標記、不顯示內容——一覽頁要一眼掃得完）
+  const chips = [c.season, c.weeks, c.teacherName].filter(Boolean).map(x => `<span class="chip">${esc(x)}</span>`).join('')
+    + (String(c.overview || '').trim() ? '<span class="chip ov-chip">整體紀錄 ✓</span>' : '');
   card.innerHTML = `<div class="sc-name">${esc(c.title || c.id)}</div>
     ${chips ? `<div class="cc-chips">${chips}</div>` : ''}
     <div class="sc-meta">${c.recordCount || 0} 則 · ${c.lastRecordDate ? '最後 ' + esc(c.lastRecordDate) : '尚無記錄'}</div>`;
@@ -2454,6 +2474,7 @@ function renderDetailStreams(ctx) {
 // 兩張都只在該記錄類型底下出現（由類型的 card 決定），而且只掛在學生明細頁。
 let currentGoalsList = [];   // 當前這位學生的 goals
 let currentConcept = {};     // 當前這位學生的 conceptualization
+let currentOverview = '';    // 當前這門課的 overview（整體課程紀錄）
 let currentRecords = [];     // 當前明細頁載進來的記錄（新→舊）——目標統計用它算
 
 // ── 明細頁分頁載入 ────────────────────────────────────────────────────
@@ -2536,13 +2557,24 @@ async function renderDetailCards(ctx, keepData) {
   const host = $('detail-cards');
   if (!host) return;
   host.innerHTML = '';
+  // 課程明細頁：一張「整體課程紀錄」（courses/{id}.overview）。逐日紀錄照舊在下面，
+  // 這一張講的是整門課的樣貌——期末要寫課程總結時，這段才是起頭。
+  if (ctx && ctx.kind === 'courses') {
+    if (!keepData) {
+      currentGoalsList = []; currentConcept = {};
+      currentOverview = await courseOverviewOf(ctx.target);
+    }
+    host.appendChild(buildCourseOverviewCard(ctx));
+    return;
+  }
   const st = (ctx && ctx.kind === 'students') ? streamById(ctx.stream) : null;
   if (!st || (!streamHasGoals(st) && !streamHasConcept(st))) {
-    if (!keepData) { currentGoalsList = []; currentConcept = {}; }
+    if (!keepData) { currentGoalsList = []; currentConcept = {}; currentOverview = ''; }
     return;
   }
   if (!keepData) {
     let card = {};
+    currentOverview = '';
     try { card = (store.getCard ? await store.getCard('students', ctx.target) : {}) || {}; }
     catch (err) { console.error(err); card = {}; }
     currentGoalsList = Array.isArray(card.goals) ? card.goals : [];
@@ -2750,6 +2782,116 @@ function buildConceptCard(ctx) {
     const hint = document.createElement('p');
     hint.className = 'dc-hint';
     hint.textContent = '主訴／背景／評估假設／處遇目標／結案標準——這五欄是整條個案線的骨架，期末的個案摘要與結案報告都從這裡起頭。';
+    box.appendChild(hint);
+    box.appendChild(editing ? form() : view());
+  }
+
+  draw();
+  return box;
+}
+
+// ── 課程：整體課程紀錄卡 ─────────────────────────────────────────────
+// 逐日紀錄回答「今天教了什麼」，這一段回答「這門課整體是什麼樣子」——
+// 期末的課程總結、跟家長講這一塊主課程、下一年再開同一門課時，看的都是這一段。
+// 存在 courses/{id}.overview（純字串）＋ overviewUpdatedAt（伺服器時間）。
+const OVERVIEW_MAX = 20000;
+const OVERVIEW_HINT = '這門課整體的樣貌、進度、全班反應——不分天，一段就好';
+// 課程卡上的 overview：一覽頁載進來的 courses 就有；直接開網址進明細頁時才回去讀一次。
+// 讀到的順手寫回 courses，之後匯出 Word／PDF／md 都不必再讀。
+async function courseOverviewOf(id) {
+  const c = courses.find(x => x.id === id) || null;
+  if (c && typeof c.overview === 'string') return c.overview;
+  let ov = '';
+  try {
+    const card = (store.getCard ? await store.getCard('courses', id) : {}) || {};
+    ov = typeof card.overview === 'string' ? card.overview : '';
+  } catch (err) { console.error(err); ov = ''; }
+  if (c) c.overview = ov;
+  return ov;
+}
+// 伺服器時間；DemoStore 沒有伺服器，回本機 ISO 字串（兩邊同名的 store.stamp）。
+function serverStamp() {
+  return (store && typeof store.stamp === 'function') ? store.stamp() : new Date().toISOString();
+}
+function buildCourseOverviewCard(ctx) {
+  const box = document.createElement('div');
+  box.className = 'detail-card';
+  let editing = false;
+
+  function view() {
+    const p = document.createElement('p');
+    if (currentOverview) {
+      p.className = 'ov-text';
+      p.innerHTML = esc(currentOverview);        // pre-wrap 保留換行，不插 <br>
+    } else {
+      p.className = 'dc-hint';
+      p.textContent = OVERVIEW_HINT + '。（還沒寫——點右上角那顆按鈕開始）';
+    }
+    return p;
+  }
+
+  function form() {
+    const f = document.createElement('div');
+    f.className = 'ov-form';
+    const ta = document.createElement('textarea');
+    ta.rows = 10;
+    ta.maxLength = OVERVIEW_MAX;
+    ta.placeholder = OVERVIEW_HINT + '…';
+    ta.value = currentOverview;
+    f.appendChild(ta);
+    const count = document.createElement('p');
+    count.className = 'ov-count';
+    const recount = () => {
+      const n = ta.value.length;
+      count.textContent = n + ' / ' + OVERVIEW_MAX + ' 字';
+      count.classList.toggle('over', n >= OVERVIEW_MAX);
+    };
+    ta.oninput = recount; recount();
+    f.appendChild(count);
+    const btns = document.createElement('div');
+    btns.className = 'editbtns';
+    btns.innerHTML = '<button class="save ov-save" type="button">儲存</button>' +
+      '<button class="cancel ov-cancel" type="button">取消</button><span class="msg ov-msg"></span>';
+    f.appendChild(btns);
+    const msg = f.querySelector('.ov-msg');
+    f.querySelector('.ov-cancel').onclick = () => { editing = false; draw(); };
+    f.querySelector('.ov-save').onclick = async (e) => {
+      const btn = e.currentTarget;
+      const next = String(ta.value || '').slice(0, OVERVIEW_MAX).trim();
+      const keep = currentOverview;               // 樂觀更新：先改畫面，失敗再回滾
+      currentOverview = next;
+      btn.disabled = true; msg.textContent = '儲存中…';
+      try {
+        await store.setCard('courses', ctx.target, { overview: next, overviewUpdatedAt: serverStamp() });
+        const c = courses.find(x => x.id === ctx.target);
+        if (c) c.overview = next;                 // 一覽卡的「整體紀錄 ✓」跟著動
+        editing = false; draw();
+      } catch (err) {
+        console.error(err);
+        currentOverview = keep;
+        btn.disabled = false;
+        msg.textContent = isDenied(err) ? '儲存失敗：請確認安全規則已部署，且你登入的是擁有者帳號。' : '儲存失敗：' + errText(err);
+      }
+    };
+    return f;
+  }
+
+  function draw() {
+    box.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'dc-head';
+    head.innerHTML = '<span class="dc-title">整體課程紀錄</span>';
+    if (!editing) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'dc-btn';
+      b.textContent = currentOverview ? '編輯整體紀錄' : '＋ 寫整體紀錄';
+      b.onclick = () => { editing = true; draw(); };
+      head.appendChild(b);
+    }
+    box.appendChild(head);
+    const hint = document.createElement('p');
+    hint.className = 'dc-hint';
+    hint.textContent = '這一段不分天，講的是整門課：走過的路、整體進度、全班的反應。下面的逐日紀錄照舊各記各的。';
     box.appendChild(hint);
     box.appendChild(editing ? form() : view());
   }
@@ -3073,7 +3215,8 @@ const EXPORT_CSS =
   '.trk-export .ex-fields th{text-align:left;color:#555;font-weight:600;padding:.1em 1.2em .1em 0;vertical-align:top;white-space:nowrap}' +
   '.trk-export .ex-fields td{padding:.1em 0;color:#222}' +
   '.trk-export .ex-rel{font-size:9.5pt;color:#666;margin:.2em 0}' +
-  '.trk-export .ex-body{margin:.2em 0 0}';
+  '.trk-export .ex-body{margin:.2em 0 0}' +
+  '.trk-export .ex-overview{white-space:pre-wrap;margin:.2em 0 0}';
 const EXPORT_PRINT_CSS =
   '@page{size:A4;margin:1.8cm}' +
   'body{margin:0;padding:1.6cm 1.4cm;background:#fff}' +
@@ -3132,10 +3275,11 @@ function exportRecordHtml(r, showStream) {
       <div class="ex-body">${nl2br(r.body || '')}</div>
     </div>`;
 }
+// sec.html ＝這一節不是記錄清單，而是一段現成的 HTML（整體課程紀錄走這條）
 function exportSectionHtml(sec, showStream) {
-  const body = sec.records.length
+  const body = (sec.html != null) ? sec.html : (sec.records.length
     ? sec.records.map(r => exportRecordHtml(r, showStream)).join('')
-    : '<p class="ex-empty">（無記錄）</p>';
+    : '<p class="ex-empty">（無記錄）</p>');
   return `<section class="ex-section">
       <h2 class="ex-sec-title">${esc(sec.heading)}</h2>
       ${sec.note ? `<p class="ex-sec-note">${esc(sec.note)}</p>` : ''}
@@ -3177,6 +3321,9 @@ async function buildExport(kind, target, opts) {
     const c = courses.find(x => x.id === target) || { id: target, title: target };
     objectLabel = c.title || c.id;
     const note = [c.season, c.weeks, c.teacherName].filter(Boolean).join('・');
+    // 整體課程紀錄排在逐日紀錄之前（它是這門課的總說明，不是某一天的事）
+    const ov = await courseOverviewOf(target);
+    if (ov) sections.push({ heading: '整體課程紀錄', note: '', records: [], html: `<div class="ex-body ex-overview">${esc(ov)}</div>` });
     sections.push({ heading: objectLabel, note, records: await exportRecordsOf('courses', target, null, from, to) });
   } else if (kind === 'business') {
     const g = groups.find(x => x.id === target) || { id: target, label: target };
@@ -3208,6 +3355,177 @@ async function buildExport(kind, target, opts) {
 }
 // 規格 §3.5 的共用排版介面：回傳一段乾淨 HTML（Word 與 PDF 都吃這一段）
 async function renderExportHtml(kind, target, opts) { return (await buildExport(kind, target, opts)).html; }
+
+// ══ 匯出 Markdown（.md，給 AI 讀）══════════════════════════════════════
+// 為什麼要這一種：老師期末要把整年的紀錄餵給 AI 寫評量，手機上沒有終端機、
+// 也不會去翻電腦裡的 data/*.md——所以網頁要能直接下載一份純文字。
+// 格式刻意與本機 data/*.md 一致（`## 日期 時間 #標籤` → `欄位：值` → 空行 → 正文），
+// 但**檔首兩行寫死了「這是唯讀副本、不要複製回 data/」**：
+// 本機檔是同步腳本的正本，一份沒有 rid 對齊的副本貼回去會把台帳對到亂掉。
+// 正文一律只有代號；真名只出現在檔尾的對照表，貼給外部 AI 前刪掉那一段就好。
+// 組字串的正本是 buildExportMd()，下載的動作是 exportMd()——四個落點（學生明細、
+// 課程明細、班級觀察、業務明細）與兩顆全部匯出（全班、全部課程）都只呼叫這兩支。
+const MD_EXPORT_HEAD = '由網頁匯出的唯讀副本';
+function mdHead(n) { return new Array(Math.min(Math.max(n, 1), 6) + 1).join('#') + ' '; }
+// 欄位值：陣列（多選）用「、」串；字串把換行壓成一行——欄位列在本機檔裡就是單行。
+function mdFieldValue(v) {
+  return Array.isArray(v) ? v.map(oneLine).filter(Boolean).join('、') : oneLine(v);
+}
+// 正文照原樣（段落之間的空行要留著，AI 讀得出段落），只去頭尾空白、統一換行符。
+function mdBodyBlock(body) {
+  const s = String(body == null ? '' : body).replace(/\r\n?/g, '\n').replace(/^\s+|\s+$/g, '');
+  return s ? s.split('\n') : [];
+}
+function mdRecord(lines, r, depth) {
+  const date = r.date || '';
+  const when = (date + ridTimeLabel(r.rid, date)).trim();     // 沒有時間就只有日期
+  const tags = (r.tags || []).filter(Boolean).join(' ');
+  lines.push(mdHead(depth) + (when || String(r.rid || '')) + (tags ? ' ' + tags : ''));
+  const f = r.fields || {};
+  Object.keys(f).forEach(k => {
+    const key = String(k).trim();
+    if (!key || key === '關聯') return;                        // 關聯自己一行，不混在欄位裡
+    const v = mdFieldValue(f[k]);
+    if (v) lines.push(key + '：' + v);
+  });
+  const rel = (r.related || []).filter(Boolean).map(String);
+  if (rel.length) lines.push('關聯：' + rel.join('; '));
+  lines.push('');
+  const text = mdBodyBlock(r.body);
+  if (text.length) text.forEach(l => lines.push(l));
+  else lines.push('（這一則沒有正文，只有欄位）');
+  lines.push('');
+}
+// 一位學生在各記錄類型底下的紀錄。類型多於一種時每一種一個大節（他有列入、
+// 但一則都沒記的類型也要出現——期末看得到哪一本是空的，比看不到重要）。
+async function mdStudentBlock(lines, id, ids, from, to, depth) {
+  const recs = await exportRecordsOf('students', id, ids, from, to);
+  const order = streamsOfStudent(id).map(s => s.id).filter(s => !ids || ids.indexOf(s) !== -1);
+  recs.forEach(r => { const s = recStream(r); if (s && order.indexOf(s) === -1) order.push(s); });
+  if (order.length > 1) {
+    const bag = {};
+    recs.forEach(r => { const s = recStream(r) || ''; (bag[s] = bag[s] || []).push(r); });
+    order.forEach(stid => {
+      lines.push(mdHead(depth) + '【' + streamLabel(stid) + '】');
+      lines.push('');
+      const list = bag[stid] || [];
+      if (!list.length) { lines.push('（無記錄）'); lines.push(''); return; }
+      list.forEach(r => mdRecord(lines, r, depth + 1));
+    });
+  } else if (!recs.length) {
+    lines.push('（無記錄）'); lines.push('');
+  } else {
+    recs.forEach(r => mdRecord(lines, r, depth));
+  }
+  return recs.length;
+}
+// 檔尾的代號對照。kind ＝ students 時只列這個檔裡出現的那幾位；
+// 課程／業務／班級的紀錄正文裡到處都是代號，所以列整份名冊。
+async function mdRosterAppendix(kind, listIds) {
+  let list = [];
+  try { list = (((await store.roster()) || {}).students) || []; }
+  catch (err) { console.error(err); list = []; }
+  if (!list.length) list = rosterStudents.slice();
+  const want = (kind === 'students' && listIds && listIds.length) ? listIds.map(String) : null;
+  const rows = list
+    .filter(s => s && s.name && String(s.name) !== String(s.id))
+    .filter(s => !want || want.indexOf(String(s.id)) !== -1)
+    .slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  if (!rows.length) return [];
+  const out = ['', mdHead(2) + '附錄：代號對照', '', '以下含真名，貼給外部 AI 前先刪。', ''];
+  rows.forEach(s => out.push('- ' + s.id + '：' + oneLine(s.name)));
+  out.push('');
+  return out;
+}
+
+// 匯出 .md 的正本：kind ∈ students|class|courses|business；
+// students 與 courses 的 target 可以是 'all'。回傳 { md, name（含 .md）, total }
+async function buildExportMd(kind, target, opts) {
+  opts = opts || {};
+  const ids = exportStreamIds(opts);
+  const from = opts.from || '', to = opts.to || '';
+  const kindLabel = EXPORT_KIND_LABEL[kind] || kind;
+  const body = [];
+  let objectLabel = String(target || ''), total = 0, listIds = null;
+
+  if (kind === 'students') {
+    const roster = rosterStudents.length ? rosterStudents : students;
+    listIds = (target === 'all')
+      ? roster.map(s => s.id).slice().sort((a, b) => String(a).localeCompare(String(b)))
+      : [String(target)];
+    objectLabel = (target === 'all') ? ('所有學生（' + listIds.length + ' 位）') : String(target);
+    if (target === 'all' && opts.includeClass) {
+      const recs = await exportRecordsOf('class', 'main', ids, from, to);
+      total += recs.length;
+      body.push(mdHead(2) + '班級整體觀察'); body.push('');
+      if (!recs.length) { body.push('（無記錄）'); body.push(''); }
+      else recs.forEach(r => mdRecord(body, r, 3));
+    }
+    if (target === 'all') {
+      for (const id of listIds) {
+        body.push(mdHead(2) + id); body.push('');
+        total += await mdStudentBlock(body, id, ids, from, to, 3);
+      }
+    } else {
+      total += await mdStudentBlock(body, listIds[0], ids, from, to, 2);
+    }
+  } else if (kind === 'class') {
+    objectLabel = '班級整體觀察';
+    const recs = await exportRecordsOf('class', 'main', ids, from, to);
+    total += recs.length;
+    if (!recs.length) { body.push('（無記錄）'); body.push(''); }
+    else recs.forEach(r => mdRecord(body, r, 2));
+  } else if (kind === 'courses') {
+    const all = (target === 'all');
+    const list = all
+      ? courses.slice().sort(courseSort)
+      : [courses.find(x => x.id === target) || { id: target, title: target }];
+    objectLabel = all ? ('全部課程（' + list.length + ' 門）') : (list[0].title || list[0].id);
+    for (const c of list) {
+      const depth = all ? 3 : 2;
+      if (all) { body.push(mdHead(2) + (c.title || c.id)); body.push(''); }
+      // 整體課程紀錄排在逐日紀錄前面：先讓 AI 知道這門課整體是什麼樣子
+      body.push(mdHead(depth) + '整體課程紀錄'); body.push('');
+      const ov = mdBodyBlock(await courseOverviewOf(c.id));
+      if (ov.length) ov.forEach(l => body.push(l)); else body.push('（尚未填寫）');
+      body.push('');
+      const recs = await exportRecordsOf('courses', c.id, null, from, to);
+      total += recs.length;
+      if (!recs.length) { body.push('（無逐日紀錄）'); body.push(''); }
+      else recs.forEach(r => mdRecord(body, r, depth));
+    }
+  } else if (kind === 'business') {
+    const g = groups.find(x => x.id === target) || { id: target, label: target };
+    objectLabel = g.label || g.id;
+    const recs = await exportRecordsOf('business', target, null, from, to);
+    total += recs.length;
+    if (!recs.length) { body.push('（無記錄）'); body.push(''); }
+    else recs.forEach(r => mdRecord(body, r, 2));
+  }
+
+  const stamp = exportStamp();
+  const meta = ['對象：' + objectLabel];
+  if (kind === 'students' || kind === 'class') meta.push('記錄類型：' + (ids ? ids.map(streamLabel).join('、') : '全部類型'));
+  meta.push('日期範圍：' + ((from || to) ? ((from || '最早') + ' ～ ' + (to || '最新')) : '全部'));
+  meta.push('共 ' + total + ' 則');
+  meta.push('匯出時間：' + stamp);
+  meta.push('版本：' + (KIT_VERSION || '未知'));
+  const title = (kind === 'class') ? kindLabel : (kindLabel + '：' + objectLabel);
+
+  const head = [
+    '<!-- ' + MD_EXPORT_HEAD + '（' + stamp + '）：給 AI 閱讀用，不要複製回 data/ -->',
+    EXPORT_WARN,
+    '',
+    '# ' + title,
+    '',
+    meta.join('　｜　'),
+    '',
+  ];
+  const md = head.concat(body, await mdRosterAppendix(kind, listIds))
+    .join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '') + '\n';
+  const name = safeFileName(objectLabel + '-' + kindLabel) + '-' + safeFileName(stamp) + '.md';
+  return { md, name, total };
+}
 
 function exportWordShell(title, inner) {
   return '<html xmlns:o="urn:schemas-microsoft-com:office:office" ' +
@@ -3298,6 +3616,14 @@ async function exportPdf(kind, target, opts, msg) {
   if (msg) msg.textContent = `已開列印版面（共 ${out.total} 則）——在列印視窗選「儲存為 PDF」。`;
   return out;
 }
+// 第三個動作：下載純文字 .md（手機上「儲存到檔案」再丟給 AI）
+async function exportMd(kind, target, opts, msg) {
+  if (msg) msg.textContent = '產生 Markdown 中…';
+  const out = await buildExportMd(kind, target, opts);
+  downloadBlob(new Blob([out.md], { type: 'text/markdown;charset=utf-8' }), out.name);
+  if (msg) msg.textContent = `已下載 ${out.name}（共 ${out.total} 則）`;
+  return out;
+}
 
 // ── 明細頁的「匯出 ▾」──────────────────────────────────────────────
 let exportMenuEl = null;
@@ -3321,7 +3647,8 @@ function renderExportUI(ctx) {
 
   const note = document.createElement('p');
   note.className = 'exp-note';
-  note.textContent = 'Word 直接下載；PDF 會開列印版面，在裡面選「儲存為 PDF」。';
+  note.textContent = 'Word 直接下載；PDF 會開列印版面，在裡面選「儲存為 PDF」；'
+    + '.md 是給 AI 讀的純文字（正文只有代號，真名在檔尾對照表）。';
 
   const item = (label, run) => {
     const b = document.createElement('button');
@@ -3338,18 +3665,25 @@ function renderExportUI(ctx) {
     return b;
   };
 
+  const sepLine = () => { const sep = document.createElement('div'); sep.className = 'exp-sep'; menu.appendChild(sep); };
   if (ctx.kind === 'students') {
     const one = { streams: ctx.stream ? [ctx.stream] : 'all' };
     const stName = ctx.stream ? streamLabel(ctx.stream) : '目前類型';
     item(`Word・只匯出「${stName}」`, () => exportWord('students', ctx.target, one));
     item('Word・這位學生全部類型', () => exportWord('students', ctx.target, { streams: 'all' }));
-    const sep = document.createElement('div'); sep.className = 'exp-sep'; menu.appendChild(sep);
+    sepLine();
     item(`PDF・只匯出「${stName}」`, () => exportPdf('students', ctx.target, one));
     item('PDF・這位學生全部類型', () => exportPdf('students', ctx.target, { streams: 'all' }));
+    sepLine();
+    // .md 一律出「全部類型」：這一份是要餵給 AI 寫期末評量的，少一本就少一半材料
+    item('Markdown（.md，給 AI）・全部類型', () => exportMd('students', ctx.target, { streams: 'all' }));
   } else {
     const opts = ctx.kind === 'class' ? { streams: ctx.stream ? [ctx.stream] : 'all' } : {};
     item('匯出 Word（.doc）', () => exportWord(ctx.kind, ctx.target, opts));
     item('匯出 PDF（列印）', () => exportPdf(ctx.kind, ctx.target, opts));
+    sepLine();
+    item('Markdown（.md，給 AI）',
+      () => exportMd(ctx.kind, ctx.target, ctx.kind === 'class' ? { streams: 'all' } : {}));
   }
   menu.appendChild(note);
 
@@ -3395,12 +3729,29 @@ async function runExportAll(which, btn) {
   try {
     const opts = exportAllOpts();
     if (which === 'word') await exportWord('students', 'all', opts, expMsg);
+    // .md 一律含全部記錄類型：這一份是要整包餵給 AI 的，勾選只影響 Word／PDF
+    else if (which === 'md') await exportMd('students', 'all', Object.assign({}, opts, { streams: 'all' }), expMsg);
     else await exportPdf('students', 'all', opts, expMsg);
   } catch (err) { console.error(err); expMsg.textContent = '匯出失敗：' + errText(err); }
   btn.disabled = false;
 }
 if ($('exp-word')) $('exp-word').onclick = (e) => runExportAll('word', e.currentTarget);
 if ($('exp-pdf')) $('exp-pdf').onclick = (e) => runExportAll('pdf', e.currentTarget);
+if ($('exp-md')) $('exp-md').onclick = (e) => runExportAll('md', e.currentTarget);
+
+// ── 課程一覽頁的「全部課程匯出 .md」──────────────────────────────────
+// 一份檔、每門課一節（整體課程紀錄＋逐日紀錄）；期末寫課程總結、交課程計畫成果時用。
+const exportCoursesMdBtn = $('export-courses-md-btn');
+if (exportCoursesMdBtn) exportCoursesMdBtn.onclick = async (e) => {
+  const b = e.currentTarget, keep = b.textContent;
+  b.disabled = true; b.textContent = '產生中…';
+  try {
+    if (!coursesLoaded) await loadCourses();
+    if (!courses.length) alert('還沒有任何課程。');
+    else await exportMd('courses', 'all', {});
+  } catch (err) { console.error(err); alert('匯出失敗：' + errText(err)); }
+  b.textContent = keep; b.disabled = false;
+};
 
 // ══ hash 路由 ════════════════════════════════════════════════════════
 // #students #students/<類型> #courses #business #class #class/<類型>

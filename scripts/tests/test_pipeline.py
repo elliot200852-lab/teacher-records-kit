@@ -667,6 +667,27 @@ class TestAppendAndLedger(unittest.TestCase):
         r = run("export_records.py", "--root", self.tmp, "--local", "--stream", "iep", "--json")
         self.assertEqual(r.returncode, 1, "沒有這種類型要報錯，不要靜靜地匯出空的")
 
+    def test_course_overview_in_md_export_but_not_in_split(self):
+        """整體課程紀錄要進 .md 匯出（排在逐日紀錄前面）；`--split` 那一路刻意不變——
+        那些檔是台帳要掃 `## YYYY-MM-DD` 的紀錄檔，不該多一段也不該多一個檔。"""
+        self.append("--kind", "courses", "--target", "main-block", "--date", "2026-09-10",
+                    "--content-file", self.draft)
+        dump_json(os.path.join(self.tmp, "data", "courses", "main-block", "card.json"),
+                  {"overview": "這門課從觀察月亮開始。"})
+        r = run("export_records.py", "--root", self.tmp, "--local", "--kind", "courses")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("整體課程紀錄", r.stdout)
+        self.assertIn("這門課從觀察月亮開始。", r.stdout)
+        self.assertLess(r.stdout.index("整體課程紀錄"), r.stdout.index("2026-09-10"),
+                        "整體課程紀錄要排在逐日紀錄前面")
+        out = os.path.join(self.tmp, "split")
+        r2 = run("export_records.py", "--root", self.tmp, "--local", "--kind", "courses",
+                 "--split", out)
+        self.assertEqual(r2.returncode, 0, r2.stdout + r2.stderr)
+        d = os.path.join(out, "courses", "main-block")
+        self.assertEqual(sorted(os.listdir(d)), ["records.md"], "--split 不該多產檔")
+        self.assertNotIn("整體課程紀錄", read(os.path.join(d, "records.md")))
+
     def test_export_all_streams(self):
         self.append("--kind", "students", "--target", "S-02", "--stream", "case",
                     "--date", "2026-09-11", "--content-file", self.draft)
@@ -1015,7 +1036,8 @@ class TestBackupStatusFields(unittest.TestCase):
 
 
 class TestSyncWebAdditions(unittest.TestCase):
-    """網頁上臨時加的記錄類型／業務組：只提醒，不自動改 config。"""
+    """網頁上臨時加的記錄類型／業務組：只提醒，不自動改 config。
+    課程是例外——它不必動 config 就能成立，所以直接補本機檔（不然那門課永遠下不來）。"""
 
     def setUp(self):
         self.orig = (lib.get_doc, lib.list_docs)
@@ -1037,6 +1059,61 @@ class TestSyncWebAdditions(unittest.TestCase):
         self.assertEqual(len(notes), 2, notes)
         self.assertTrue(any("小老師制" in n and "config/tabs.json 沒有" in n for n in notes))
         self.assertTrue(any("社團" in n for n in notes))
+
+    def web_course(self, dry=False):
+        """網頁上開了一門本機沒有的課（art），跑一次檢查；回傳 (tmp, notes)。"""
+        import sync
+        tmp = tempfile.mkdtemp(prefix="trk-webcourse-")
+        old_root = lib.root()
+        lib.set_root(tmp)
+        self.addCleanup(shutil.rmtree, tmp, True)
+        self.addCleanup(lib.set_root, old_root)
+        lib.get_doc = lambda *a, **kw: ({}, "t0")
+        lib.list_docs = lambda base, path, tok, **kw: (
+            [("main-block", {"title": "主課程"}, "t"), ("art", {"title": "藝術"}, "t")]
+            if path == "courses" else [])
+        notes = []
+        tabs = {"students": {"enabled": True, "streams": []},
+                "courses": {"enabled": True, "list": [{"id": "main-block", "title": "主課程"}]},
+                "business": {"enabled": False}}
+        sync.check_web_additions(tabs, "base", "tok", notes, {"main-block"}, dry)
+        return tmp, notes
+
+    def test_web_added_course_gets_a_local_file(self):
+        """網頁上開的新課要自動補本機檔——lib.targets 認得資料夾，下一輪它就是正式目標。"""
+        tmp, notes = self.web_course()
+        p = os.path.join(tmp, "data", "courses", "art", "records.md")
+        self.assertTrue(os.path.exists(p), "沒建本機檔的話，網頁上那門課的紀錄永遠下不來")
+        text = read(p)
+        self.assertIn("藝術", text, "檔頭要用網頁上的課名")
+        self.assertEqual(len(notes), 1, notes)
+        self.assertIn("art", notes[0])
+        self.assertFalse(os.path.exists(os.path.join(tmp, "data", "courses", "main-block")),
+                         "本機已經有的課不該重建")
+
+    def test_dry_run_only_reports_the_new_course(self):
+        tmp, notes = self.web_course(dry=True)
+        self.assertFalse(os.path.exists(os.path.join(tmp, "data", "courses", "art")),
+                         "--dry-run 不准寫任何東西")
+        self.assertEqual(len(notes), 1, notes)
+        self.assertIn("預演", notes[0])
+
+    def test_without_the_local_course_list_nothing_is_created(self):
+        """沒拿到本機課程清單（course_ids=None）就無從比對——寧可不動，也不要亂建資料夾。"""
+        import sync
+        tmp = tempfile.mkdtemp(prefix="trk-webcourse-")
+        old_root = lib.root()
+        lib.set_root(tmp)
+        self.addCleanup(shutil.rmtree, tmp, True)
+        self.addCleanup(lib.set_root, old_root)
+        lib.get_doc = lambda *a, **kw: ({}, "t0")
+        lib.list_docs = lambda base, path, tok, **kw: [("art", {"title": "藝術"}, "t")]
+        notes = []
+        sync.check_web_additions({"students": {"enabled": True, "streams": []},
+                                  "courses": {"enabled": True},
+                                  "business": {"enabled": False}}, "base", "tok", notes)
+        self.assertEqual(notes, [])
+        self.assertFalse(os.path.exists(os.path.join(tmp, "data", "courses")))
 
 
 class TestParentEmail(unittest.TestCase):

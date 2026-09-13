@@ -566,5 +566,124 @@ class TestSyncStudentCard(unittest.TestCase):
         self.assertEqual(fp, lib.card_fingerprint({"goals": self.G_LOCAL}))
 
 
+class TestSyncCourseCard(unittest.TestCase):
+    """課程卡上的「整體課程紀錄」（overview）雙向同步：規則跟學生卡片一模一樣。
+
+    老師在網頁上寫「這門課的整體紀錄」、又在電腦上補了一句——兩邊都改的時候，
+    腳本一樣不准挑一邊蓋掉另一邊。另外守兩件事：推上去的 mask 只有 overview
+    （課名與統計是別人的欄位），基準指紋的鍵是 `courses/<id>`（不跟學生代號撞）。
+    """
+
+    LOCAL = "本機版：這門課從觀察月亮開始。"
+    CLOUD = "網頁版：這門課從觀察月亮開始，後半段走到曆法。"
+    CID = "main-block"
+    DOC = "courses/main-block"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="trk-course-card-")
+        self.orig_root = lib.root()
+        lib.set_root(self.tmp)
+        self.orig = (lib.get_doc, lib.http)
+
+    def tearDown(self):
+        lib.get_doc, lib.http = self.orig
+        lib.set_root(self.orig_root)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def call(self, local, cloud, baseline_of, dry=False, state=None):
+        import sync
+        path = lib.course_card_path(self.CID)
+        lib.save_course_card(path, {"overview": local})
+        # 雲端那張卡上還有課名與統計——不能被這一支碰到。
+        lib.get_doc = lambda base, p, tok, **kw: (
+            {"overview": cloud, "title": "主課程", "recordCount": 3}, "t9")
+        calls, notes = [], []
+
+        def fake_http(m, base, p, tok, body=None, **kw):
+            calls.append({"path": p, "body": body, "mask": kw.get("mask"),
+                          "ut": kw.get("precondition_update_time")})
+            return {}
+        lib.http = fake_http
+        if state is None:
+            state = {} if baseline_of is None else {
+                "_cards": {sync.course_card_key(self.CID):
+                           lib.course_card_fingerprint({"overview": baseline_of})}}
+        fp = sync.sync_course_card(self.CID, self.DOC, "base", "tok", state, dry, notes)
+        return calls, notes, fp, lib.load_course_card(path)
+
+    def test_local_only_change_is_pushed_with_mask_overview(self):
+        calls, notes, fp, card = self.call(self.LOCAL, self.CLOUD, self.CLOUD)
+        self.assertEqual(len(calls), 1, notes)
+        self.assertEqual(calls[0]["path"], self.DOC)
+        self.assertEqual(calls[0]["mask"], ["overview"],
+                         "mask 只能有 overview——課名、kind、統計都是網頁那邊的欄位")
+        self.assertEqual(list(calls[0]["body"]), ["overview"])
+        self.assertEqual(calls[0]["body"]["overview"], self.LOCAL)
+        self.assertEqual(calls[0]["ut"], "t9", "PATCH 要帶讀到的 updateTime")
+        self.assertEqual(card["overview"], self.LOCAL, "本機檔不動")
+        self.assertEqual(fp, lib.course_card_fingerprint({"overview": self.LOCAL}))
+
+    def test_web_only_change_is_written_back(self):
+        calls, notes, fp, card = self.call(self.LOCAL, self.CLOUD, self.LOCAL)
+        self.assertEqual(calls, [], "網頁比較新的時候不該推上去")
+        self.assertEqual(card["overview"], self.CLOUD, "要寫回 card.json")
+        self.assertTrue(any("寫回" in n for n in notes), notes)
+
+    def test_both_changed_is_a_conflict_and_nothing_is_overwritten(self):
+        calls, notes, fp, card = self.call(self.LOCAL, self.CLOUD, "上次同步的樣子")
+        self.assertEqual(calls, [], "兩邊都改過就不准推")
+        self.assertEqual(card["overview"], self.LOCAL, "也不准回寫")
+        self.assertTrue(any("衝突 課程卡" in n for n in notes), notes)
+
+    def test_dry_run_writes_nothing(self):
+        calls, notes, fp, card = self.call(self.LOCAL, self.CLOUD, self.CLOUD, dry=True)
+        self.assertEqual(calls, [])
+        self.assertEqual(card["overview"], self.LOCAL)
+        self.assertTrue(any("預演" in n for n in notes), notes)
+
+    def test_state_key_is_namespaced_under_courses(self):
+        """基準指紋的鍵是 `courses/<id>`：裸 id 是學生卡片的格子，不該被當成課程的基準。
+
+        沒有這個前綴，代號同名的課與學生會共用同一格、互相蓋掉對方的基準。
+        """
+        import sync
+        self.assertEqual(sync.course_card_key(self.CID), "courses/main-block")
+        bare = {"_cards": {self.CID: lib.course_card_fingerprint({"overview": self.CLOUD})}}
+        calls, notes, fp, card = self.call(self.LOCAL, self.CLOUD, None, state=bare)
+        self.assertEqual(calls, [], "裸 id 被誤認成基準的話這裡會推上去")
+        self.assertEqual(card["overview"], self.LOCAL)
+        self.assertTrue(any("衝突 課程卡" in n for n in notes), notes)
+
+    def test_first_sync_pushes_local_when_the_cloud_card_is_empty(self):
+        calls, notes, fp, card = self.call(self.LOCAL, "", None)
+        self.assertEqual(len(calls), 1, notes)
+        self.assertEqual(calls[0]["body"]["overview"], self.LOCAL)
+        self.assertFalse([n for n in notes if "衝突" in n], notes)
+
+    def test_first_sync_pulls_when_local_is_empty(self):
+        calls, notes, fp, card = self.call("", self.CLOUD, None)
+        self.assertEqual(calls, [])
+        self.assertEqual(card["overview"], self.CLOUD)
+
+    def test_same_on_both_sides_is_a_no_op(self):
+        calls, notes, fp, card = self.call(self.LOCAL, self.LOCAL, "")
+        self.assertEqual(calls, [])
+        self.assertEqual(notes, [])
+        self.assertEqual(fp, lib.course_card_fingerprint({"overview": self.LOCAL}))
+
+    def test_save_keeps_unknown_keys_and_never_grows_student_blocks(self):
+        """課程卡是課程卡：存回去不能長出 goals／conceptualization，也不能吃掉別人的鍵。"""
+        path = lib.course_card_path(self.CID)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        write(path, json.dumps({"overview": "舊的", "網頁以後加的鍵": "別動我"},
+                               ensure_ascii=False))
+        lib.save_course_card(path, {"overview": "新的"})
+        raw = json.loads(read(path))
+        self.assertEqual(raw["overview"], "新的")
+        self.assertEqual(raw["網頁以後加的鍵"], "別動我")
+        self.assertNotIn("goals", raw)
+        self.assertNotIn("conceptualization", raw)
+
+
 if __name__ == "__main__":
     unittest.main()

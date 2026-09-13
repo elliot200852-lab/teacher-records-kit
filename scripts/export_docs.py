@@ -45,6 +45,7 @@ import export_records
 KIND_LABEL = export_records.KIND_LABEL
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 NO_RECORD = "（無記錄）"
+OVERVIEW_HEADING = export_records.OVERVIEW_HEADING
 PII_WARNING = "匯出檔含真名，別放到公開的地方"
 
 
@@ -148,7 +149,12 @@ def gather(data, kind, target, streams, dfrom, dto, with_class):
                         "`python3 scripts/export_records.py --local --kind %s` 可以看到有哪些。" % kind)
             items = [t for t in items if t["id"] == target]
         for t in items:
-            sections.append({"title": t["label"], "records": recs_of([t])})
+            sec = {"title": t["label"], "records": recs_of([t])}
+            if kind == "courses":
+                # 整體課程紀錄排在那一門課的逐日紀錄前面——先看得到這門課整體在做什麼，
+                # 後面每一天的紀錄才讀得懂（跟學生的 IEP 目標擺在同一個位置、同一個理由）。
+                sec["card"] = lib.load_course_card(lib.course_card_path(t["id"]))
+            sections.append(sec)
         title = "%s　%s" % (KIND_LABEL[kind],
                             "全部" if target == "all" else items[0]["label"])
     return sections, title
@@ -169,6 +175,18 @@ def card_blocks(card):
     if rows:
         out.append(("個案概念化", rows))
     return out
+
+
+def overview_paras(card):
+    """課程卡上的「整體課程紀錄」→ 一段一段的文字（空的就回空清單）。
+
+    它跟 IEP 目標那種「欄位表」不一樣——是一整段敘述，所以走段落不走 _table：
+    塞進表格的儲存格裡，Word 會把整篇文章擠成一個框、分頁時整塊跳到下一頁。
+    """
+    text = str((card or {}).get("overview") or "").strip()
+    if not text:
+        return []
+    return [p.strip("\n") for p in re.split(r"\n\s*\n", text) if p.strip()]
 
 
 def rec_heading(rec):
@@ -307,6 +325,11 @@ def document_xml(title, sub, sections):
     body = [_p(title, "Heading1"), _p(sub)]
     for sec in sections:
         body.append(_p(sec["title"], "Heading2"))
+        paras = overview_paras(sec.get("card"))
+        if paras:
+            body.append(_p(OVERVIEW_HEADING, "Heading3"))
+            for para in paras:
+                body.append(_p(para))
         for sub, rows in card_blocks(sec.get("card")):
             body.append(_p(sub, "Heading3"))
             body.append(_table(rows))
@@ -371,6 +394,11 @@ def render_html(title, sub, sections):
          "<h1>%s</h1>" % xe(title), '<div class="sub">%s</div>' % xe(sub)]
     for sec in sections:
         L.append("<h2>%s</h2>" % xe(sec["title"]))
+        paras = overview_paras(sec.get("card"))
+        if paras:
+            L.append("<h3>%s</h3>" % xe(OVERVIEW_HEADING))
+            for para in paras:
+                L.append('<p class="body">%s</p>' % xe(para))
         for sub, rows in card_blocks(sec.get("card")):
             L.append("<h3>%s</h3>" % xe(sub))
             L.append("<table>")

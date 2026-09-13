@@ -20,6 +20,10 @@
   · 回寫前先備份成 `.<檔名>.prev.md`。
   · 學生卡片上的兩塊底稿（IEP 的 goals、個案概念化）也雙向同步：只有一邊改就照那一邊，
     兩邊都改就印出來讓老師自己決定——跟記錄同一條規則。
+  · 課程卡上的「整體課程紀錄」（overview，整門課不分天的那一段）同一條規則雙向同步，
+    本機正本是 data/courses/<id>/card.json。
+  · 網頁上開的新課：本機自動補一個空的 records.md，下一輪它就是正式目標（其餘網頁新增的
+    記錄類型／業務組只提醒，不自動改 config）。
   · 去識別化：正文出現名冊真名就攔下不同步（兩個方向都攔）。
 
 用法：
@@ -314,6 +318,72 @@ def sync_student_card(sid, path, base, tok, state, dry, notes):
     return baseline
 
 
+def course_card_key(cid):
+    """課程卡在 .sync-state.json 的 `_cards` 裡用哪個鍵記基準指紋。
+
+    學生卡用裸代號（`S-02`），課程一定要加 `courses/` 前綴：兩者同放一個 dict，
+    代號剛好同名的課與學生會共用同一格，互相把對方「上次同步的樣子」蓋掉，
+    於是兩邊每一輪都被報成衝突（或更糟，挑錯邊覆蓋）。
+    """
+    return "courses/%s" % cid
+
+
+def sync_course_card(cid, path, base, tok, state, dry, notes):
+    """課程卡上的「整體課程紀錄」（overview）雙向同步——跟學生卡片同一條規則。
+
+    整體課程紀錄不是一則一則的紀錄，是整門課不分天的敘述，老師會回頭改：
+    今天在網頁上補一段、明天在電腦上改一句。所以：
+      · 只有本機改 → 推上去（mask 只有 overview）　· 只有網頁改 → 寫回 card.json
+      · 兩邊都改   → **不覆蓋**，印出來讓老師自己決定
+    `path` 是雲端那張卡的文件路徑（courses/<id>）；本機正本是 lib.course_card_path(cid)。
+    回傳這一次之後的基準指紋（沒同步成功就沿用舊的）。
+    """
+    key = course_card_key(cid)
+    local_path = lib.course_card_path(cid)
+    baseline = ((state.get("_cards") or {}).get(key) or "")
+    local = lib.load_course_card(local_path)
+    fields, ut = lib.get_doc(base, path, tok)
+    cloud = {"overview": lib.norm_overview((fields or {}).get("overview"))}
+    lh, ch = lib.course_card_fingerprint(local), lib.course_card_fingerprint(cloud)
+    if lh == ch:
+        return lh
+    if not baseline:
+        # 第一次同步沒有基準（跟學生卡片同一個坑）：直接比會永遠不相等、每一輪都報衝突。
+        # 沒有基準就看哪一邊是空的，空的那邊讓另一邊贏。
+        empty = lib.course_card_fingerprint({})
+        if ch == empty:
+            baseline = ch                                # 雲端還沒有東西 → 本機為準，推上去
+        elif lh == empty:
+            baseline = lh                                # 本機還沒有東西 → 網頁為準，寫回來
+    if ch == baseline:                                   # 只有本機改過 → 推上去
+        if dry:
+            notes.append("（預演）課程卡 %s：本機的整體課程紀錄會推上去" % cid)
+            return baseline
+        try:
+            # mask 只有 overview：這張卡上的 title／kind／統計欄位都是別人寫的，
+            # overviewUpdatedAt 是網頁自己蓋的時間戳——一個都不要碰。
+            lib.http("PATCH", base, path, tok, {"overview": local["overview"]},
+                     mask=["overview"],
+                     precondition_update_time=ut,
+                     precondition_exists=None if ut else False, raise_errors=True)
+        except lib.Precondition:
+            notes.append("衝突 課程卡 %s：網頁在同步途中改過整體課程紀錄——這次沒推上去" % cid)
+            return baseline
+        notes.append("課程卡 %s：整體課程紀錄已推上雲端" % cid)
+        return lh
+    if lh == baseline:                                   # 只有網頁改過 → 寫回本機
+        if dry:
+            notes.append("（預演）課程卡 %s：網頁上的整體課程紀錄會寫回 card.json" % cid)
+            return baseline
+        lib.save_course_card(local_path, cloud)
+        notes.append("課程卡 %s：網頁改的整體課程紀錄已寫回 %s"
+                     % (cid, os.path.relpath(local_path, lib.root())))
+        return ch
+    notes.append("衝突 課程卡 %s：本機與網頁的整體課程紀錄都改過——兩邊都沒動，"
+                 "打開 %s 跟網頁比對後留一邊" % (cid, os.path.relpath(local_path, lib.root())))
+    return baseline
+
+
 def write_cards(cards, base, tok, notes=None):
     """把累加好的卡片摘要寫回去（學生卡、課程卡、業務組卡）。
 
@@ -340,6 +410,10 @@ def write_cards(cards, base, tok, notes=None):
         if fields is None and c["kind"] != "students":
             summary["label"] = c["label"]              # 只有「這張卡還不存在」才補名字
         try:
+            # overview（整體課程紀錄）／title／kind 是網頁擁有的欄位，mask 永遠不要加進來，
+            # 否則會清掉：這裡的 summary 沒有那幾個鍵，帶進 mask 等於叫 Firestore
+            # 把老師在網頁上打的整篇整體課程紀錄刪成空的。
+            # 整體課程紀錄走 sync_course_card 那條雙向路徑，不走這裡。
             lib.http("PATCH", base, path, tok, summary, mask=list(summary.keys()),
                      precondition_update_time=ut,
                      precondition_exists=None if ut else False, raise_errors=True)
@@ -432,11 +506,18 @@ def sync_roster(kit, base, tok, state, dry, notes):
     return {m["id"]: sorted(m["streams"]) for m in merged}
 
 
-def check_web_additions(tabs, base, tok, notes):
+def check_web_additions(tabs, base, tok, notes, course_ids=None, dry=False):
     """網頁上臨時加的記錄類型／業務組：印一行提醒，**不自動改 config**。
 
     config/tabs.json 是本機檔與安全規則的依據，改它是有後果的事——所以這裡只報告，
     由老師跟 AI 說一聲，AI 再重跑安裝精靈把它正式加進去。
+
+    課程是唯一的例外，因為它不必動 config 就能成立：`lib.targets` 認得 data/courses/ 底下
+    的每一個資料夾，所以「網頁上開了一門新課」只要在本機補一個空的 records.md，
+    下一輪同步它就是一個正式目標，網頁上那幾則紀錄才帶得下來（少了這一步，老師在手機上
+    開的課會一直停在雲端，本機備份與 Word 匯出都看不到它）。
+    `course_ids` ＝本機已經認得的課程 id（main 傳 `lib.targets` 算出來的那一份）；
+    不給就不檢查課程——沒有那份清單就無從判斷「本機有沒有」，寧可不動也不要亂建資料夾。
     """
     try:
         cfg, _ = lib.get_doc(base, "meta/config", tok, raise_errors=True)
@@ -449,6 +530,26 @@ def check_web_additions(tabs, base, tok, notes):
         if sid and sid not in known_streams:
             notes.append("網頁上有學生記錄類型「%s」（%s）但 config/tabs.json 沒有，"
                          "請跟 AI 說要加進去" % (label, sid))
+    if course_ids is not None and (tabs.get("courses") or {}).get("enabled", True):
+        try:
+            cloud_courses = lib.list_docs(base, "courses", tok, raise_errors=True)
+        except Exception:
+            cloud_courses = []
+        for cid, fs, _ in cloud_courses:
+            if not cid or cid in course_ids:
+                continue
+            title = str(fs.get("title") or fs.get("label") or "").strip() or cid
+            path = os.path.join(lib.data_dir(), "courses", cid, "records.md")
+            rel = os.path.relpath(path, lib.root())
+            if dry:
+                notes.append("（預演）網頁上新增的課程「%s」（%s）會建一個本機檔 %s" % (title, cid, rel))
+                continue
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            if not os.path.exists(path):        # 保險：檔在、targets 卻沒認到就不要覆蓋它
+                with open(path, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(lib.file_header("courses", cid, title))
+            notes.append("從網頁新增的課程「%s」（%s）已建本機檔 %s——下一輪同步"
+                         "就會把網頁上那幾則紀錄帶下來" % (title, cid, rel))
     if not (tabs.get("business") or {}).get("enabled", True):
         return
     known_groups = {g.get("id") for g in ((tabs.get("business") or {}).get("groups") or [])}
@@ -486,6 +587,8 @@ def main():
     names = lib.real_names(kit)
     state = load_state()
     tg = lib.targets(kit, tabs)
+    # --only 會把 tg 砍掉，但「網頁上新增的課程」要跟全部本機課程比才算得準——先留一份。
+    course_ids = {t["id"] for t in tg if t["kind"] == "courses"}
     if a.only:
         tg = [t for t in tg
               if t["key"] == a.only or "%s/%s" % (t["kind"], t["id"]) == a.only]
@@ -502,19 +605,23 @@ def main():
         if not a.dry_run:
             state[t["key"]] = {"rids": sorted(rids), "at": lib.now_iso()}
 
-    # 學生卡片的兩塊底稿（IEP goals／個案概念化）雙向同步——預演也跑，只是不寫。
+    # 卡片上那些「會被回頭改」的底稿雙向同步——預演也跑，只是不寫。
+    #   學生：IEP goals／個案概念化　　課程：整體課程紀錄（overview）
     card_state = dict(state.get("_cards") or {})
     for path, c in sorted(cards.items()):
-        if c["kind"] != "students":
-            continue
-        fp = sync_student_card(c["id"], path, base, tok, state, a.dry_run, notes)
-        if fp:
-            card_state[c["id"]] = fp
+        if c["kind"] == "students":
+            fp = sync_student_card(c["id"], path, base, tok, state, a.dry_run, notes)
+            if fp:
+                card_state[c["id"]] = fp
+        elif c["kind"] == "courses":
+            fp = sync_course_card(c["id"], path, base, tok, state, a.dry_run, notes)
+            if fp:
+                card_state[course_card_key(c["id"])] = fp
     if not a.dry_run:
         state["_cards"] = card_state
         write_cards(cards, base, tok, notes)
     roster_streams = sync_roster(kit, base, tok, state, a.dry_run, notes)
-    check_web_additions(tabs, base, tok, notes)
+    check_web_additions(tabs, base, tok, notes, course_ids, a.dry_run)
     if not a.dry_run:
         state["_roster"] = {"streams": roster_streams, "at": lib.now_iso()}
         save_state(state)

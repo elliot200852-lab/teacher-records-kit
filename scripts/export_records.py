@@ -29,6 +29,8 @@ import lib
 
 KIND_LABEL = {"students": "學生記錄", "class": "班級整體觀察",
               "courses": "課程記錄", "business": "業務記錄"}
+# 課程卡上那一段「整門課不分天」的紀錄，匯出時用同一個小標（export_docs.py 也用這個字）。
+OVERVIEW_HEADING = "整體課程紀錄"
 
 
 def rec_from_cloud(rid, fs):
@@ -62,9 +64,14 @@ def collect(kit, tabs, local_only):
         if t["kind"] == "students" and roster.get(t["id"]):
             label = "%s　%s%s" % (t["id"], roster[t["id"]],
                                   ("（%s）" % t["streamLabel"]) if t.get("streamLabel") else "")
-        out.append({"kind": t["kind"], "id": t["id"], "stream": t["stream"],
-                    "streamLabel": t.get("streamLabel") or "", "label": label,
-                    "records": recs})
+        entry = {"kind": t["kind"], "id": t["id"], "stream": t["stream"],
+                 "streamLabel": t.get("streamLabel") or "", "label": label,
+                 "records": recs}
+        if t["kind"] == "courses":
+            # 整體課程紀錄的正本是本機 card.json（雲端那份由 sync.py 同步過來），
+            # 所以連網匯出也讀本機這一份——不為了一段文字多打一趟 Firestore。
+            entry["overview"] = lib.load_course_card(t.get("card_file") or "")["overview"]
+        out.append(entry)
     return {"exportedAt": lib.now_iso(), "roster": roster, "targets": out}
 
 
@@ -123,6 +130,10 @@ def to_md(data, with_related=False, idx=None):
         L.append("## %s" % KIND_LABEL[kind])
         for t in ts:
             L.append("\n### %s" % t["label"])
+            if (t.get("overview") or "").strip():
+                # 整門課的整體紀錄放在逐日紀錄前面；`--split` 那一路刻意不寫這一段，
+                # 那些檔是 ledger.py 要掃 `## YYYY-MM-DD` 的紀錄檔，不該多出別的檔或段落。
+                L += ["", "#### %s" % OVERVIEW_HEADING, "", t["overview"].strip(), ""]
             if not t["records"]:
                 L.append("_（還沒有記錄）_")
                 continue

@@ -625,6 +625,67 @@ def stream_needs(streams, key):
     return [s for s in streams if ((s.get("card") or {}).get(key))]
 
 
+# ── 課程卡片（整體課程紀錄）──────────────────────────────────────────────
+# 課程也有一塊「不是一則一則的記錄」：overview——整門課不分天的整體紀錄
+# （這門課想做什麼、走過來變成什麼樣）。雲端住 courses/<id> 這張卡的 `overview` 欄位，
+# 本機住 data/courses/<id>/card.json（只有 overview 一個鍵，沒有 goals／conceptualization），
+# sync.py 雙向同步、衝突不覆蓋——跟學生卡片同一條規則。
+#
+# 為什麼不跟學生卡片共用 load_card／save_card：那一套存檔時一定會寫 goals 與
+# conceptualization 兩個鍵，拿來存課程卡等於在課程卡上長出兩塊空的學生欄位；
+# 反過來拿學生卡的指紋去比 overview 也永遠比不出差別。兩種卡片各一套，互不干擾。
+COURSE_CARD_FILE = "card.json"
+
+
+def course_card_path(cid, data_root=None):
+    return os.path.join(data_root or data_dir(), "courses", cid, COURSE_CARD_FILE)
+
+
+def norm_overview(raw):
+    """整體課程紀錄正規化：一律字串、前後空白去掉（兩邊的換行差異不該被當成「改過了」）。"""
+    return str(raw or "").strip()
+
+
+def load_course_card(path):
+    """讀一門課的卡片（吃檔案路徑，不是課程 id）；沒有這個檔回 {"overview": ""}。"""
+    data = {}
+    if path and os.path.exists(path):
+        data = _load_json(path, "課程卡片 %s" % os.path.relpath(path, root()),
+                          "它只有一個 overview 欄位（整體課程紀錄的文字）；"
+                          "不確定就把它刪掉，下次同步會從網頁重新寫回來。")
+    if not isinstance(data, dict):
+        data = {}
+    return {"overview": norm_overview(data.get("overview"))}
+
+
+def save_course_card(path, card):
+    """寫回課程卡片（只寫 overview，其他鍵原樣保留——網頁以後在這張卡上加什麼都不會被清掉）。"""
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    old = {}
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                old = json.load(f)
+        except Exception:
+            old = {}
+    if not isinstance(old, dict):
+        old = {}
+    old["overview"] = norm_overview((card or {}).get("overview"))
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(old, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    return path
+
+
+def course_card_fingerprint(card):
+    """課程卡上這一塊的指紋（判斷「本機改了沒／雲端改了沒」用）——只看 overview。"""
+    payload = json.dumps({"overview": norm_overview((card or {}).get("overview"))},
+                         ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
 # ── 記錄目標 ────────────────────────────────────────────────────────────
 def targets(kit, tabs, data_root=None):
     """回傳這位老師的所有記錄目標，四種混在一起、順序固定（同步、台帳、匯出共用）。
@@ -632,7 +693,8 @@ def targets(kit, tabs, data_root=None):
     每一項：
       {kind, id, stream（students／class 才有）, scope, label, path（本機 md）,
        sourceFile（path 相對 data/）, records（Firestore 集合）, card（卡片文件或 None）,
-       key（唯一鍵：students/S-01/case、class/main/homeroom、courses/x、business/y）}
+       key（唯一鍵：students/S-01/case、class/main/homeroom、courses/x、business/y）,
+       card_file（只有 courses 有：整體課程紀錄的本機 data/courses/<id>/card.json）}
 
       · students  ← 每位學生 × 他所屬的每一種記錄類型各一個目標
                     （scope:class 的類型＝名冊全部學生；scope:case 的類型＝
@@ -705,6 +767,9 @@ def targets(kit, tabs, data_root=None):
             add("courses", cid, titles.get(cid) or cid,
                 os.path.join(d, "courses", cid, "records.md"),
                 "courses/%s/records" % cid, "courses/%s" % cid)
+            # 課程多一個 card_file：整體課程紀錄（overview）的本機正本。
+            # 只有 courses 有這個鍵——學生卡片走 card_path(sid)，班級與業務組沒有卡片檔。
+            out[-1]["card_file"] = course_card_path(cid, d)
 
     if (tabs.get("business") or {}).get("enabled", True):
         for g in ((tabs.get("business") or {}).get("groups") or []):

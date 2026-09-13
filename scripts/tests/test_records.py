@@ -149,6 +149,7 @@ class TestContentHash(unittest.TestCase):
 class TestParseFile(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="trk-test-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
         self.path = os.path.join(self.tmp, "records.md")
 
     def test_blocks_and_offsets(self):
@@ -168,6 +169,7 @@ class TestParseFile(unittest.TestCase):
 class TestRoster(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="trk-test-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
         self.data = os.path.join(self.tmp, "data")
         os.makedirs(self.data)
 
@@ -270,6 +272,7 @@ class TestTargets(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="trk-test-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
         self.data = os.path.join(self.tmp, "data")
         os.makedirs(self.data)
         write(os.path.join(self.data, "roster.csv"),
