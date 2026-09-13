@@ -652,6 +652,12 @@ def gather(ask, answers, existing_kit):
     kit = merge_over(kit, existing_kit or {})
     kit.update({"version": 3, "mode": db_mode, "owner_email": owner,
                 "id_prefix": prefix.rstrip("-"), "firebase": fb})
+    # 共同擁有者（選填）：--answers 給的優先，否則沿用既有設定；安裝精靈不問這題（多數老師用不到）。
+    co_src = a.get("co_owner_emails")
+    if co_src is None:
+        co_src = existing_kit.get("co_owner_emails") or []
+    kit["co_owner_emails"] = [str(e).strip().lower() for e in (co_src if isinstance(co_src, list) else [])
+                              if str(e).strip()]
     # 無頭交辦：金鑰**永遠不寫進這個檔**，只寫「環境變數叫什麼名字」。
     old_line = (existing_kit.get("headless") or {}).get("line") or {}
     kit["headless"] = {

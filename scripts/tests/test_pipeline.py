@@ -169,6 +169,32 @@ class TestBuildConfig(unittest.TestCase):
         self.assertIn('"ownerEmail": "teacher@example.com"', kitjs)
         self.assertIn('window.OWNER_EMAIL = "teacher@example.com"', fbjs)
 
+    def test_co_owner_emails_reach_rules_and_web(self):
+        """co_owner_emails：規則變 `in [...]`、網頁拿到 ownerEmails 清單；去重、小寫、範本值擋下。"""
+        self._kit(co_owner_emails=["HELPER@example.com", "helper@example.com", "TEACHER@example.com"])
+        r = run("build_config.py", "--root", self.tmp)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        rules = read(os.path.join(self.tmp, "firestore.rules"))
+        storage = read(os.path.join(self.tmp, "storage.rules"))
+        kitjs = read(os.path.join(self.tmp, "site", "js", "kit-config.js"))
+        fbjs = read(os.path.join(self.tmp, "site", "js", "firebase-config.js"))
+        self.assertIn("request.auth.token.email in ['teacher@example.com', 'helper@example.com']", rules)
+        self.assertIn("request.auth.token.email in ['teacher@example.com', 'helper@example.com']", storage)
+        self.assertNotIn("{{OWNER_EMAILS}}", rules + storage)
+        self.assertIn('"ownerEmails": [\n    "teacher@example.com",\n    "helper@example.com"\n  ]', kitjs)
+        self.assertIn('window.OWNER_EMAILS = ["teacher@example.com", "helper@example.com"];', fbjs)
+        # 沒有共同擁有者＝規則只有一個人（跟以前一樣）
+        self._kit(co_owner_emails=[])
+        self.assertEqual(run("build_config.py", "--root", self.tmp).returncode, 0)
+        self.assertIn("in ['teacher@example.com']", read(os.path.join(self.tmp, "firestore.rules")))
+        # 惡意字串進 co_owner_emails 一樣擋，不能是清單也擋
+        for bad in (["x'||true||'y@example.com"], "helper@example.com"):
+            with self.subTest(bad=bad):
+                self._kit(co_owner_emails=bad)
+                r = run("build_config.py", "--root", self.tmp)
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assertIn("co_owner_emails", r.stderr)
+
     def test_auth_domain_defaults_to_web_app(self):
         """Console 給的 .firebaseapp.com 跟網頁不同源，iPhone 上會一直登不進去。"""
         self._kit()

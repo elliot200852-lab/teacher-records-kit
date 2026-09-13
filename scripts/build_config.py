@@ -8,8 +8,8 @@
       firestore.rules.tmpl（安全規則樣板）
 
   產：site/js/kit-config.js     window.KIT = {...}（分頁、業務組庫、擁有者、示範模式）
-      site/js/firebase-config.js  window.FIREBASE_CONFIG / window.OWNER_EMAIL（不是 module）
-      firestore.rules            把樣板的 {{OWNER_EMAIL}} 換成你的信箱
+      site/js/firebase-config.js  window.FIREBASE_CONFIG / window.OWNER_EMAIL / window.OWNER_EMAILS（不是 module）
+      firestore.rules            把樣板的 {{OWNER_EMAILS}} 換成擁有者信箱清單（owner_email＋co_owner_emails）
 
   這三個檔都被 .gitignore 擋住，而且**永遠由這支腳本產生**——AI 代理不准手寫。
   手寫規則檔一旦把 email 打錯，資料庫就變成誰都讀不到（或更糟：誰都讀得到）。
@@ -49,6 +49,27 @@ def owner_email(kit):
     return (kit.get("owner_email") or "").strip().lower()
 
 
+def co_owner_emails(kit):
+    """共同擁有者（選填清單）：跟 owner_email 一樣的權限，例如代管老師紀錄的第二個帳號。
+    去空白、轉小寫、去重、剔除與 owner_email 重複者；不是清單就當空的（validate 會另外報錯）。"""
+    raw = kit.get("co_owner_emails") or []
+    if not isinstance(raw, list):
+        return []
+    out, seen = [], {owner_email(kit)}
+    for e in raw:
+        e = (str(e) if e is not None else "").strip().lower()
+        if e and e not in seen:
+            seen.add(e)
+            out.append(e)
+    return out
+
+
+def owner_emails(kit):
+    """規則與網頁真正用的名單＝owner_email 在前、co_owner_emails 在後。"""
+    o = owner_email(kit)
+    return ([o] if o else []) + co_owner_emails(kit)
+
+
 def _rules_literal(s):
     """把字串跳脫成安全的規則字面值（樣板裡它被包在單引號裡）。
 
@@ -56,6 +77,11 @@ def _rules_literal(s):
     萬一以後有人放寬了那個正規表示式也不會產生一份「誰都是擁有者」的規則。
     """
     return json.dumps(s, ensure_ascii=False)[1:-1].replace("'", "\\'")
+
+
+def _rules_list_literal(emails):
+    """把信箱清單變成規則裡 `in [...]` 用的字面值（每個都走 _rules_literal）。"""
+    return ", ".join("'%s'" % _rules_literal(e) for e in emails)
 
 
 def _load_or_example(name):
@@ -100,6 +126,19 @@ def validate(kit, tabs, problems, notes, allow_placeholders=False):
         ph("owner_email 還是範本值（%s）——正式安裝要換成你自己的信箱。" % email,
            "把 config/kit.json 的 owner_email 換成你要用來登入的 Google 信箱，再跑一次"
            "（測試或 CI 只想驗形狀的話加 --allow-placeholders）。")
+    co_raw = kit.get("co_owner_emails")
+    if co_raw is not None and not isinstance(co_raw, list):
+        problems.append(("co_owner_emails 要是清單（陣列）", '寫成 ["a@gmail.com", "b@gmail.com"]；沒有共同擁有者就寫 []。'))
+    else:
+        for e in (co_raw or []):
+            e = (str(e) if e is not None else "").strip().lower()
+            if not e:
+                continue
+            if not EMAIL_RE.match(e):
+                problems.append(("co_owner_emails 裡有一個看起來不是信箱：%s" % e,
+                                 "格式要像 someone@gmail.com（只能有英數與 . _ % + -，不能有引號）。"))
+            elif e in PLACEHOLDERS:
+                ph("co_owner_emails 裡還有範本值（%s）。" % e, "刪掉它或換成真的信箱。")
 
     # 本機模式沒有 Firebase 這件事：那六個值一個都不檢查（老師根本沒被問過），
     # 而且**不產** firestore.rules 與 firebase-config.js——產一份鎖著誰的規則檔出來，
@@ -246,6 +285,7 @@ def build_kit_js(kit, tabs, library, stream_library):
         "headless": {"enabled": lib.headless_on(kit), "tool": h["tool"],
                      "paired": bool(h["line"]["owner_user_id"])},
         "ownerEmail": owner_email(kit),
+        "ownerEmails": owner_emails(kit),
         "idPrefix": lib.id_prefix(kit),
         "tabs": {k: tabs.get(k, {}) for k in ("students", "courses", "business")},
         # 三個垂直方案：這位老師比較像哪一種（安裝時問的），與期末的預設報告格式。
@@ -285,7 +325,8 @@ def build_firebase_js(kit):
             "   iPhone 上登不進去的話，把 kit.json 的 firebase.auth_domain 改成你實際打開網頁的網域，\n"
             "   再重跑一次這支腳本。 */\n"
             "window.FIREBASE_CONFIG = " + json.dumps(cfg, ensure_ascii=False, indent=2) + ";\n"
-            "window.OWNER_EMAIL = " + json.dumps(owner_email(kit), ensure_ascii=False) + ";\n")
+            "window.OWNER_EMAIL = " + json.dumps(owner_email(kit), ensure_ascii=False) + ";\n"
+            "window.OWNER_EMAILS = " + json.dumps(owner_emails(kit), ensure_ascii=False) + ";\n")
 
 
 def build_rules(kit):
@@ -295,10 +336,10 @@ def build_rules(kit):
                 "重新下載一份 kit（這個檔跟著程式碼走）。")
     with open(tmpl_path, encoding="utf-8") as f:
         tmpl = f.read()
-    if "{{OWNER_EMAIL}}" not in tmpl:
-        lib.die("firestore.rules.tmpl 裡找不到 {{OWNER_EMAIL}} 佔位符。",
+    if "{{OWNER_EMAILS}}" not in tmpl:
+        lib.die("firestore.rules.tmpl 裡找不到 {{OWNER_EMAILS}} 佔位符。",
                 "樣板被改壞了，重新下載一份 kit。")
-    return tmpl.replace("{{OWNER_EMAIL}}", _rules_literal(owner_email(kit)))
+    return tmpl.replace("{{OWNER_EMAILS}}", _rules_list_literal(owner_emails(kit)))
 
 
 HEADLESS_STORAGE_BLOCK = """
@@ -320,11 +361,11 @@ def build_storage_rules(kit):
                 "重新下載一份 kit（這個檔跟著程式碼走）。")
     with open(tmpl_path, encoding="utf-8") as f:
         tmpl = f.read()
-    for ph_ in ("{{OWNER_EMAIL}}", "{{HEADLESS_BLOCK}}"):
+    for ph_ in ("{{OWNER_EMAILS}}", "{{HEADLESS_BLOCK}}"):
         if ph_ not in tmpl:
             lib.die("storage.rules.tmpl 裡找不到 %s 佔位符。" % ph_,
                     "樣板被改壞了，重新下載一份 kit。")
-    return (tmpl.replace("{{OWNER_EMAIL}}", _rules_literal(owner_email(kit)))
+    return (tmpl.replace("{{OWNER_EMAILS}}", _rules_list_literal(owner_emails(kit)))
                 .replace("{{HEADLESS_BLOCK}}", HEADLESS_STORAGE_BLOCK if lib.headless_on(kit) else ""))
 
 

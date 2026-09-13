@@ -28,8 +28,8 @@ function ownerEmail(u) {
 
 function start() {
   const cfg = window.FIREBASE_CONFIG;
-  const owner = lc(window.OWNER_EMAIL);
-  if (!cfg || !cfg.projectId || !owner) {
+  const owners = (window.OWNER_EMAILS || [window.OWNER_EMAIL]).map(lc).filter(Boolean);
+  if (!cfg || !cfg.projectId || !owners.length) {
     // module 是 defer 的，正常情況設定早就載好了；真的沒有就安靜收手，
     // 只在主控台留一句——別把別人網站的導覽列弄壞。
     console.warn("[dashboard-nav] 找不到 window.FIREBASE_CONFIG / window.OWNER_EMAIL，" +
@@ -43,7 +43,7 @@ function start() {
     const ul = document.querySelector(NAV_SEL);
     if (!ul) return;
     let li = document.getElementById("nav-records");
-    const isOwner = lc(ownerEmail(user)) === owner;   // 信箱大小寫不敏感
+    const isOwner = owners.includes(lc(ownerEmail(user)));   // 信箱大小寫不敏感；含 co_owner_emails
     if (isOwner) {
       if (!li) {
         li = document.createElement("li");

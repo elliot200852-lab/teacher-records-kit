@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // Teacher Records Kit — Firestore 安全規則範本
-// 安裝時把 {{OWNER_EMAIL}} 換成擁有者的 Google email，存成 firestore.rules 後部署：
+// 安裝時把 {{OWNER_EMAILS}} 換成擁有者（含 co_owner_emails）的 Google email 清單，存成 firestore.rules 後部署：
 //   firebase deploy --only firestore:rules --project <YOUR_PROJECT>
 //
 // 核心保證：只有擁有者本人（Google 登入 + 已驗證）能讀寫；其餘所有人一律 deny。
@@ -11,7 +11,7 @@ service cloud.firestore {
 
     function isOwner() {
       return request.auth != null
-        && request.auth.token.email == '{{OWNER_EMAIL}}'
+        && request.auth.token.email in [{{OWNER_EMAILS}}]
         && request.auth.token.email_verified == true
         && request.auth.token.firebase.sign_in_provider == 'google.com';
     }

@@ -8,6 +8,9 @@
   "_註解_owner_email": "只有這個 Google 帳號能讀寫你的資料（安全規則在伺服器端鎖定本人）。要用能登入 Google 的信箱；學校配發帳號若被管理員鎖住 Cloud Console，改用個人 Gmail。",
   "owner_email": "you@example.com",
 
+  "_註解_co_owner_emails": "選填。共同擁有者的 Google 信箱清單，權限跟 owner_email 完全一樣（規則與網頁都放行）。用途：請別人代管你的紀錄、或你自己有第二個帳號。沒有就留 []。",
+  "co_owner_emails": [],
+
   "_註解_id_prefix": "學生代號前綴。所有紀錄一律寫代號（如 S-01），真名只留在本機名冊 data/roster.csv。想用班級代號當前綴（如 5A）也可以。",
   "id_prefix": "S",
 

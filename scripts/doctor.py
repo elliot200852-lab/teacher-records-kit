@@ -250,7 +250,11 @@ def check_config(r, kit, tabs, skip_network):
             text = f.read()
         # 規則檔裡寫的是小寫的信箱（build_config 會 lower()），設定檔裡老師可能打成大寫——
         # 兩邊都轉小寫再比，不然明明產對了卻報「規則裡沒有你的信箱」。
-        good = email.strip().lower() in text.lower() and "{{OWNER_EMAIL}}" not in text
+        wanted = [email.strip().lower()] + [
+            (str(e) if e is not None else "").strip().lower()
+            for e in (kit.get("co_owner_emails") or [])
+            if isinstance(kit.get("co_owner_emails"), list)]
+        good = all(w in text.lower() for w in wanted if w) and "{{OWNER_EMAILS}}" not in text
         r.add("rules_email", "安全規則裡的信箱與設定一致", good,
               "" if good else "規則檔裡沒有你的信箱，或佔位符沒被換掉",
               "跑 `python3 scripts/build_config.py`，再 `firebase deploy --only firestore:rules`。")

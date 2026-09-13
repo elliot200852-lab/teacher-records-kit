@@ -10,6 +10,24 @@
 `sync.py` 把它寫進 Firestore `meta/config.version`（＝這個資料庫最後一次是哪一版同步／部署的），
 `doctor.py` 連得上網時會拿兩邊比對，程式比資料庫新就提醒重新部署規則。
 
+## v3.0.0-alpha.5 — 2026-09-13（尚未發行）
+
+> **規則有動——要重新部署 `firestore.rules`（與啟用無頭時的 `storage.rules`）。**
+> 升級步驟：`python3 scripts/build_config.py` → `firebase deploy --only firestore:rules --project <專案ID>`。
+
+### 共同擁有者 `co_owner_emails`
+
+- `config/kit.json` 多一個選填欄位 `co_owner_emails`（清單，預設 `[]`）。清單裡的 Google 帳號
+  跟 `owner_email` 權限完全一樣：安全規則放行、網頁登得進去、匯出與同步的資料都看得到。
+  用途＝請人代管紀錄、或老師自己有第二個帳號。**不是分權**：這套設計仍是「擁有者本人」。
+- 規則樣板的判斷從 `email == '...'` 改成 `email in ['...', '...']`；每個信箱一樣走
+  `EMAIL_RE` 嚴格驗證＋`_rules_literal` 跳脫（惡意字串進清單一樣擋，不是清單也擋）。
+  沒填共同擁有者的話規則裡只有一個人，行為跟 alpha.4 一致。
+- `build_config.py` 另外輸出 `window.KIT.ownerEmails` 與 `window.OWNER_EMAILS`；
+  `dashboard.html` 與 `dashboard-nav.js` 改查清單；`doctor.py` 檢查清單裡每個信箱都在規則檔裡；
+  `setup.py --answers` 可帶 `co_owner_emails`（安裝精靈不問這題）。
+- 已知：`monthly_reminder.py` 的月報仍只寄給 `owner_email`。
+
 ## v3.0.0-alpha.4 — 2026-09-12（尚未發行）
 
 > **規則有動——要重新部署 `firestore.rules`（與啟用無頭時的 `storage.rules`、`functions`）。**

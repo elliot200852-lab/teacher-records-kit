@@ -1042,6 +1042,7 @@ v3 加了業務記錄的區塊，也改成允許你自己刪除記錄。沒重�
 |---|---|---|
 | `mode` | 字串 | `"cloud"`（預設，要 Firebase）或 `"local"`（只放這台電腦，下面整個 `firebase` 區塊都不用填）。沒寫這個鍵一律當 `cloud` |
 | `owner_email` | 字串 | 你的 Google 信箱。只有這個帳號讀寫得到你的資料 |
+| `co_owner_emails` | 清單 | 選填。共同擁有者的 Google 信箱，權限跟 `owner_email` 一樣（代管、第二個帳號）。沒有就 `[]`；改了要重跑 `build_config.py` 並重新部署規則 |
 | `id_prefix` | 字串 | 學生代號前綴，預設 `S`（代號長成 `S-01`） |
 | `vertical` | 字串 | 三個方案 id 之一，或 `"none"`。只是標記，不會替你勾任何一項 |
 | `firebase.project_id` | 字串 | Console 網址 `/project/` 後面那一段 |

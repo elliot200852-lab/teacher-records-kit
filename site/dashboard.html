@@ -534,6 +534,8 @@ const TABS = (KIT && KIT.tabs) || DEFAULT_TABS;
 function tabCfg(t) { return Object.assign({}, DEFAULT_TABS[t], TABS[t] || {}); }
 const DEMO = !!(KIT && KIT.demo === true) || /(?:^|[?&])demo=1(?:&|$)/.test(location.search);
 const OWNER_EMAIL = (KIT && KIT.ownerEmail) || window.OWNER_EMAIL || '';
+// 共同擁有者：kit.json 的 co_owner_emails（build_config.py 併進 ownerEmails）。舊設定檔沒有這個欄位就只有 OWNER_EMAIL 一個。
+const OWNER_EMAILS = ((KIT && KIT.ownerEmails) || window.OWNER_EMAILS || [OWNER_EMAIL]).map(lc).filter(Boolean);
 // 代號前綴不含後面那一槓（設定寫 "S"，代號是 S-01）。舊設定寫成 "S-" 也吃得下。
 const ID_PREFIX = String((KIT && KIT.idPrefix) || 'S').replace(/[-_\s]+$/, '');
 const sid = n => ID_PREFIX + '-' + pad2(n);
@@ -3586,7 +3588,7 @@ async function startFirebase() {
     const email = ownerEmailOf(user);
     // 信箱大小寫不敏感：Google 回來的可能是 Teacher@Gmail.com，設定裡寫的是 teacher@gmail.com。
     // （build_config.py 也把 owner_email 轉成小寫，兩邊都轉才不會有一邊漏掉。）
-    if (lc(email) !== lc(OWNER_EMAIL)) {
+    if (!OWNER_EMAILS.includes(lc(email))) {
       authBox.hidden = false; authInitial.hidden = true; authWrong.hidden = false;
       wrongEmail.textContent = email || '(no email)'; content.hidden = true; return;
     }

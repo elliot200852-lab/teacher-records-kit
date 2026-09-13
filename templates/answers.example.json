@@ -6,6 +6,8 @@
   "mode": "cloud",
 
   "owner_email": "you@example.com",
+  "_註解_co_owner_emails": "選填：共同擁有者信箱清單，權限同 owner_email。",
+  "co_owner_emails": [],
   "id_prefix": "S",
 
   "_註解_vertical": "三個垂直方案（config/verticals.json）：qualitative-assessment（質性評量自動化）、iep-tracking（IEP／早療目標追蹤）、soap-casework（SOAP 個案紀錄）。安裝精靈會唸出這個方案建議勾的記錄類型、業務組與期末格式——**只是建議，一項都不會幫你預先勾**，下面 students.streams 勾了什麼就是什麼。都不是就填 \"none\" 或整個鍵拿掉。",

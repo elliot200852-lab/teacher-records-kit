@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // Teacher Records Kit — Cloud Storage 安全規則範本
-// 由 scripts/build_config.py 產生 storage.rules（{{OWNER_EMAIL}} 換成你的信箱，
+// 由 scripts/build_config.py 產生 storage.rules（{{OWNER_EMAILS}} 換成擁有者信箱清單，
 // {{HEADLESS_BLOCK}} 只有開了無頭交辦才會長出東西），產完部署：
 //   firebase deploy --only storage --project <你的專案id>
 //
@@ -17,7 +17,7 @@ service firebase.storage {
 
     function isOwner() {
       return request.auth != null
-        && request.auth.token.email == '{{OWNER_EMAIL}}'
+        && request.auth.token.email in [{{OWNER_EMAILS}}]
         && request.auth.token.email_verified == true
         && request.auth.token.firebase.sign_in_provider == 'google.com';
     }
