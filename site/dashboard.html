@@ -76,6 +76,44 @@
   .badge.done { background: #e6f3e8; color: var(--ok); }
   .badge.todo { background: #fdeaea; color: var(--todo); }
   .filter-row { margin-top: 1rem; font-size: .9rem; color: #555; }
+  .filter-row label { margin-right: .9rem; }
+
+  /* ── 評量維度覆蓋（自動推導）──────────────────────────────────────
+     只有「沒有『報告維度』欄位」的記錄類型（導師班級學生紀錄那種只寫自由文字＋#標籤的）
+     才會出現：學生卡五個小籤、學生格上方的全班摘要、明細頁的維度卡、新增表單第二排快速鍵。
+     顏色三階：0 則＝空心紅、1–thinMax 則＝黃（太薄）、再多＝綠。 */
+  .dim-pips { display: flex; gap: .22rem; align-items: center; margin-top: .45rem; flex-wrap: wrap; }
+  .dim-pips .pip { display: inline-block; padding: 0 .34rem; border-radius: 999px; font-size: .7rem;
+                   line-height: 1.55; border: 1px solid; white-space: nowrap; }
+  .dim-pips .pip.t2 { background: #e6f3e8; border-color: #b9d9be; color: #2f7a3d; }
+  .dim-pips .pip.t1 { background: #fff4e0; border-color: #ecd09a; color: #8a5a1a; }
+  .dim-pips .pip.t0 { background: #fff; border-color: #c8483e; color: #c8483e; }
+  .dim-pips .pip.pending { background: #eee; border-color: #ddd; color: #aaa; }
+  .class-dim-summary { margin-top: .8rem; padding: .6rem .9rem; background: #fff; border: 1px solid var(--line);
+                       border-radius: 6px; font-size: .86rem; color: #444; line-height: 1.8; }
+  .class-dim-summary strong { color: #c8483e; }
+  .class-dim-summary .cds-note { color: #999; font-size: .8rem; }
+  .dim-panel { margin: 0 0 .8rem; padding: .7rem .9rem; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+  .dim-panel .dp-title { font-size: .82rem; color: #777; margin: 0 0 .4rem; }
+  .dim-panel .dp-row { display: flex; flex-wrap: wrap; gap: .4rem; }
+  .dim-panel .dp-chip { padding: .25rem .7rem; border-radius: 999px; font: inherit; font-size: .82rem;
+                        border: 1px solid #cfe0cf; background: #eef5ee; color: #2f7a3d; cursor: pointer; }
+  .dim-panel .dp-chip.thin { border-color: #ecd09a; background: #fff4e0; color: #8a5a1a; }
+  .dim-panel .dp-chip.miss { border-color: #e2b6b3; background: #fdf0ef; color: #8f3f42; }
+  .dim-panel .dp-chip.active { outline: 2px solid #7a6aa8; outline-offset: 1px; }
+  .dim-panel .dp-bar { display: inline-block; height: .45rem; background: currentColor; opacity: .35;
+                       border-radius: 2px; margin-left: .4rem; vertical-align: middle; }
+  .dim-panel .dp-hint { margin: .5rem 0 0; font-size: .85rem; color: #8f3f42; }
+  .dim-panel .dp-hint.ok { color: #2f7a3d; }
+  .dim-panel .dp-hint button { margin-left: .5rem; padding: .15rem .6rem; font: inherit; font-size: .8rem;
+                               border: 1px solid #c8483e; color: #c8483e; background: #fff; border-radius: 4px; cursor: pointer; }
+  .dim-panel .dp-legend { font-size: .76rem; color: #999; margin: .45rem 0 0; }
+  .rc-dims { font-size: .78rem; color: #888; margin: .35rem 0 0; line-height: 1.6; }
+  .rc-dims b { font-weight: 600; color: #5b4b8a; }
+  .chip-label { font-size: .78rem; color: #888; margin: .5rem 0 .25rem; }
+  .tag-chips.dims button { background: #f3eef9; color: #5b4b8a; border-color: #dcd2ea; }
+  .tag-chips.dims button.on { background: #7a6aa8; color: #fff; border-color: #7a6aa8; }
+  .tag-chips.dims button.miss { border-style: dashed; border-color: #c8483e; }
 
   .detail-head { display: flex; align-items: baseline; gap: .8rem; margin: 1rem 0; flex-wrap: wrap; }
   .detail-head h2 { margin: 0; font-size: 1.2rem; }
@@ -286,6 +324,10 @@
     .shell { margin: .6rem auto; padding: .8rem .8rem 3rem; }
     h1 { font-size: 1.3rem; }
     .card-grid { grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap: .5rem; }
+    /* 五個維度小籤要塞進 140px 寬的卡：字再小一點、間距再窄一點，排不下就換行（卡片不被撐開） */
+    .dim-pips { gap: .18rem; margin-top: .4rem; }
+    .dim-pips .pip { font-size: .65rem; padding: 0 .28rem; }
+    .dim-panel .dp-chip { min-height: 40px; }
     .record-card { padding: .8rem .9rem; }
     .tab-btn { padding: .45rem .7rem; font-size: .95rem; }
     .field-grid { grid-template-columns: 1fr; }
@@ -366,7 +408,8 @@
 
         <div id="students-body" hidden>
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem;margin-top:.8rem">
-            <div class="filter-row" style="margin-top:0"><label><input type="checkbox" id="filter-todo"> 只看本月還沒記的</label></div>
+            <div class="filter-row" style="margin-top:0"><label><input type="checkbox" id="filter-todo"> 只看本月還沒記的</label><!--
+              --><label id="filter-dims-label" hidden><input type="checkbox" id="filter-dims"> 只看評量維度還沒齊的</label></div>
             <div style="display:flex;gap:.5rem;flex-wrap:wrap">
               <button class="add-btn" id="add-member-btn" type="button" hidden>＋ 列入學生</button>
               <button class="add-btn" id="open-class-obs" style="background:#5a6b8c" type="button">📋 班級整體觀察</button>
@@ -402,6 +445,9 @@
             <div id="member-list" class="lib-list"></div>
             <div class="editbtns"><button id="mb-save" class="save" type="button">列入</button><button id="mb-cancel" class="cancel" type="button">取消</button><span id="mb-msg" class="msg"></span></div>
           </div>
+          <!-- 全班哪一個評量維度最缺（只在會自動推導維度的記錄類型出現）：
+               期末評語那五段，哪一段全班都寫不出來，記的時候就看得到。 -->
+          <div id="class-dim-summary" class="class-dim-summary" hidden></div>
           <div id="student-grid" class="card-grid"><div class="empty-state">載入中…</div></div>
         </div>
       </div>
@@ -456,12 +502,21 @@
       <div id="detail-streams" class="stream-mini" hidden></div>
       <!-- 明細頁頂端的卡：IEP 的「目標清單」、SOAP 的「個案概念化」（依當前類型的 card 決定） -->
       <div id="detail-cards"></div>
+      <!-- 評量維度覆蓋：這位學生五個維度各幾則（標籤＋內文自動推導）。點一個維度＝只看那個維度的紀錄；
+           缺的那個可以直接「補一則」，開新增表單並預填該維度的代表標籤。 -->
+      <div id="dim-panel" class="dim-panel" hidden></div>
       <div id="add-form" class="add-form" hidden>
         <div class="add-row">
           <input id="add-date" type="date">
           <input id="add-tags" class="tags" type="text" placeholder="點下方分類，或自己打 #標籤">
         </div>
         <div id="tag-chips" class="tag-chips"></div>
+        <!-- 第二排：五個評量維度（只在會自動推導維度的記錄類型出現）。
+             點一顆＝加上那個維度的代表標籤；虛線框＝這位學生這個維度的素材還不夠。 -->
+        <div id="dim-chip-box" hidden>
+          <div class="chip-label" id="dim-chip-label">評量維度</div>
+          <div id="dim-chips" class="tag-chips dims"></div>
+        </div>
         <div id="add-fields" class="field-grid"></div>
         <textarea id="add-body" rows="8" placeholder="記錄內容（客觀描述具體事件；請用代號、勿寫真名）…"></textarea>
         <div id="rel-chips" class="rel-chips"></div>
@@ -599,6 +654,110 @@ function streamField(st, name) { return ((st && st.fields) || []).find(f => f.na
 function streamIsQualitative(st) { return !!streamField(st, '報告維度'); }
 function fieldOptions(st, name) { const f = streamField(st, name); return (f && f.options) || []; }
 function splitMulti(v) { return String(v == null ? '' : v).split(MULTI_SEP).map(x => x.trim()).filter(Boolean); }
+
+// ══ 評量維度自動推導 ══════════════════════════════════════════════════
+// 導師班級學生紀錄（homeroom）這一種只記「一種自由文字＋#標籤」，沒有「報告維度」欄位——
+// 但期末評語還是要分那五段。所以維度不是老師填的，是從**標籤＋內文關鍵詞**兩路推出來的：
+// 標籤查 fmt.tagMap、正文含 fmt.keywords 的任一個詞就算對到，一則可以同時落在好幾個維度。
+// 記錄當下就看得到哪個維度還沒觀察到（學生卡的五個小籤、明細的維度卡、全班摘要）。
+//
+// 三張表（tagMap／keywords／thinMax）一律來自格式庫 config/report-formats.library.json，
+// 網頁不硬編任何一張：老師覺得對應不對，就改設定檔重跑 scripts/build_config.py。
+// 有「報告維度」欄位的類型（質性評量）不走這條——他自己標了，照欄位分組才是他的意思。
+function fmtDims(fmt) { return (fmt && Array.isArray(fmt.dimensions)) ? fmt.dimensions.filter(Boolean) : []; }
+function fmtTagMap(fmt) { return (fmt && fmt.tagMap && typeof fmt.tagMap === 'object') ? fmt.tagMap : {}; }
+function fmtKeywords(fmt) { return (fmt && fmt.keywords && typeof fmt.keywords === 'object') ? fmt.keywords : {}; }
+// 幾則算「太薄」：0 則＝還沒觀察到、1–thinMax 則＝太薄（別以偏概全）、再多＝有底。
+// 設定檔沒寫就用 2（＝1–2 則黃、3 則以上綠，與 5A 導師儀表板同一條線）。
+function fmtThinMax(fmt) { const n = parseInt(fmt && fmt.thinMax, 10); return (isNaN(n) || n < 0) ? 2 : n; }
+function dimTier(n, fmt) { return n <= 0 ? 0 : (n <= fmtThinMax(fmt) ? 1 : 2); }
+// 這個格式有沒有推導的本事（表缺一半也算有，只是推得少；兩張都沒有就當沒有）
+function fmtCanDerive(fmt) {
+  return !!(fmt && fmtDims(fmt).length &&
+    (Object.keys(fmtTagMap(fmt)).length || Object.keys(fmtKeywords(fmt)).length));
+}
+// 這一種記錄類型要用哪一個格式來推導（沒有就回 null＝這一種不出現任何維度 UI）：
+//   · 有「報告維度」欄位 → 不推（照欄位分組）
+//   · IEP／SOAP（有目標清單／個案概念化）→ 不推（它們有自己的版面）
+//   · 其餘 → packFormatsFor() 裡第一個帶表的格式（homeroom ＝ waldorf-homeroom）
+function deriveFormatFor(st) {
+  if (!st || streamIsQualitative(st) || streamHasGoals(st) || streamHasConcept(st)) return null;
+  return packFormatsFor(st.id).find(fmtCanDerive) || null;
+}
+function deriveFormatForCtx(ctx) {
+  return (ctx && ctx.kind === 'students' && ctx.stream) ? deriveFormatFor(streamById(ctx.stream)) : null;
+}
+// 維度 → 代表標籤＝tagMap 裡第一個對到它的標。新增表單的「評量維度」快速鍵與
+// 「補一則」預填的就是這一個；沒有對應的標就回空字串（那顆快速鍵不出現）。
+function dimensionTag(fmt, dim) {
+  const m = fmtTagMap(fmt);
+  return Object.keys(m).find(t => m[t] === dim) || '';
+}
+// 小籤上的縮寫：長名字取前兩個字（行為與自我管理→行為、內在特質與個人發展→內在），
+// 短名字原樣。完整維度名放在 title，滑過去看得到。
+function shortDim(d) { const s = String(d || ''); return s.length <= 3 ? s : s.slice(0, 2); }
+// 語音管線偶爾把幾個標黏成一個（「#意志力#學習態度#班級秩序」）：對維度前先拆開。
+function splitTags(tags) {
+  const out = [];
+  (tags || []).forEach(t => String(t || '').split('#').filter(Boolean).forEach(x => {
+    const s = x.trim(); if (s) out.push('#' + s);
+  }));
+  return out;
+}
+// 一則紀錄對到哪些維度 → [{ dim, tags:[命中的標], hits:[命中的詞] }]，順序照格式的 dimensions。
+// 兩路都對不到＝空陣列（那一則會落在素材包的「（未標維度）」）。
+function detectDimensions(r, fmt) {
+  if (!fmtCanDerive(fmt)) return [];
+  const text = String((r && r.body) || '');
+  const tags = splitTags(r && r.tags);
+  const map = fmtTagMap(fmt), kw = fmtKeywords(fmt), out = [];
+  fmtDims(fmt).forEach(dim => {
+    const viaTag = tags.filter(t => map[t] === dim);
+    const hits = (Array.isArray(kw[dim]) ? kw[dim] : []).filter(k => k && text.indexOf(k) !== -1);
+    if (viaTag.length || hits.length) out.push({ dim: dim, tags: viaTag, hits: hits });
+  });
+  return out;
+}
+const DIM_UNTAGGED = '（未標維度）';
+const DIM_NO_REC = '（這一年沒有觀察到，期末這段寫不出來）';
+// 分組：{ order:[五個維度…（、未標維度）], groups:{ 維度:[記錄] } }。
+// 五個維度一定都在 order 裡，沒有記錄的也列——期末寫到那一段時看得到是空的，比看不到重要。
+function groupByDimension(recs, fmt) {
+  const dims = fmtDims(fmt), groups = {}, untagged = [];
+  dims.forEach(d => { groups[d] = []; });
+  (recs || []).forEach(r => {
+    const det = detectDimensions(r, fmt);
+    if (!det.length) { untagged.push(r); return; }
+    det.forEach(x => {
+      (groups[x.dim] || (groups[x.dim] = [])).push(Object.assign({}, r, { _hits: x.hits, _viaTag: x.tags }));
+    });
+  });
+  const order = dims.slice();
+  if (untagged.length) { groups[DIM_UNTAGGED] = untagged; order.push(DIM_UNTAGGED); }
+  return { order: order, groups: groups };
+}
+function dimCounts(recs, fmt) {
+  const groups = groupByDimension(recs, fmt).groups;
+  return fmtDims(fmt).map(d => ({ dim: d, tag: dimensionTag(fmt, d), n: (groups[d] || []).length }));
+}
+function dimSpan(recs) {
+  const ds = (recs || []).map(r => r.date || '').filter(Boolean).sort();
+  return ds.length ? ds[0] + ' ～ ' + ds[ds.length - 1] : '（還沒有日期）';
+}
+// 一位學生的覆蓋情形（學生卡、全班摘要、明細的維度卡、素材包統計都吃這一份）
+function dimCoverage(recs, fmt) {
+  const list = (recs || []).slice();
+  const groups = groupByDimension(list, fmt).groups;
+  const counts = dimCounts(list, fmt);
+  return {
+    total: list.length,
+    span: dimSpan(list),
+    counts: counts,
+    missing: counts.filter(c => dimTier(c.n, fmt) === 0).map(c => c.dim),
+    thin: counts.filter(c => dimTier(c.n, fmt) === 1).map(c => c.dim),
+    untagged: (groups[DIM_UNTAGGED] || []).length,
+  };
+}
 
 // ══ Store 介面 ════════════════════════════════════════════════════════
 // roster() / listCards(kind) / setCard(kind,id,data) / listRecords(kind,target)
@@ -1262,6 +1421,7 @@ function deidentify(text) {
 // ══ 畫面元件 ══════════════════════════════════════════════════════════
 const overviewEl = $('overview'), detailEl = $('detail'), recordListEl = $('record-list'),
   detailNameEl = $('detail-name'), monthSummaryEl = $('month-summary'), filterTodo = $('filter-todo'),
+  filterDims = $('filter-dims'),
   gridEl = $('student-grid'), courseSectionsEl = $('course-sections'), groupSectionsEl = $('group-sections'),
   addForm = $('add-form'), addBtn = $('add-record'), addDate = $('add-date'), addTags = $('add-tags'),
   addBody = $('add-body'), addMsg = $('add-msg'), addFieldsEl = $('add-fields'),
@@ -1484,17 +1644,108 @@ async function loadStudents(force) {
   }
 }
 
+// ── 評量維度覆蓋：整年的紀錄算一次，四個地方共用 ──────────────────────
+// 學生卡的五個小籤、全班摘要、明細頁的維度卡、新增表單的虛線快速鍵吃的是同一份。
+// 這一份要的是「整年」而不是明細頁那 50 則，所以是一位學生一次查詢——只有**會自動推導
+// 維度的記錄類型**才載（質性評量／IEP／SOAP 一則都不會多讀），而且一種類型只載一次，
+// 之後新增／編輯／刪除只重算動到的那一位。
+let coverageByStream = {};        // { streamId: { 學生代號: coverage } }
+const coverageDone = new Set();   // 哪幾種類型的「全班」已經載過
+let coverageLoading = '';
+function coverageMap(streamId) { return coverageByStream[streamId] || (coverageByStream[streamId] = {}); }
+function coverageOf(id, streamId) { return coverageMap(streamId || currentStreamId)[id] || null; }
+function ensureCoverage(st) {
+  if (!st || !deriveFormatFor(st)) return;
+  if (coverageLoading === st.id) return;
+  // 載過了，但名冊上新列入的那幾位還沒算（個案型類型隨時會加人）→ 再跑一次補齊。
+  // 讀失敗的那一位在 map 裡留一個 null，才不會每畫一次就重試一次（無限迴圈）。
+  const map = coverageMap(st.id);
+  if (coverageDone.has(st.id) && students.every(s => s.id in map)) return;
+  loadCoverage(st.id).catch(err => console.error('[coverage] 載入失敗', err));
+}
+async function loadCoverage(streamId) {
+  const st = streamById(streamId), fmt = deriveFormatFor(st);
+  if (!fmt) return;
+  coverageLoading = streamId;
+  const list = (studentsByStream[streamId] || students).slice();
+  const map = coverageMap(streamId);
+  await Promise.all(list.map(async s => {
+    try { map[s.id] = dimCoverage(await store.listRecords('students', s.id, streamId), fmt); }
+    catch (err) { console.error('[coverage] 讀不到', s.id, err); map[s.id] = null; }
+  }));
+  coverageLoading = '';
+  coverageDone.add(streamId);
+  if (currentStreamId === streamId) renderStudents();
+  if (activeCtx && activeCtx.kind === 'students' && activeCtx.stream === streamId) renderDimPanel(activeCtx);
+}
+// 新增／編輯／刪除之後：只重算這一位（整年重讀一次，一則的差別也要看得到）
+async function refreshCoverage(id, streamId) {
+  const st = streamById(streamId), fmt = deriveFormatFor(st);
+  if (!fmt) return;
+  try {
+    coverageMap(streamId)[id] = dimCoverage(await store.listRecords('students', id, streamId), fmt);
+  } catch (err) { console.error('[coverage] 重算失敗', id, err); return; }
+  if (activeCtx && activeCtx.kind === 'students' && activeCtx.target === id && activeCtx.stream === streamId) {
+    renderDimPanel(activeCtx);
+    renderChips();
+  }
+  if (currentStreamId === streamId) renderStudents();
+}
+// 學生卡底下那五個小籤：縮寫＋則數。紅＝0（還沒觀察到）、黃＝1–thinMax（太薄）、綠＝再多。
+function pipsHtml(cov, fmt) {
+  if (!fmtCanDerive(fmt)) return '';
+  if (!cov) {
+    return '<div class="dim-pips">' + fmtDims(fmt).map(d =>
+      `<span class="pip pending" title="${esc(d)}">${esc(shortDim(d))} ·</span>`).join('') + '</div>';
+  }
+  return '<div class="dim-pips">' + (cov.counts || []).map(c => {
+    const t = dimTier(c.n, fmt);
+    const why = t === 0 ? '（還沒觀察到）' : t === 1 ? '（太薄，別以偏概全）' : '';
+    return `<span class="pip t${t}" title="${esc(c.dim)}：${c.n} 則${why}">${esc(shortDim(c.dim))} ${c.n}</span>`;
+  }).join('') + '</div>';
+}
+// 學生格上方那一行：期末評語五段，哪一段全班最多人寫不出來
+function renderClassDimSummary(st, fmt) {
+  const el = $('class-dim-summary');
+  if (!el) return;
+  const covs = students.map(s => coverageOf(s.id, st && st.id)).filter(Boolean);
+  if (!fmtCanDerive(fmt) || !covs.length) { el.hidden = true; el.innerHTML = ''; return; }
+  const parts = fmtDims(fmt).map(d => {
+    const ns = covs.map(c => ((c.counts || []).find(x => x.dim === d) || {}).n || 0);
+    return { d: d, zero: ns.filter(n => dimTier(n, fmt) === 0).length,
+             thin: ns.filter(n => dimTier(n, fmt) === 1).length,
+             sum: ns.reduce((a, b) => a + b, 0) };
+  }).sort((a, b) => (b.zero + b.thin) - (a.zero + a.thin));
+  el.innerHTML = `評量維度覆蓋（已算 ${covs.length} 位）：` + parts.map(x =>
+    `${esc(x.d)}：<strong>${x.zero}</strong> 位還缺・${x.thin} 位太薄（共 ${x.sum} 則）`).join('　·　') +
+    `<br><span class="cds-note">缺＝0 則；太薄＝1–${fmtThinMax(fmt)} 則。維度由 #標籤與內文自動推導，一則可以算進好幾個維度。</span>`;
+  el.hidden = false;
+}
+
 function renderStudents() {
   const st = streamById(currentStreamId);
   if (!st) { renderStreamBar(); return; }
   renderPackAllUI();
+  const dimFmt = deriveFormatFor(st);
+  ensureCoverage(st);                       // 不 await：卡片先畫、五個小籤稍後補上
+  const dimsLabel = $('filter-dims-label');
+  if (dimsLabel) dimsLabel.hidden = !fmtCanDerive(dimFmt);
+  if (!fmtCanDerive(dimFmt) && filterDims) filterDims.checked = false;
+  renderClassDimSummary(st, dimFmt);
   const ym = thisYearMonth();
   const done = students.filter(s => recordedThisMonth(s.lastRecordDate)).length;
   monthSummaryEl.innerHTML = `${esc(st.label || st.id)}・本月（${ym}）已記 <strong>${done}</strong> ／ ${students.length}`;
-  const list = students.filter(s => !filterTodo.checked || !recordedThisMonth(s.lastRecordDate));
+  // 「只看評量維度還沒齊的」＝有維度 0 則或只有 1–thinMax 則的那幾位（還沒算出來的先留著）
+  const onlyDims = !!(filterDims && filterDims.checked && fmtCanDerive(dimFmt));
+  const list = students.filter(s => (!filterTodo.checked || !recordedThisMonth(s.lastRecordDate)) && (() => {
+    if (!onlyDims) return true;
+    const cov = coverageOf(s.id, st.id);
+    return !cov || cov.missing.length || cov.thin.length;
+  })());
   if (!list.length) {
     gridEl.innerHTML = '<div class="empty-state">' + (
-      filterTodo.checked ? '這個類型本月都記過了 🎉'
+      onlyDims ? '這個類型每一位的五個維度都有 ' + (fmtThinMax(dimFmt) + 1) + ' 則以上了 🎉'
+      : filterTodo.checked ? '這個類型本月都記過了 🎉'
       : st.scope === 'case' ? '這個類型還沒有列入任何學生——點上方「＋ 列入學生」把要追蹤的孩子加進來。'
       : '還沒有學生名單——請跟 AI 說「幫我匯入名單」。') + '</div>';
     return;
@@ -1517,7 +1768,8 @@ function renderStudents() {
     card.innerHTML = `<div><span class="sc-name">${esc(s.name || s.id)}</span><span class="sc-id">${esc(s.id)}</span></div>
       <div class="sc-meta">${(s.recordCount || 0) + (s.partialCount ? '+' : '')} 則 · ${s.lastRecordDate ? '最後 ' + esc(s.lastRecordDate) : '尚無記錄'}</div>
       ${soapLine}
-      <span class="badge ${isDone ? 'done' : 'todo'}">${isDone ? '本月已記' : '本月未記'}</span>`;
+      <span class="badge ${isDone ? 'done' : 'todo'}">${isDone ? '本月已記' : '本月未記'}</span>
+      ${pipsHtml(coverageOf(s.id, st.id), dimFmt)}`;
     card.onclick = () => { location.hash = '#s/' + encodeURIComponent(s.id) + '/' + encodeURIComponent(st.id); };
     wrap.appendChild(card);
     if (st.scope === 'case') wrap.appendChild(removeMemberBtn(st, s));
@@ -1639,6 +1891,7 @@ const streamPicker = makePicker($('stream-picker-host'), {
 $('stream-none-add').onclick = () => streamPicker.open();
 
 filterTodo.onchange = renderStudents;
+if (filterDims) filterDims.onchange = renderStudents;
 $('open-class-obs').onclick = () => {
   location.hash = '#class' + (currentStreamId ? '/' + encodeURIComponent(currentStreamId) : '');
 };
@@ -1992,10 +2245,45 @@ function ridTimeLabel(rid, date) {
 
 // ── 標籤快速鍵 ──────────────────────────────────────────────────────
 function currentTagSet() { return new Set(normalizeTags(addTags.value)); }
+// 第二排「評量維度」快速鍵（只在會自動推導維度的記錄類型出現）：
+// 一顆＝一個維度的代表標籤；亮＝目前的標籤裡有任何一個對到那個維度（#數學 也會點亮「學習態度與能力」）；
+// 虛線框＝這位學生這個維度的素材還不夠（0 則或只有 1–thinMax 則），記的當下就提醒他補。
+function renderDimChips(on) {
+  const box = $('dim-chips'), wrap = $('dim-chip-box'), label = $('dim-chip-label');
+  if (!box || !wrap) return;
+  const fmt = deriveFormatForCtx(activeCtx);
+  box.innerHTML = '';
+  if (!fmtCanDerive(fmt)) { wrap.hidden = true; return; }
+  const cov = activeCtx ? coverageOf(activeCtx.target, activeCtx.stream) : null;
+  const weak = new Set(cov ? cov.missing.concat(cov.thin) : []);
+  const map = fmtTagMap(fmt);
+  const lit = splitTags([...on]);
+  if (label) {
+    label.textContent = `評量維度（期末評語的五段；虛線＝這位這個維度少於 ${fmtThinMax(fmt) + 1} 則）`;
+  }
+  fmtDims(fmt).forEach(dim => {
+    const tag = dimensionTag(fmt, dim);
+    if (!tag) return;                       // 這個維度在 tagMap 裡沒有標可以按（只靠內文推）
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = dim;
+    b.title = tag + (weak.has(dim) ? `　（這位這個維度少於 ${fmtThinMax(fmt) + 1} 則）` : '');
+    if (lit.some(t => map[t] === dim)) b.classList.add('on');
+    if (weak.has(dim)) b.classList.add('miss');
+    b.onclick = () => {
+      const set = currentTagSet();
+      set.has(tag) ? set.delete(tag) : set.add(tag);
+      addTags.value = [...set].join(' ');
+      renderChips();
+    };
+    box.appendChild(b);
+  });
+  wrap.hidden = !box.children.length;
+}
 function renderChips() {
   const cats = (activeCtx && activeCtx.categories) || [];
   tagChipsEl.innerHTML = '';
   const on = currentTagSet();
+  renderDimChips(on);
   cats.forEach(cat => {
     const b = document.createElement('button'); b.type = 'button'; b.textContent = cat;
     if (on.has(cat)) b.classList.add('on');
@@ -2218,9 +2506,12 @@ $('add-save').onclick = async (e) => {
     existingRids.add(rid);
     const empty = recordListEl.querySelector('.empty-state'); if (empty) recordListEl.innerHTML = '';
     recordListEl.insertBefore(recordCard(rid, rec), recordListEl.firstChild);
+    applyDimFilter();                       // 正在只看某一個維度時，新的這一則也照同一條規則顯示／收起
     // 目標清單的「已記 N 則・最近達成情形」要跟著這一則動
     currentRecords.unshift(Object.assign({ rid }, rec));
     refreshDetailCards();
+    // 評量維度覆蓋：這一位重算（五個小籤、維度卡、快速鍵的虛線框一起更新）
+    if (activeCtx.kind === 'students' && activeCtx.stream) refreshCoverage(activeCtx.target, activeCtx.stream);
     bumpCount(activeCtx.kind, activeCtx.target, date);
     pendingRid = pendingRidDate = null;
     btn.disabled = false;
@@ -2278,9 +2569,28 @@ function recordFieldsHtml(r) {
   if (st && streamHasConcept(st)) return soapBlockHtml(r.fields) + fieldsTableExcept(r.fields, SOAP_KEYS);
   return fieldsTable(r.fields);
 }
+// 紀錄卡底下那一行灰字：這一則被算進哪些評量維度、為什麼（靠哪個標、命中哪些詞）。
+// 老師看得到機器是怎麼算的，覺得不對就改格式庫的 tagMap／keywords——不是黑盒子。
+function dimsLineOf(r) {
+  const fmt = deriveFormatForCtx(activeCtx);
+  if (!fmtCanDerive(fmt)) return { html: '', key: '' };
+  const det = detectDimensions(r, fmt);
+  if (!det.length) {
+    return { html: '<p class="rc-dims">算進：（#標籤與內文都對不到任何維度——要算進哪一段就補一個維度標）</p>', key: '' };
+  }
+  const body = det.map(x => {
+    const why = [];
+    if (x.tags.length) why.push(x.tags.join(' '));
+    if (x.hits.length) why.push('命中：' + x.hits.slice(0, 4).join('、') + (x.hits.length > 4 ? '…' : ''));
+    return `<b>${esc(x.dim)}</b>（${esc(why.join('；'))}）`;
+  }).join('、');
+  return { html: `<p class="rc-dims">算進：${body}</p>`, key: det.map(x => x.dim).join('|') };
+}
 function recordCard(rid, r) {
   const card = document.createElement('div');
   card.className = 'record-card'; card.setAttribute('data-rid', rid);
+  const dims = dimsLineOf(r);
+  card.dataset.dims = dims.key;
   const tags = (r.tags || []).map(t => `<span class="record-tag">${esc(t)}</span>`).join('');
   const flag = r.editedOnWeb ? '<em>（已編輯，待同步）</em>' : '';
   // 記錄類型標籤：明細頁一次只看一種，但關聯跳過來、或本機檔回寫時仍看得出這則是哪一種
@@ -2292,6 +2602,7 @@ function recordCard(rid, r) {
     </div>
     <div class="rc-fields">${recordFieldsHtml(r)}</div>
     <p class="record-body">${esc(r.body || '')}</p>
+    ${dims.html}
     <div class="rel-links"></div>
     <div class="editor" hidden>
       <input class="tags" type="text" value="${esc((r.tags || []).join(' '))}" placeholder="#標籤">
@@ -2332,6 +2643,14 @@ function recordCard(rid, r) {
         const s = document.createElement('span'); s.className = 'record-tag'; s.textContent = t;
         head.insertBefore(s, head.querySelector('.flag'));
       });
+      // 維度那一行跟著新的標籤與正文重算——改完馬上看得到這一則現在算進哪幾段
+      const nd = dimsLineOf({ tags: nt, body: de.text, stream: r.stream });
+      card.dataset.dims = nd.key;
+      const oldDims = card.querySelector('.rc-dims');
+      if (oldDims) oldDims.remove();
+      if (nd.html) bodyEl.insertAdjacentHTML('afterend', nd.html);
+      applyDimFilter();
+      if (activeCtx.kind === 'students' && activeCtx.stream) refreshCoverage(activeCtx.target, activeCtx.stream);
       bodyEl.hidden = false; editorEl.hidden = true; editBtn.hidden = false; delBtn.hidden = false;
       msg.textContent = de.hits.length ? '已把名冊姓名換成代號：' + de.hits.join('、') : '';
     } catch (err) { console.error(err); msg.textContent = '儲存失敗：' + errText(err); }
@@ -2353,6 +2672,7 @@ function recordCard(rid, r) {
         existingRids.delete(rid);
         currentRecords = currentRecords.filter(x => x.rid !== rid);
         refreshDetailCards();
+        if (activeCtx.kind === 'students' && activeCtx.stream) refreshCoverage(activeCtx.target, activeCtx.stream);
         card.remove();
         if (!recordListEl.querySelector('.record-card')) {
           recordListEl.innerHTML = '<div class="empty-state">還沒有記錄——點上方「＋ 新增一則記錄」開始。</div>';
@@ -2397,6 +2717,8 @@ async function openRecords(ctx) {
   renderDetailStreams(ctx);
   renderExportUI(ctx);
   renderPackUI(ctx);
+  activeDim = null;
+  renderDimPanel(ctx);                      // 先出「計算中…」，整年的紀錄讀完再畫一次
   $('detail-cards').innerHTML = '';
   currentRecords = [];
   closeAddForm(); existingRids.clear();
@@ -2410,6 +2732,10 @@ async function openRecords(ctx) {
     recordPage = { cursor: page.cursor || null, done: !!page.done, loading: false };
     currentRecords = list.slice();          // 新→舊；目標清單的「已記 N 則」用它算
     await renderDetailCards(ctx);           // 目標清單／個案概念化（依當前類型才出現）
+    // 評量維度覆蓋：要整年的紀錄，不是這一頁的 50 則——不 await，算完再畫一次
+    ensureStudentCoverage(ctx)
+      .then(() => { if (activeCtx === ctx) { renderDimPanel(ctx); renderChips(); } })
+      .catch(err => console.error('[coverage] 明細算不出來', err));
     recordListEl.innerHTML = '';
     if (!list.length) recordListEl.innerHTML = '<div class="empty-state">還沒有記錄——點上方「＋ 新增一則記錄」開始。</div>';
     else list.forEach(r => { existingRids.add(r.rid); recordListEl.appendChild(recordCard(r.rid, r)); });
@@ -2466,6 +2792,89 @@ function renderDetailStreams(ctx) {
     box.appendChild(b);
   });
   box.hidden = false;
+}
+
+// ── 明細頁：「評量維度覆蓋」卡 ────────────────────────────────────────
+// 五個維度各一個數字＋一條長條；點一個維度＝只看對到那個維度的紀錄；
+// 「補一則」直接開新增表單並預填那個維度的代表標籤——缺哪一段，就在記的當下補。
+// 只有會自動推導維度的記錄類型才有這張卡（質性評量照欄位、IEP／SOAP 有自己的卡）。
+let activeDim = null;      // 目前點選的維度（過濾紀錄卡用）；換一位學生就歸零
+async function ensureStudentCoverage(ctx) {
+  const fmt = deriveFormatForCtx(ctx);
+  if (!fmt) return null;
+  const map = coverageMap(ctx.stream);
+  // 維度卡看的是**整年**，不是明細頁那 50 則——所以這裡整本讀一次（全班載過就直接用快取）。
+  if (!map[ctx.target]) {
+    map[ctx.target] = dimCoverage(await store.listRecords('students', ctx.target, ctx.stream), fmt);
+  }
+  return map[ctx.target];
+}
+function applyDimFilter() {
+  recordListEl.querySelectorAll('.record-card').forEach(c => {
+    c.hidden = !!activeDim && (c.dataset.dims || '').split('|').indexOf(activeDim) === -1;
+  });
+}
+function openAddFormForDim(dim, tag) {
+  if (addForm.hidden) addBtn.onclick();       // 用同一條開表單的路（日期、骨架、關聯都照原本）
+  if (tag) {                                  // 已經打到一半就只補上這個標，不洗掉他打的字
+    const set = currentTagSet();
+    set.add(tag);
+    addTags.value = [...set].join(' ');
+  }
+  renderChips();
+  addBody.placeholder = `這一則要補「${dim}」：先寫看得到的那一次（哪一天、他做了什麼、說了什麼）…`;
+  addBody.focus();
+}
+function renderDimPanel(ctx) {
+  const el = $('dim-panel');
+  if (!el) return;
+  const fmt = deriveFormatForCtx(ctx);
+  if (!fmt) { el.hidden = true; el.innerHTML = ''; activeDim = null; return; }
+  const cov = coverageOf(ctx.target, ctx.stream);
+  if (!cov) { el.hidden = false; el.innerHTML = '<div class="dp-title">評量維度覆蓋：計算中…</div>'; return; }
+  const counts = cov.counts || [];
+  const max = Math.max(1, ...counts.map(c => c.n));
+  el.innerHTML = '<div class="dp-title">期末評語的五段，這位各有幾則素材'
+    + '（#標籤與內文關鍵詞自動推導；點一下只看那個維度的紀錄）</div><div class="dp-row"></div>';
+  const row = el.querySelector('.dp-row');
+  counts.forEach(c => {
+    const t = dimTier(c.n, fmt);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'dp-chip' + (t === 0 ? ' miss' : t === 1 ? ' thin' : '') + (activeDim === c.dim ? ' active' : '');
+    b.innerHTML = `${esc(c.dim)}　<b>${c.n}</b> 則<span class="dp-bar" style="width:${Math.round(c.n / max * 40)}px"></span>`;
+    b.title = t === 0 ? '還沒觀察到' : t === 1 ? `只有 ${c.n} 則，別以偏概全` : `${c.n} 則`;
+    b.onclick = () => { activeDim = (activeDim === c.dim) ? null : c.dim; renderDimPanel(ctx); applyDimFilter(); };
+    row.appendChild(b);
+  });
+  const hint = document.createElement('p');
+  const focus = activeDim ? counts.find(c => c.dim === activeDim) : null;
+  if (focus) {
+    const t = dimTier(focus.n, fmt);
+    hint.className = 'dp-hint' + (t === 2 ? ' ok' : '');
+    hint.textContent = `只顯示對到「${focus.dim}」的 ${focus.n} 則（卡片下面那行灰字寫著是靠哪個標、哪些詞算進來的）。`
+      + (t === 1 ? `　只有這 ${focus.n} 則，寫評語時別推論成他的特質。` : t === 0 ? '　一則都沒有。' : '')
+      + (recordPage && !recordPage.done ? '　（只過濾已經載入的那幾則，更舊的按下面「載入更多」）' : '');
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.textContent = '＋ 補一則「' + shortDim(focus.dim) + '」';
+    add.onclick = () => openAddFormForDim(focus.dim, focus.tag);
+    hint.appendChild(add);
+  } else {
+    const weak = cov.missing.concat(cov.thin);
+    hint.className = 'dp-hint' + (weak.length ? '' : ' ok');
+    hint.textContent = weak.length
+      ? `這幾週特別留意：${weak.join('、')}——少於 ${fmtThinMax(fmt) + 1} 則的維度，期末只能寫看到的那一次，寫不出穩定的樣貌。`
+      : `五個維度都有 ${fmtThinMax(fmt) + 1} 則以上了；接下來看哪一段最薄就補哪一段。`;
+  }
+  el.appendChild(hint);
+  const legend = document.createElement('p');
+  legend.className = 'dp-legend';
+  legend.textContent = `紅＝0 則　黃＝1–${fmtThinMax(fmt)} 則（太薄）　綠＝${fmtThinMax(fmt) + 1} 則以上。`
+    + '一則紀錄常同時對到好幾個維度，所以五格加起來會大於總則數。'
+    + (cov.untagged ? `　另有 ${cov.untagged} 則兩路都對不到（素材包裡收在「${DIM_UNTAGGED}」）。` : '');
+  el.appendChild(legend);
+  el.hidden = false;
 }
 
 // ══ 明細頁頂端的卡（v3 §3.6）══════════════════════════════════════════
@@ -2525,6 +2934,7 @@ async function loadMoreRecords() {
       const card = recordCard(r.rid, r);
       if (row) recordListEl.insertBefore(card, row); else recordListEl.appendChild(card);
     });
+    applyDimFilter();                       // 翻進來的舊紀錄也照目前選的維度顯示／收起
     refreshDetailCards();
   } catch (err) {
     console.error(err);
@@ -2969,6 +3379,53 @@ function packQualitative(lines, st, recs, fmt) {
   const seed = (fmt && Array.isArray(fmt.dimensions) && fmt.dimensions.length) ? fmt.dimensions : null;
   packGrouped(lines, st, recs, keys, seed, 0);
 }
+// 只記自由文字＋#標籤的類型（導師班級學生紀錄）：維度是推導出來的，不是老師填的欄位。
+// 一則可以同時出現在好幾個維度底下——它本來就同時是好幾段的素材。
+// **一則都沒有的維度一定要印出來**並明講寫不出來：期末寫到那一段時看得到是空的，比看不到重要。
+function packDimBullet(lines, r) {
+  const tags = (r.tags || []).join(' ');
+  const why = [];
+  if (r._viaTag && r._viaTag.length) why.push('標：' + r._viaTag.join(' '));
+  if (r._hits && r._hits.length) why.push('內文命中：' + r._hits.slice(0, 6).join('、') + (r._hits.length > 6 ? '…' : ''));
+  lines.push('- **' + (r.date || '') + '**' + (tags ? '　' + tags : '') + (why.length ? '　⟨' + why.join('；') + '⟩' : ''));
+  const body = mdBodyLines(r.body);
+  if (body.length) body.forEach(l => lines.push('  ' + l));
+  else lines.push('  （這一則沒有正文）');
+}
+function packByDimension(lines, st, recs, fmt) {
+  const sorted = recs.slice().sort((a, b) => String(a.rid || '').localeCompare(String(b.rid || '')));   // 由舊到新
+  const grouped = groupByDimension(sorted, fmt);
+  const cov = dimCoverage(sorted, fmt);
+  const thinMax = fmtThinMax(fmt);
+  lines.push('本期記錄：' + sorted.length + ' 則（' + cov.span + '）　｜　維度由 #標籤與內文關鍵詞自動推導，一則可以算進好幾個維度。');
+  lines.push('');
+  grouped.order.forEach(d => {
+    const got = grouped.groups[d] || [];
+    lines.push('### ' + d);
+    lines.push('');
+    if (d === DIM_UNTAGGED) {
+      lines.push('這一年這維度有 ' + got.length + ' 則——標籤與內文都對不到任何維度，寫評語時自己歸類。');
+    } else if (!got.length) {
+      lines.push('這一年這維度有 0 則——' + DIM_NO_REC + '照實留白，或從其他維度的素材裡萃取，不要編。');
+    } else if (got.length <= thinMax) {
+      lines.push('這一年這維度有 ' + got.length + ' 則——太薄：只描述看到的那一次，不要推論成他的特質。');
+    } else {
+      lines.push('這一年這維度有 ' + got.length + ' 則。');
+    }
+    lines.push('');
+    got.forEach(r => packDimBullet(lines, r));
+    if (got.length) lines.push('');
+  });
+  lines.push('### 統計（給你自己看的，不必寫進報告）');
+  lines.push('');
+  lines.push('- 則數：' + cov.total + '（' + cov.span + '）');
+  lines.push('- 各維度則數：' + cov.counts.map(c => c.dim + ' ' + c.n).join('、'));
+  lines.push('- 涵蓋維度：' + (fmtDims(fmt).length - cov.missing.length) + '／' + fmtDims(fmt).length);
+  lines.push('- 這一年沒有觀察到的維度：' + (cov.missing.length ? cov.missing.join('、') : '（都有了）'));
+  if (cov.thin.length) lines.push('- 只有 1–' + thinMax + ' 則、別以偏概全的維度：' + cov.thin.join('、'));
+  if (cov.untagged) lines.push('- 沒對到維度的紀錄：' + cov.untagged + ' 則（在上面的「' + DIM_UNTAGGED + '」那一段）');
+  lines.push('');
+}
 // IEP：每一個目標一張表（零紀錄的目標也要出現，寫「本期無紀錄」）
 // ——這一段就是格式庫裡 groupBy: ["目標編號"] 的專屬版面，故意不走 packGrouped。
 function packIep(lines, st, card, recs) {
@@ -3057,7 +3514,7 @@ function packPlain(lines, recs) {
   recs.forEach(r => packRecordBullet(lines, r, []));
   lines.push('');
 }
-function packPromptLines(fmt, st) {
+function packPromptLines(fmt, st, derived) {
   const L = [];
   L.push('---');
   L.push('');
@@ -3066,6 +3523,12 @@ function packPromptLines(fmt, st) {
   L.push('把**這份素材包整份**貼給你的 AI 代理，然後跟它說：');
   L.push('「照下面的格式骨架與書寫規則，只用上面的素材寫。寫完照自我檢核逐條檢查一次。」');
   L.push('');
+  if (derived) {
+    L.push('> 素材包裡的維度分組是依 #標籤與內文關鍵詞自動推導的粗分，不是老師的判斷——');
+    L.push('> 每一則屬於哪一段**以正文為準**，同一則可以支撐好幾段。');
+    L.push('> 某個維度寫著「' + DIM_NO_REC + '」就照實說本期未蒐集到紀錄，不要推估、不要拿別段的素材填。');
+    L.push('');
+  }
   L.push('### 格式骨架：' + (fmt.label || fmt.id) + '（' + (fmt.id || '') + '）');
   L.push('');
   (fmt.sections || []).forEach((s, i) => {
@@ -3094,6 +3557,8 @@ function packPromptLines(fmt, st) {
 // ids ＝要放進這一份的學生代號（一位或全班）；回傳 { md, name, total }
 async function buildPack(streamId, fmt, ids) {
   const st = streamById(streamId);
+  // 這一種類型沒有「報告維度」欄位、而這個格式又帶得動推導表 → 素材照推導出來的維度分組。
+  const derive = (deriveFormatFor(st) && fmtCanDerive(fmt)) ? fmt : null;
   const objectLabel = (ids.length === 1) ? studentLabel(ids[0], true) : '全班（' + ids.length + ' 位）';
   const lines = [];
   lines.push('# ' + (fmt.label || fmt.id) + '　素材包');
@@ -3106,6 +3571,13 @@ async function buildPack(streamId, fmt, ids) {
   lines.push('> ' + EXPORT_WARN);
   lines.push('> 這一份是**素材**，不是評語。評語本文請照檔尾的 prompt 交給你自己的 AI 代理寫。');
   lines.push('');
+  if (derive) {
+    lines.push('> **底下的維度分組是機器推的，不是老師標的。**這一種記錄只有自由文字與 #標籤，');
+    lines.push('> 所以每一則算進哪幾個維度，是依標籤對照表與內文關鍵詞自動推導的');
+    lines.push('> （每一則後面 ⟨…⟩ 就是它為什麼被算進那一段）。分組只是把素材撿到手邊，**不是判斷**：');
+    lines.push('> 一則屬於哪一段請**以正文為準**，同一則可以支撐好幾段；覺得放錯組就照正文自己重新歸。');
+    lines.push('');
+  }
   let total = 0;
   for (const id of ids) {
     lines.push('## ' + studentLabel(id, true));
@@ -3118,10 +3590,11 @@ async function buildPack(streamId, fmt, ids) {
     try { card = (store.getCard ? await store.getCard('students', id) : {}) || {}; } catch (err) { console.error(err); }
     if (streamHasGoals(st)) packIep(lines, st, card, recs);
     else if (streamHasConcept(st)) packSoap(lines, st, card, recs);
+    else if (derive) packByDimension(lines, st, recs, derive);
     else if (streamIsQualitative(st) || (Array.isArray(fmt.groupBy) && fmt.groupBy.length)) packQualitative(lines, st, recs, fmt);
     else packPlain(lines, recs);
   }
-  packPromptLines(fmt, st).forEach(l => lines.push(l));
+  packPromptLines(fmt, st, derive).forEach(l => lines.push(l));
   const name = safeFileName(objectLabel + '-' + (fmt.label || fmt.id) + '-素材包') + '.md';
   return { md: lines.join('\n') + '\n', name: name, total: total };
 }

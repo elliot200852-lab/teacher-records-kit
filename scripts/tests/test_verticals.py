@@ -142,6 +142,56 @@ class TestReportFormats(unittest.TestCase):
         f = lib.find_format("custom")
         self.assertEqual(f["customFile"], "config/report-format.custom.json")
 
+    def test_waldorf_carries_the_derivation_tables(self):
+        """沒有「報告維度」欄位的類型（homeroom）靠這三個鍵自動推導維度——
+        網頁不硬編任何一張表，掉了就整條覆蓋提醒與素材包分組都失效。"""
+        f = lib.find_format("waldorf-homeroom")
+        dims = f["dimensions"]
+        self.assertIsInstance(f.get("thinMax"), int)
+        self.assertGreaterEqual(f["thinMax"], 1)
+        tag_map = f["tagMap"]
+        self.assertTrue(tag_map)
+        for tag, dim in tag_map.items():
+            self.assertTrue(tag.startswith("#"), "tagMap 的鍵要是 #標籤：%r" % tag)
+            self.assertIn(dim, dims, "tagMap 指到的維度要在 dimensions 裡：%r" % dim)
+        # 每個維度都要有一個「代表標籤」（快速鍵與「補一則」預填的就是它）
+        for d in dims:
+            self.assertTrue(any(v == d for v in tag_map.values()),
+                            "維度沒有任何標可以直接標：%s" % d)
+        kw = f["keywords"]
+        self.assertEqual(sorted(kw), sorted(dims), "keywords 要五個維度都有")
+        for d, words in kw.items():
+            self.assertTrue(words, "維度沒有關鍵詞：%s" % d)
+            for w in words:
+                self.assertGreaterEqual(len(w), 2, "只收兩字以上的詞（單字太鬆）：%r" % w)
+
+    def test_build_config_carries_derivation_tables_into_window_kit(self):
+        """build_config.py 原樣把格式庫帶進 window.KIT.reportFormats——
+        網頁的維度推導讀的就是這裡，少一個鍵就變成「沒有維度」。"""
+        import build_config
+        kit_js = build_config.build_kit_js(
+            {"owner_email": "t@example.com"},
+            {"students": {"enabled": True, "streams": []}},
+            {"groups": []}, {"streams": []})
+        payload = json.loads(kit_js[kit_js.index("{"):kit_js.rindex("}") + 1])
+        f = [x for x in payload["reportFormats"] if x["id"] == "waldorf-homeroom"][0]
+        for k in ("tagMap", "keywords", "thinMax", "dimensions"):
+            self.assertIn(k, f, "window.KIT 少了 %s" % k)
+        self.assertEqual(f["tagMap"], lib.find_format("waldorf-homeroom")["tagMap"])
+
+    def test_preview_config_mirrors_the_library(self):
+        """離線預覽（build_preview.py）吃的是 site/js/kit-config.example.js——
+        那一份的推導表要跟格式庫一致，不然預覽看到的維度跟真的裝起來不一樣。"""
+        path = os.path.join(PKG, "site", "js", "kit-config.example.js")
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        f = lib.find_format("waldorf-homeroom")
+        self.assertIn("thinMax: %d," % f["thinMax"], src)
+        for tag, dim in list(f["tagMap"].items())[:5]:
+            self.assertIn('"%s": "%s"' % (tag, dim), src)
+        for d in f["keywords"]:
+            self.assertIn('"%s": [' % d, src)
+
 
 class TestVerticals(unittest.TestCase):
     def test_three_verticals_are_consistent(self):
