@@ -156,6 +156,14 @@ Chrome／Edge 的候選、排程掛在哪——其他腳本一律經它，人讀
 - 範本＝`templates/card.example.json`；安裝時可由答案檔的 `students.cards.<代號>` 帶進來，
   **卡片已經有內容的那一塊，重跑安裝不會覆蓋**。
 
+### 整體課程紀錄（`data/courses/<課程id>/card.json` ⇄ `courses/{課程id}`，alpha.5）
+
+課程也有一張同類型的卡，只放一個欄位：`overview`（純字串，上限 20000 字）＋
+`overviewUpdatedAt`（伺服器時間）。逐日紀錄回答「這一天教了什麼」，`overview` 回答
+「這門課整體是什麼樣子」——不分天，期末課程總結、明年再開同一門課時看的是它。
+雙向同步走跟學生卡一樣的「不覆蓋」規則（§5）；PATCH 只帶 `updateMask=["overview"]`。
+Word／PDF／Markdown 匯出都把它放在逐日紀錄最前面；課程一覽卡寫過的顯示「整體紀錄 ✓」。
+
 ### 雲端（Firestore）
 
 ```
@@ -163,7 +171,8 @@ roster/main                       {students:[{id,name,streams:[類型id…]}], p
 students/{代號}                    每生一張卡
 students/{代號}/records/{rid}      每則紀錄，必帶 stream: "<類型id>"（規則擋著）
 class-observations/{rid}          班級整體觀察，同樣帶 stream
-courses/{課程id}                   {title,kind,season,weeks,teacherName,order}
+courses/{課程id}                   {title,kind,season,weeks,teacherName,order,
+                                   overview,overviewUpdatedAt}   ← 整體課程紀錄（alpha.5）
 courses/{課程id}/records/{rid}
 business/{組id}                    {label,fields:[...],tags:[...],custom:bool}
 business/{組id}/records/{rid}
@@ -171,6 +180,10 @@ meta/config                       設定鏡像（sync.py 寫 version／dataVersi
                                    網頁上臨時加的記錄類型寫進 studentStreams）
 meta/status                       {lastSyncAt,lastBackupAt}（網頁頂端讀它）
 ```
+
+**軟刪（alpha.5）**：任何一則 `records/{rid}`（含 `class-observations`）被網頁刪除時不會真的消失，
+只多蓋三個欄位 `deleted:true`／`deletedAt`／`deletedBy`；規則的 `delete` 一律拒絕，
+真刪只有 `scripts/purge_deleted.py` 走 Admin SDK／使用者權杖做得到（見 §3「可以刪除」）。
 
 ### 本機（`data/`，全部 gitignored）
 
@@ -184,6 +197,7 @@ data/students/<代號>/card.json          學生卡：IEP 的 goals[]、SOAP 的
 data/class/observations.md              班級整體觀察：homeroom
 data/class/<類型id>.md                   其餘每一種 scope:class 類型各一個
 data/courses/<課程id>/records.md
+data/courses/<課程id>/card.json         整體課程紀錄：overview（純字串，不分天）
 data/business/<組id>/records.md
 data/ledger.jsonl                 台帳
 data/audit.jsonl                  append_record.py 的寫入稽核＋同步刪除的稽核
@@ -205,10 +219,14 @@ data/.sync-state.json             上次同步時每個目標有哪些 rid（含
   "related": ["students/S-03/2026-09-10", "courses/fractions/2026-09-09-1435"],
   "source": "web" | "voice" | "file",
   "contentHash": "……",
-  "editedOnWeb": false
+  "editedOnWeb": false,
+  "deleted": true,               // 軟刪才有這三個欄位（alpha.5）；一般紀錄沒有
+  "deletedAt": "……",
+  "deletedBy": "<uid 或 null>"
 }
 ```
 
+`deleted`／`deletedAt`／`deletedBy` 只在這一則被**軟刪**時才存在；一般存活的紀錄沒有這三個欄位。
 `stream` 只有 `students` 與 `class` 這兩種記錄會有，而且**必填**（規則擋著）。
 `fields` 業務記錄與有固定欄位的記錄類型（`qualitative`、`subject`、`case`、`iep`、`soap`）都會有。
 `related` 是三個分頁串起來的鍵；`rid` 在同一位學生底下是唯一的，
@@ -289,14 +307,20 @@ request.auth != null
    極少數情況（對象根本不是本班學生）可以用 `--allow-names` 放行，**會寫進稽核記錄**。
 3. **`sync.py`**：兩個方向都攔——本機要推上去、雲端要寫回來，出現真名都擋下不同步。
 
-### 可以刪除
+### 可以刪除（兩段式，alpha.5 起）
 
-v3 起安全規則允許擁有者刪除記錄（`allow delete: if isOwner();`）。
-理由是未成年人的紀錄必須能應家長要求刪除。配套：
+理由是未成年人的紀錄必須能應家長要求刪除，但「前端一鍵真刪」風險太大，所以拆成兩段：
 
-- 網頁刪除要**二次確認**
-- `sync.py` 把雲端的刪除傳播到本機檔，並寫一筆進 `data/audit.jsonl`
-- **整個檔案不見或變成空的時候一律不刪任何東西**——那多半是檔案出事，不是老師要刪
+- **網頁上的刪除＝軟刪**：二次確認後寫的是 `{deleted:true, deletedAt, deletedBy}`，文件留在
+  Firestore；規則的 `delete` **一律拒絕**（`allow delete: if false;`），前端沒有辦法真刪。
+- `sync.py` 把「雲端那則被軟刪」當成「雲端已刪」傳播到本機檔，並寫一筆進 `data/audit.jsonl`
+  （`op:"delete"`，只記 rid 與內容指紋，不留正文）；同步、匯出、素材包、台帳一律排除軟刪的則
+  （例外是 `backup.py` 的 `export.json`，故意保留，萬一是誤刪還找得回來）。
+- **整個檔案不見或變成空的時候一律不刪任何東西**——那多半是檔案出事，不是老師要刪。
+- **真刪只有一條路**：老師本人在終端機跑 `scripts/purge_deleted.py --rid <id> --target <種類/代號>
+  --confirm`（或 `--all --confirm` 全刪），走 `gcloud` 使用者權杖，安全規則管不到它，**不可逆**；
+  每刪一則另記一筆 `{op:"purge", …}`。無頭交辦永遠不准跑這一支（`AGENTS-HEADLESS.md` 第 5 條）。
+  個資法的刪除請求，最終完成點就是這一步。
 
 ---
 
@@ -335,6 +359,8 @@ v3 起安全規則允許擁有者刪除記錄（`allow delete: if isOwner();`）
 | 雲端那則被網頁改過（`editedOnWeb`）、本機那則自上次同步後沒動 | 寫回檔案（先備份成 `.<檔名>.prev.md`）；寫回哪個檔看那則的 `stream` |
 | **兩邊都改** | **不覆蓋**，印出來讓老師自己決定 |
 | 雲端那則被刪掉（以前同步過、現在不見了） | 從本機檔也刪掉，寫進 `data/audit.jsonl`。但整檔不見／變空就一律不刪 |
+| 雲端那則被**軟刪**（`deleted:true`，alpha.5） | 視同「雲端已刪」，走上面同一條路；本機原本沒有那一則（例如網頁新增後立刻刪）就什麼都不做 |
+| 只有本機課程卡 `overview` 改，或只有網頁「整體課程紀錄」卡改（alpha.5） | 跟學生卡同一套「不覆蓋」規則（§2「整體課程紀錄」）；兩邊都改就都不動、記一筆 note |
 | 任一方向出現名冊真名 | 攔下不同步 |
 
 ### 學生卡也是雙向的（`goals` / `conceptualization`）

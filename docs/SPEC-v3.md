@@ -131,6 +131,7 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 - 明細新增時正文預先帶四段骨架（可刪）：`### 課程進度`、`### 今天實際教了什麼`、`### 學生整體反應`、`### 下次要調整的`。
 - 預設 tags：`#進度 #教學內容 #學生反應 #調整 #亮點 #卡點 #規劃`。
 - 提及個別學生一律代號，並可加 `related` 連到該生記錄。
+- **整體課程紀錄（alpha.5）**：課程卡多一個不分天的 `overview` 欄位（`courses/{id}.overview`＋`overviewUpdatedAt`，本機鏡像 `data/courses/<id>/card.json`，`sync.py` 雙向、規則不用改），Word／PDF／.md 匯出放在逐日紀錄最前面；網頁新增的課程現在 `sync.py` 會自動幫它建本機 `records.md`。
 
 ### 3.3 業務記錄（通用框架、可擴充）
 - **業務組庫** `config/business-groups.library.json`：每組 `{id,label,desc,fields:[{name,type:text|date|select,options?}],tags:[...]}`。**安裝時全部由老師勾選，沒有預設勾任何一組**（David 2026-09-10）。內建 11 組：導師班務／輔導與個案追蹤／特教與 IEP／教務／學務／總務／公文與行政流程／會議紀錄／研習與專業成長／家長與社區／個人待辦。
@@ -155,6 +156,7 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 - **語音改寫規則**（AGENTS.md §錄音）：逐字稿 → 依方案的欄位骨架改寫（質性評量：每則一個具體事件＋面向＋報告維度；IEP：先對 goals 分段，每段一則、標目標編號與達成情形；SOAP：四段拆分，個案的話進 S、可觀察行為進 O）→ `append_record.py --fields-json`。
 - **素材包與草稿分工**（維護成本最低）：`scripts/report_pack.py` 只做確定性的事——依格式把該生所有記錄分組（報告維度／面向／課程／目標／次數）、附統計、附**校方格式骨架與書寫規則**（稱名不稱全名、人稱「他」、先事實後判斷、每則只一個下一步、禁「不是A而是B」等對比句、禁定型語言）成 `exports/<學生>-素材包.md`＋`-prompt.md`；**評語本文由老師的 AI 代理寫**（AGENTS.md 給它固定流程與檢核清單）；`--all` 全班一包。網頁端「產生期末素材」按鈕做同一件事（下載 .md）。
 - **格式庫** `config/report-formats.library.json`：`waldorf-homeroom`、`subject-4`、`iep-tracking`、`case-summary`、`custom`（老師貼自己學校的格式標題，AI 依樣產）。每個格式＝`{id,label,sections:[{title,hint,length}],rules:[...]}`。
+- **五維度自動推導（alpha.5）**：只記 `homeroom`（沒有「報告維度」欄位）的老師，一則紀錄的五個評量維度改由 `waldorf-homeroom` 格式裡新增的 `tagMap`／`keywords`／`thinMax` 從 #標籤與內文關鍵詞推導（一則可落多維度），網頁零硬編；有「報告維度」欄位的類型（如 `qualitative`）行為不變，只影響沒有這個欄位的類型。
 - **方案庫** `config/verticals.json`：三方案（`qualitative-assessment`／`iep-tracking`／`soap-casework`）各列 `label`、`pain`、`suggest{streams,groups,format}`、`voiceRule`（語音改寫規則），供精靈唸給老師聽；只是建議，不預勾。老師選的方案與格式寫進 `config/tabs.json` 頂層 `vertical`／`reportFormat`（answers 鍵 `vertical`／`report_format`）。
 - 類型庫調整：`counseling` 併入 `soap`（保留別名讀舊資料）；`case` 保留為通用個案追蹤；`iep` 依上表擴欄；新增 `qualitative`。
 
@@ -176,6 +178,7 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 - 班級整體觀察明細頁同樣有「匯出 ▾」；彈出視窗被擋時改成同頁列印覆蓋層。
 - **腳本端（正式版、給期末或大量用）**：`scripts/export_docs.py --kind students|class|courses|business --target <id>|all [--stream X] [--from --to] [--with-class] --docx [--pdf] [--html]`：`.docx` 用標準庫 `zipfile` 直接寫最小 OOXML（零相依）；`.pdf` 若機器上有 Chrome／Chromium（或環境變數 `TRK_CHROME` 指定）就 `--headless=new --print-to-pdf`，沒有就把 HTML 留在 `exports/` 並印「用瀏覽器開這個檔→列印→儲存為 PDF」。輸出到 `exports/`（gitignored）。網頁端版面正本是 `buildExport()`（`renderExportHtml` 為薄包裝、`renderExportUI` 生選單）。
 - 匯出內容一律去識別化正文＋名冊姓名（因為是老師自己用），檔案落地在老師機器；文件與 README 要提醒「匯出檔含真名，別放到公開的地方」。
+- **匯出 Markdown（給 AI，alpha.5）**：同一個「匯出 ▾」選單、全班面板、課程一覽都多一項 `exportMd()`，格式與本機 `data/*.md` 同形，但正文一律代號、真名只在檔尾「附錄：代號對照」、檔首加「唯讀副本，不要複製回 data/」標記——跟上面「含真名」的 Word／PDF 正好相反，這一份是設計成可以安心整份貼給 AI 的。
 
 ### 3.7 跨平台層（David 2026-09-10 拍板）
 
@@ -196,7 +199,7 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 
 ## 4. 設定檔（單一產生器、三個輸出）
 
-- `config/kit.json`（**JSON，不再自寫 YAML 解析器**——紅隊 #10）：`owner_email`、`id_prefix`、`firebase{project_id,api_key,auth_domain,storage_bucket,messaging_sender_id,app_id}`、`drive{mode:"desktop"|"gws", desktop_dir, backup_folder_id, keep_backups}`、`voice{model,lang}`、`email{...}`。v2 的 `config.yaml` 由 `setup.py --upgrade` 一次轉成 JSON。
+- `config/kit.json`（**JSON，不再自寫 YAML 解析器**——紅隊 #10）：`owner_email`、`id_prefix`、`firebase{project_id,api_key,auth_domain,storage_bucket,messaging_sender_id,app_id}`、`drive{mode:"desktop"|"gws", desktop_dir, backup_folder_id, keep_backups}`、`voice{model,lang}`、`email{...}`。v2 的 `config.yaml` 由 `setup.py --upgrade` 一次轉成 JSON。**alpha.5 追加** `co_owner_emails`（選填清單）：規則判斷從 `email == '...'` 改成 `email in [...]`，清單裡的信箱與 `owner_email` 權限完全相同（不是分權）。
 - `config/tabs.json`（分頁與向度）：
   ```json
   {"version":3,

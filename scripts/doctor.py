@@ -400,7 +400,8 @@ def check_drive(r, kit, skip_network):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Teacher Records Kit 健檢：逐項檢查並告訴你怎麼修")
+    ap = argparse.ArgumentParser(description="Teacher Records Kit 健檢：逐項檢查並告訴你怎麼修"
+                                              "（真刪雲端原文另有 scripts/purge_deleted.py，不在健檢範圍）")
     ap.add_argument("--json", action="store_true", dest="as_json", help="輸出 JSON（給 AI 代理讀）")
     ap.add_argument("--skip-network", action="store_true", help="跳過要連網的項目")
     lib.add_root_arg(ap)

@@ -13,6 +13,13 @@ Google 帳號、套件管理程式（macOS＝Homebrew，https://brew.sh ；Windo
 > **Windows**：這份文件裡的 `python3` 一律換成 `py -3`（或 `python`），路徑的 `/` 換成 `\`；
 > 細節見 `docs/PLATFORMS.md`。
 
+## v3.0.0-alpha.5 新增（`CHANGELOG.md` 是正本，這裡只列一行一項）
+
+- **共同擁有者 `co_owner_emails`**：`config/kit.json` 多一個信箱清單，裡面的帳號跟 `owner_email` 權限完全一樣；`setup.py --answers` 可以帶，安裝精靈本身不問這一題。
+- **匯出 Markdown（.md，給 AI）**：明細頁「匯出 ▾」、全班面板、課程一覽都多一項／一顆按鈕；正文代號、真名只在檔尾附錄。
+- **整體課程紀錄**：每門課多一段不分天的總說明（`courses/{id}.overview`），本機也有對應檔 `data/courses/<id>/card.json`，雙向同步。
+- **兩段式刪除（規則有動）**：網頁上刪除是軟刪，規則的 `delete` 一律拒絕；真刪只有老師本人在終端機跑 `scripts/purge_deleted.py --confirm` 才做得到。
+
 ---
 
 ## 0. 判斷你現在的狀態
@@ -404,6 +411,9 @@ python3 scripts/doctor.py               # 「無頭交辦」那一區五項要�
    ```bash
    firebase deploy --only firestore:rules --project <你的專案ID>
    ```
+   升到 `v3.0.0-alpha.5` 或更新版本格外不能省——這一版把刪除改成兩段式（軟刪，真刪只走
+   `scripts/purge_deleted.py`）、又加了 `co_owner_emails`，兩者都動了規則字串，
+   沒重新部署的話刪除鍵會失敗、共同擁有者也登不進去。
 
 4. ```bash
    firebase deploy --only hosting --project <你的專案ID>
