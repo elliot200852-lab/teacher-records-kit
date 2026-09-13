@@ -11,6 +11,13 @@
 #                 sync／backup／ledger／doctor 的連網路徑、安全規則本身，以及無頭交辦的電腦端
 #                 （假的 AI 代理，走 TRK_HEADLESS_AGENT_CMD——CI 永遠不會叫到真的模型）
 #   urls          每週檢查 hostos.ALL_URLS() 裡的每一個網址還活著（可攜工具＋語音模型；釘死的 tag 會過期）
+#
+# 省 Actions 分鐘（2026-09-13 David：repo 轉 private 後四天 22 次 push 燒掉約 2,100 分鐘，
+# 帳號每月只有 3,000；macOS 一分鐘算十分、Windows 算兩分，大頭就在這兩個平台）：
+#   一般 push           只跑 test（ubuntu × 3.9／3.13）、local-mode、emulator
+#   打 v* tag／手動觸發  上面全部：三平台 × 三版本、windows-smoke、linux-smoke、bootstrap、urls
+#                       ——發版前一定要過這一輪；手動＝gh workflow run ci.yml -R elliot200852-lab/teacher-records-kit
+#   每週排程            只跑 urls
 name: ci
 
 on:
@@ -20,14 +27,21 @@ on:
     - cron: "17 3 * * 1"      # 每週一 UTC 03:17：只為了 urls 這個 job
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}   # 連續 push 只驗最新那一個；tag 那輪不砍
+
 jobs:
   test:
+    if: github.event_name != 'schedule'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.9", "3.13", "3.14"]      # 3.9 是 kit 的底線（doctor.py 也驗這個），3.14 是提前吃新版的雷
+        # 一般 push：ubuntu × 3.9／3.13；打 tag 或手動才展開成三平台 × 三版本（見檔頭「省 Actions 分鐘」）
+        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
+        # 3.9 是 kit 的底線（doctor.py 也驗這個），3.14 是提前吃新版的雷
+        python: ${{ fromJSON((github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) && '["3.9", "3.13", "3.14"]' || '["3.9", "3.13"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -37,6 +51,7 @@ jobs:
         run: python -m unittest discover scripts/tests -v
 
   windows-smoke:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -164,6 +179,7 @@ jobs:
           if ($left) { $left | Select-Object -First 5 FullName; throw "leftover Chrome profile dirs (kill_tree did not take the renderers with it)" }
 
   linux-smoke:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -193,6 +209,7 @@ jobs:
   bootstrap:
     # 「一台全新的電腦」那一層（setup/bootstrap.sh／.ps1）。
     # CI 挑 gemini 與 codex，是因為這兩支裝完不登入也能 --version；**這裡永遠不做登入**。
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -234,6 +251,7 @@ jobs:
     # 「只放這台電腦」那條路：零雲端、零 Firebase。它跟 cloud 模式共用同一批腳本，
     # 所以每一支都要在這個模式下真的跑一次——尤其 sync（該安靜地什麼都不做）與
     # doctor（該把雲端那幾項標成略過、而且 key 一個都不能少）。
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -290,6 +308,7 @@ jobs:
           print("local mode: every offline-required doctor key present and green/skipped")
 
   emulator:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -308,6 +327,7 @@ jobs:
         run: python3 scripts/tests/emulator_smoke.py
 
   urls:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
