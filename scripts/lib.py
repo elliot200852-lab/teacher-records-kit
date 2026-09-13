@@ -762,7 +762,9 @@ def load_roster_rows(kit=None, data_root=None):
             first = row[0].strip()
             if i == 0 and not re.search(r"\d", first):
                 continue                                   # 標頭列
-            m = re.match(r"^(\D+)-0*(\d+)$", first)
+            # 完整代號＝「前綴-數字」。前綴可以含數字（6B、4A 是最常見的班級前綴），
+            # 所以不能用 \D+ 抓前綴——那會把 4A-01 讀成裸數字 401、變成 4A-401。
+            m = re.match(r"^(.+?)-0*(\d+)$", first)
             if m:
                 sid = "%s-%s" % (m.group(1), m.group(2).zfill(ID_WIDTH))
             else:

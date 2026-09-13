@@ -182,6 +182,13 @@ class TestRoster(unittest.TestCase):
         r = lib.load_roster({"id_prefix": "6B"}, self.data)
         self.assertEqual(list(r), ["6B-07"])
 
+    def test_prefix_with_digit_keeps_full_code(self):
+        """4A-01 這種含數字的前綴以前會被讀成 4A-401（\D+ 抓不到前綴、退回裸數字路徑）。"""
+        write(os.path.join(self.data, "roster.csv"),
+              "代號,姓名,類型\n4A-01,學生甲,\n4A-2,學生乙,\n03,學生丙,\n")
+        r = lib.load_roster({"id_prefix": "4A"}, self.data)
+        self.assertEqual(r, {"4A-01": "學生甲", "4A-02": "學生乙", "4A-03": "學生丙"})
+
     def test_missing_roster_is_empty(self):
         self.assertEqual(lib.load_roster({}, self.data), {})
 
