@@ -5,21 +5,21 @@
 
 ## 0. 定位（與 v2 的差別）
 
-| | v2（公開） | v3（私有、收費） |
+| | v2（公開） | v3（公開開源免費） |
 |---|---|---|
-| 取得方式 | 任何人 clone | David 邀請成為 repo 協作者後下載 |
+| 取得方式 | 任何人 clone | 任何人 clone 或 GitHub 下載 ZIP |
 | 分頁 | 學生觀察、課程紀錄 | **學生記錄、課程記錄、業務記錄**（＋每頁內建「這頁需要什麼資料」說明） |
 | 儲存 | Firestore | Firestore（網站）＋本機 markdown（累積）＋ **Google Drive 備份**，三處以「台帳」對得起來 |
 | 輸入 | 網頁打字、本機 md | 網頁、本機 md、**錄音檔**（本機 whisper 轉錄→AI 改寫→只走 `append_record.py` 寫入） |
 | 業務 | 無 | 勾選「業務組」→ 每組一個面版；不在清單的走開放選項，AI 問清楚後設計 |
 | 引導 | AGENTS.md 五步 | AGENTS.md 精靈：每步「AI 主動問→使用者去哪拿（連結）→做→驗證」，進度記在 `setup/progress.json` |
-| 授權 | MIT | 專屬授權（條款待 David 定，先放 placeholder） |
+| 授權 | MIT | MIT 授權 |
 
 **獨立性鐵則**：一切帳號（Google、Firebase、Drive、GitHub）都是使用者自己的。David 不代管、不持有金鑰、看不到資料。repo 只有程式與範本，零個資。
 
 ## 1. 使用者體驗（老師視角）
 
-1. 收到 David 的邀請信 → 下載 repo（zip 或 `git clone`）。
+1. 打開 GitHub 專案網頁 → 下載 repo（zip 或 `git clone`）。
 2. 打開自己的 AI 代理（Claude Code 等），說：「讀 AGENTS.md，幫我裝起來。」
 3. AI 一次只問一件事：你的 Google 帳號？要不要業務記錄？勾哪些業務組？學生名單在哪？……每一題都附「去哪裡拿、怎麼做」的連結。
 4. 裝好後：手機或電腦開網站登入，三個分頁記錄；或把錄音檔丟進 `inbox/` 跟 AI 說「整理成○○記錄」。
@@ -270,12 +270,12 @@ match /meta/{doc} { allow read, write: if isOwner(); }
 
 ## 9. 文件
 
-- `README.md`：私有、邀請制、三分頁、獨立性聲明、怎麼開始、授權（placeholder）。
+- `README.md`：開源免費、三分頁、獨立性聲明、怎麼開始、MIT 授權。
 - `docs/GUIDE.md`：給完全沒碰過 AI 的老師：從「什麼是 AI 代理、怎麼裝 Claude Code」到「怎麼跟它說話」，每步附連結與畫面。
 - `docs/DATA-CHECKLIST.md`：三分頁各自「你要準備什麼資料、格式、範例」。
 - `docs/BUSINESS-GROUPS.md`：業務組庫人讀版＋開放選項說明。
 - `docs/ARCHITECTURE.md`：三處一台帳、安全、同步與備份、錄音管線（取代 REPORT.md 前 9 節；REPORT.md 只留變更紀錄）。
-- `LICENSE`：專屬授權 placeholder（`[[待 David 定案]]`）。
+- `LICENSE`：MIT 授權。
 - 去識別化在文件裡的定位（紅隊 #7）：**它是「紀錄文字可以安心交給 AI、匯出、備份」的做法，不是安全機制**；安全靠規則與老師自己的帳號。文件不得宣稱代號＝匿名。
 
 ## 10. Placeholder 標記
