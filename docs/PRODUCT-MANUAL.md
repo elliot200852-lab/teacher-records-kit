@@ -113,12 +113,9 @@ IEP 目標追蹤、會談紀錄（SOAP）是**各自獨立的簿子**，各有�
 
 ## 2.1 ① 取得資料夾
 
-這是**私有、邀請制**的 repo。作者會寄一封 GitHub 邀請信給你（寄件人是 GitHub，
-主旨大概是「… invited you to collaborate on …」）。
+進到 repo 頁面（[GitHub 連結](https://github.com/elliot200852-lab/teacher-records-kit)）→ 右上方綠色 **`Code`** → 最下面 **`Download ZIP`** → 下載後解壓縮（macOS 點兩下；Windows 右鍵「全部解壓縮」）。
 
-開信 → 按綠色按鈕（`View invitation`／`Accept invitation`；沒有 GitHub 帳號的話先免費註冊）→
-進到 repo 頁面 → 右上方綠色 **`Code`** → 最下面 **`Download ZIP`** → 解壓縮
-（macOS 點兩下；Windows 右鍵「全部解壓縮」）。會用 git 的人跑 `git clone`，結果一樣。
+會用 git 的人直接在終端機執行 `git clone https://github.com/elliot200852-lab/teacher-records-kit.git`，結果完全一樣。
 
 **放哪裡**：路徑短、好找、**不要放在會同步的資料夾裡**。
 
