@@ -114,15 +114,13 @@ Google 規定升級成「用多少算多少」的方案要綁卡。你這個用�
 
 ## 2-1 ① 拿到資料夾
 
-作者會寄一封 GitHub 邀請信給你（寄件人是 GitHub，主旨大概是
-「… invited you to collaborate on …」）。
+這個專案已完全公開免費開放（Public），任何人都可以直接下載使用，不需要等待邀請信：
 
-1. **開信，按信裡的綠色按鈕**（`View invitation` 或 `Accept invitation`）。
-   沒有 GitHub 帳號的話它會請你先註冊一個（免費，用你的信箱就好）。
-2. 按 **`Accept invitation`**，你就會進到這個資料夾的網頁。
-3. 找右上方那顆綠色的 **`Code`** 按鈕 → 下拉選單**最下面**的 **`Download ZIP`**。
-4. 下載好的檔案在「下載項目」裡。macOS **點兩下**它就解開了；
+1. **開啟專案網頁**：[https://github.com/elliot200852-lab/teacher-records-kit](https://github.com/elliot200852-lab/teacher-records-kit)
+2. 找右上方那顆綠色的 **`Code`** 按鈕 → 下拉選單**最下面**的 **`Download ZIP`**。
+3. 下載好的檔案在「下載項目」裡。macOS **點兩下**它就解開了；
    Windows 在那個檔案上**按右鍵 →「全部解壓縮」**。
+4. （如果你習慣使用 Git，也可以直接在終端機執行 `git clone https://github.com/elliot200852-lab/teacher-records-kit.git`）
 
 **放在哪裡**：路徑短、好找。
 

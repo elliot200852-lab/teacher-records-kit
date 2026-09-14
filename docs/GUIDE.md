@@ -24,16 +24,13 @@
 ---
 
 ## 1. 把這套系統下載到你的電腦
+ 
+這個專案已完全公開免費開放（Public），任何人都可以直接下載使用，不需要等待邀請信：
 
-作者會寄一封 GitHub 邀請信給你（寄件人是 GitHub，主旨大概是
-「… invited you to collaborate on …」）。
-
-1. **開信，按信裡的綠色按鈕**（`View invitation` 或 `Accept invitation`）。
-2. 網頁會打開 GitHub。沒有 GitHub 帳號的話它會請你先註冊一個（免費，用你的信箱就好）。
-3. 按 **`Accept invitation`**。
-4. 接受之後你會進到這個 repo 的頁面。找到右上方那顆綠色的 **`Code`** 按鈕，點它。
-5. 下拉選單最下面有 **`Download ZIP`**，點下去。
-6. 下載好的 zip 檔在你的「下載項目」資料夾。
+1. **開啟專案網頁**：[https://github.com/elliot200852-lab/teacher-records-kit](https://github.com/elliot200852-lab/teacher-records-kit)
+2. 找到右上方那顆綠色的 **`Code`** 按鈕，點它。
+3. 下拉選單最下面有 **`Download ZIP`**，點下去。
+4. 下載好的 zip 檔在你的「下載項目」資料夾。
    - macOS：**點兩下解開它**。
    - Windows：在那個 zip 上**按右鍵 →「全部解壓縮」**，按「解壓縮」。
    然後把解開的那個資料夾**拖到桌面**（放哪裡都行，但桌面最好找）。
@@ -41,8 +38,7 @@
 > **Windows 的人注意**：不要把它放進 OneDrive 裡面（檔案會被鎖住）。
 > 桌面如果本身就被 OneDrive 同步了，就放 `C:\Users\你的名字\` 底下。
 
-> **懂一點電腦、想用 git 的話**：`Code` 按鈕裡有一段 `git clone https://github.com/...` 的網址，
-> 在終端機打 `git clone <那段網址>` 也可以。做不到就用上面的 ZIP，兩者結果一樣。
+> **懂一點電腦、想用 git 的話**：可以在終端機打 `git clone https://github.com/elliot200852-lab/teacher-records-kit.git`。做不到就用上面的 ZIP，兩者結果一樣。
 
 ---
 
