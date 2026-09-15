@@ -10,6 +10,24 @@
 `sync.py` 把它寫進 Firestore `meta/config.version`（＝這個資料庫最後一次是哪一版同步／部署的），
 `doctor.py` 連得上網時會拿兩邊比對，程式比資料庫新就提醒重新部署規則。
 
+## v3.0.0-alpha.7 — 2026-09-15（第一個 GitHub Release，標為 pre-release）
+
+> **程式與規則都沒有動**，不用重新部署 `firestore.rules`。升級＝拉新程式 → `python3 scripts/build_config.py`
+> （網頁頁尾的版本字串才會換成這一版）。`doctor.py` 若提醒「程式比資料庫新」，這一版可以忽略，同步一次就會對齊。
+
+### 轉為公開開源（MIT）
+
+- `LICENSE` 由 v3 專屬授權草稿改為 **MIT**。
+- `README.md`、`docs/GUIDE.md`、`docs/USER-GUIDE.md`、`docs/SPEC-v3.md`、`docs/PRODUCT-MANUAL.md`
+  拿掉邀請制、付費、價格相關文案；取得方式改成到 GitHub 按 **Code → Download ZIP** 或 `git clone`，不用等邀請信。
+- 第一次在 GitHub Releases 發行：附 `teacher-records-kit-3.0.0-alpha.7.zip`（內容與這個 tag 的 Download ZIP 相同）
+  與老師操作書 PDF。
+
+### CI
+
+- 一般 push 只跑 ubuntu（test 3.9／3.13、local-mode、emulator）；三平台全矩陣與 smoke／bootstrap
+  改在打 `v*` tag 或手動觸發時跑；週排程只跑 urls；連續 push 砍舊 run。
+
 ## v3.0.0-alpha.6 — 2026-09-13（尚未發行）
 
 > **規則沒有動**，不用重新部署 `firestore.rules`。升級＝拉新程式 → `python3 scripts/build_config.py`；
