@@ -10,6 +10,11 @@
 `sync.py` 把它寫進 Firestore `meta/config.version`（＝這個資料庫最後一次是哪一版同步／部署的），
 `doctor.py` 連得上網時會拿兩邊比對，程式比資料庫新就提醒重新部署規則。
 
+## 未發行
+
+- 網頁頁尾拿掉「使用上有問題：[[待確認：支援聯絡方式]]」，改成「免費開源（MIT 授權），依現狀提供，不提供維護與支援服務」；
+  `README.md` 授權段補同一句。這個 kit 不設支援聯絡方式。
+
 ## v3.0.0-alpha.7 — 2026-09-15（第一個 GitHub Release，標為 pre-release）
 
 > **程式與規則都沒有動**，不用重新部署 `firestore.rules`。升級＝拉新程式 → `python3 scripts/build_config.py`
