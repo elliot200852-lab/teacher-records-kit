@@ -383,6 +383,28 @@ def exe(name):
     return None
 
 
+# macOS 沒裝 JDK 時 /usr/bin/java 照樣在、也可執行——它是一支會跳「要安裝 JDK」的空殼，
+# 所以 exe("java") 找到它不代表有 Java。Homebrew 的 openjdk 是 keg-only、不在 PATH，要另外找。
+MAC_JAVA_STUB = "/usr/bin/java"
+MAC_BREW_JAVA = ("/opt/homebrew/opt/openjdk/bin/java", "/usr/local/opt/openjdk/bin/java")
+
+
+def java():
+    """真的跑得起來的 java 絕對路徑；沒有回 None（Firestore 模擬器要用）。"""
+    found = exe("java")
+    if OS != "mac" or (found and os.path.realpath(found) != MAC_JAVA_STUB):
+        return found
+    for p in MAC_BREW_JAVA:
+        if _is_exe(p):
+            return p
+    # 用 pkg 裝的 JDK（Temurin、Oracle…）會登記在 java_home；只有空殼時它回非 0
+    rc, out, _ = run(["/usr/libexec/java_home"], timeout=10, split=True)
+    home_dir = out.strip()
+    if rc == 0 and os.path.isabs(home_dir) and _is_exe(os.path.join(home_dir, "bin", "java")):
+        return os.path.join(home_dir, "bin", "java")
+    return None
+
+
 _CMD_META = re.compile(r"[&|<>^%\r\n]")     # 引號本身安全（不能讓它後面接到 & 之類的才危險）；換行會讓 cmd.exe 截斷
 
 

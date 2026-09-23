@@ -930,7 +930,7 @@ request.auth != null
 
 | 可以覆蓋 | **絕對不要覆蓋** |
 |---|---|
-| `scripts/`、`site/dashboard.html`、`site/js/*.example.js`、`templates/`、`config/*.example.json`、`config/*.library.json`、`config/verticals.json`、`firestore.rules.tmpl`、`firebase.json`、`AGENTS.md`、`README.md`、`docs/` | `config/kit.json`、`config/tabs.json`、`config/report-format.custom.json`、`data/`、`setup/progress.json`、`firestore.rules`、`site/js/kit-config.js`、`site/js/firebase-config.js`、`backups/`、`inbox/`、`exports/` |
+| `scripts/`、`site/dashboard.html`、`site/js/*.example.js`、`templates/`、`config/*.example.json`、`config/*.library.json`、`config/verticals.json`、`firestore.rules.tmpl`、`firebase.json`、`AGENTS.md`、`README.md`、`docs/` | `config/kit.json`、`config/tabs.json`、`config/report-format.custom.json`、`data/`、`setup/progress.json`、`firestore.rules`、`site/js/kit-config.js`、`site/js/firebase-config.js`、`.firebaserc`、`backups/`、`inbox/`、`exports/` |
 
 更新後一定要跑（新版的設定產生器可能多產了東西）：
 
@@ -954,7 +954,8 @@ python3 scripts/doctor.py
 2. `python3 scripts/setup.py --upgrade`——把 `config.yaml` 的 `owner_email`、`firebase`、`email`
    轉成 `config/kit.json`，並自動跑 `build_config.py`。
 3. **重新部署安全規則（不能省）**：`firebase deploy --only firestore:rules --project <專案ID>`
-4. **重新部署網站**：`firebase deploy --only hosting --project <專案ID>`
+4. **重新部署網站**（`.firebaserc` 在上一步 `build_config.py` 就自動產生了）：
+   `firebase deploy --only hosting --project <專案ID>`
 5. `python3 scripts/sync.py --dry-run` 看一次再 `python3 scripts/sync.py`。
 
 **升級的重點只有一句話：光更新程式不夠，安全規則一定要重新部署一次。**
@@ -1008,8 +1009,9 @@ v3 加了業務記錄的區塊，也改成允許你自己刪除記錄。沒重�
 | 31 | **LINE 傳出去完全沒有任何回應** | 雲端那支程式沒部署、Webhook URL 沒貼、或「Use webhook」沒打開 | 依序：`firebase deploy --only functions:line-relay --project <專案ID>` → 把它印出來的網址貼回 LINE Developers 的 Messaging API 分頁 → 打開 Use webhook。順便確認「自動回覆訊息」是關的（沒關的話你收到的是 LINE 的罐頭回覆） |
 | 32 | **一直收到「配對碼：Uxxxx…」** | 配對碼填了但沒送上雲端 | 把碼填進 `config/kit.json` 的 `headless.line.owner_user_id` → `python3 scripts/build_config.py` → `python3 scripts/headless.py --once` |
 | 33 | **收到「收到了」，但第二則回報永遠不來** | 電腦沒醒著、排程沒跑，或兩個 LINE 金鑰的環境變數排程讀不到 | 依序：`python3 scripts/headless.py --status` → `--once` 手動催一次 → `python3 scripts/schedule.py --status` → `python3 scripts/doctor.py` 看無頭那五項。金鑰要寫進 `~/.zshrc` 或 Windows 使用者環境變數，臨時 `export` 排程看不到 |
-| 34 | **紀錄寫進去了，但手機沒收到回報** | LINE 推播額度用完（免費方案每月 200 則），或 token 讀不到 | 紀錄是好的，不用重跑。額度看 LINE Official Account Manager；要換 token 就重設環境變數與 `firebase functions:secrets:set` |
+| 34 | **紀錄寫進去了，但手機沒收到回報** | LINE 推播額度用完（免費方案每月 200 則），或 token 讀不到 | 紀錄是好的，不用重跑。額度看 LINE Official Account Manager；要換 token 就重設環境變數與 `firebase functions:secrets:set …… --project <你的專案id>` |
 | 35 | 部署時整批失敗，錯誤訊息看不出是哪一項 | 跑了無參數的 `firebase deploy` | **一律帶 `--only`**：`--only firestore:rules`、`--only hosting`、`--only storage`、`--only functions:line-relay`，一項一項來 |
+| 36 | `firebase deploy --only hosting` 說找不到 target `web`、或部署到了錯的網址 | `.firebaserc` 不存在，或跟 `config/kit.json` 的 `firebase.hosting_site` 對不上（多半是改過那個值但沒重跑產生器）——只有同一個 Firebase 專案掛了不只一個 Hosting site 才會遇到 | `python3 scripts/build_config.py`（它會自動產生／合併 `.firebaserc`），`python3 scripts/doctor.py` 也會主動抓這個不一致 |
 
 ---
 
@@ -1020,7 +1022,7 @@ v3 加了業務記錄的區塊，也改成允許你自己刪除記錄。沒重�
 | 腳本 | 一行用途 | 最常用的旗標 |
 |---|---|---|
 | `scripts/setup.py` | 安裝精靈：問完 → 寫設定 → 建資料骨架 → 產生網頁設定與規則 → 健檢 | `--answers 檔`、`--resume`、`--upgrade`、`--mark-step N [--note 文字]`、`--skip-network`、`--skip-doctor` |
-| `scripts/build_config.py` | 唯一的設定產生器：設定與範本進，四個檔出（本機模式只出一個） | `--check`、`--quiet`、`--allow-placeholders`（測試用） |
+| `scripts/build_config.py` | 唯一的設定產生器：設定與範本進，五個檔出（本機模式只出一個） | `--check`、`--quiet`、`--allow-placeholders`（測試用） |
 | `scripts/doctor.py` | 健檢：逐項告訴你什麼好了、沒好的怎麼修 | `--json`、`--skip-network` |
 | `scripts/install_tools.py` | 裝齊外部工具，三個平台同一支 | `--dry-run`、`--agent claude\|codex\|gemini`、`--with-gws`、`--json`、`--remove-portable` |
 | `scripts/append_record.py` | **唯一被允許寫入記錄檔的通道** | `--kind`、`--target`、`--stream`、`--content-file`、`--fields-json`、`--tags`、`--related`、`--source`、`--sync`、`--json` |

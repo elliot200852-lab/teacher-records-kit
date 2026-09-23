@@ -124,8 +124,8 @@ python3 scripts/build_config.py
 金鑰不會進 repo，也不會進 Function 的程式碼——走 Firebase 的 secret 管理：
 
 ```bash
-firebase functions:secrets:set KIT_LINE_CHANNEL_SECRET     # 貼上，按 Enter
-firebase functions:secrets:set KIT_LINE_CHANNEL_TOKEN
+firebase functions:secrets:set KIT_LINE_CHANNEL_SECRET --project <你的專案id>     # 貼上，按 Enter
+firebase functions:secrets:set KIT_LINE_CHANNEL_TOKEN --project <你的專案id>
 firebase deploy --only storage --project <你的專案id>              # Storage 規則（語音存放處）
 firebase deploy --only functions:line-relay --project <你的專案id>  # 收件端
 ```

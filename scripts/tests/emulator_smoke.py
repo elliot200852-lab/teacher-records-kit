@@ -519,11 +519,13 @@ def outer():
     if not hostos.exe("firebase"):
         print("找不到 firebase CLI；npm i -g firebase-tools 之後再跑。")
         return 2
-    if not (hostos.exe("java") or os.path.isdir("/opt/homebrew/opt/openjdk/bin")):
-        print("Firestore 模擬器需要 Java；macOS：brew install openjdk（並把 /opt/homebrew/opt/openjdk/bin 加進 PATH）。")
+    java = hostos.java()
+    if not java:
+        print("Firestore 模擬器需要 Java；macOS：brew install openjdk。")
         return 2
-    if os.path.isdir("/opt/homebrew/opt/openjdk/bin") and not hostos.exe("java"):
-        os.environ["PATH"] = "/opt/homebrew/opt/openjdk/bin" + os.pathsep + os.environ.get("PATH", "")
+    # firebase CLI 自己從 PATH 找 java：PATH 上那支不是真的（macOS 的 /usr/bin/java 空殼）才把真的排到最前面
+    if java != hostos.exe("java"):
+        os.environ["PATH"] = os.path.dirname(java) + os.pathsep + os.environ.get("PATH", "")
     root = tempfile.mkdtemp(prefix="trk-emu-")
     try:
         with open(os.path.join(PKG, "templates", "answers.example.json"), encoding="utf-8") as f:

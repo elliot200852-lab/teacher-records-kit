@@ -343,11 +343,29 @@ python3 scripts/doctor.py
 兩者不同源，**iOS Safari 的跨網域儲存分區會讓 Google 登入一直失敗**（登入後又跳回未登入）。
 
 所以：**打算用 Firebase Hosting 的話，`authDomain` 那一格留空**——
-`build_config.py` 會自己填 `<專案ID>.web.app`，那正是網站的網址。
+`build_config.py` 會自己填 `<實際部署的 Hosting site>.web.app`（多數老師這個 site 就是
+`<專案ID>`，那正是網站的網址）。
 答案檔 `templates/answers.example.json` 的 `firebase.auth_domain` 預設就是 `""`，
 `config/kit.example.json` 也是；步驟 4 那一題直接跳過就對了，**不要把 Console 給的
 `.firebaseapp.com` 抄進去**。
 （要用 GitHub Pages 或嵌進現有網站的話，才填他實際打開網頁的那個網域。）
+
+**同一個 Firebase 專案掛了不只一個 Hosting site 的多站安裝**（`config/kit.json` 的
+`firebase.hosting_site`——**這不是安裝精靈會問的題目**，setup.py 沒有這一題，是進階選項，
+細節見步驟 5）：老實講，`setup.py` 問完這一步之後，**一定會把 `authDomain` 寫進
+`config/kit.json`**——`auth_domain` 這一格留空的話，它不會真的存成空字串，
+而是直接算成 `<專案ID>.web.app` 寫進去。這件事分兩種情況：
+
+- **裝的時候就已經知道要多站**：答案檔先把 `firebase.hosting_site` 填好（`auth_domain`
+  留空），`setup.py` 這時候會直接算出 `<hosting_site>.web.app` 寫進去，一次到位。
+- **先照單站裝好，之後才想加 `hosting_site`**（多數情況）：`kit.json` 裡的 `auth_domain`
+  這時候已經是具體的 `<專案ID>.web.app`，**不會**因為你事後補填了 `hosting_site`
+  就自動跟著換——它已經不是空的了。**這種情況一定要手動**：把 `config/kit.json` 的
+  `firebase.auth_domain` 改成 `<hosting_site>.web.app`，重跑一次
+  `python3 scripts/build_config.py`，並到 Firebase 主控台
+  **Authentication → Settings → 已授權網域（Authorized domains）** 手動加上那個網域
+  （不會自動出現在清單裡）。`doctor.py` 會檢查 `auth_domain` 跟現在算出來的 site 對不對得上，
+  對不上會提醒你回來做這一步。
 
 ### 怎麼驗證＋失敗時怎麼辦
 
@@ -727,7 +745,7 @@ python3 scripts/doctor.py
 **B. 需要單獨重跑設定產生器時**（例如你手改了 `config/tabs.json` 加一組業務）：
 
 ```bash
-python3 scripts/build_config.py            # 產生三個檔
+python3 scripts/build_config.py            # 產生設定與規則（cloud 模式再加 .firebaserc）
 python3 scripts/build_config.py --check    # 只驗設定合不合法，不寫任何檔
 ```
 
@@ -803,8 +821,21 @@ python3 scripts/doctor.py
 firebase deploy --only hosting --project <他的專案ID>
 ```
 
-跑完終端機會印出網址，長得像 `https://<專案ID>.web.app`。把網址給老師，請他用**手機**打開一次
-（手機是他之後最常用的入口）。
+`firebase.json` 的 `hosting` 固定寫了 `"target": "web"`（Firebase 官方的多站機制），實際要部署到
+哪一個 Hosting site 是靠 repo 根目錄的 `.firebaserc` 對應——這個檔**不是你手寫的**，
+步驟 4 的 `build_config.py` 已經自動幫他產生了，**這裡不用多做任何事**。
+只有極少數情況——老師的 Firebase 專案裡本來就已經掛了不只一個 Hosting site（例如同一個專案
+底下還放著別的網站）——才需要先在 `config/kit.json` 的 `firebase.hosting_site` 填清楚要用哪一個
+site 的名稱，再重跑一次 `python3 scripts/build_config.py`，然後才 `firebase deploy --only hosting`；
+一般安裝這一格留空就好，`build_config.py` 會自動當成跟 project ID 同名的那個預設 site。
+**填了 `hosting_site` 之後，`firebase.auth_domain` 幾乎一定要手動跟著改**——步驟 2 那個
+iPhone 登入坑講過真正的原因：`setup.py` 早就把 `auth_domain` 寫成具體的 `<專案ID>.web.app`
+了（不是空字串），所以事後補填 `hosting_site` 不會讓它自動換。把 `config/kit.json` 的
+`firebase.auth_domain` 手動改成 `<hosting_site>.web.app` 再重跑 `build_config.py`，
+並到 Firebase 主控台 Authentication → Settings → 已授權網域手動加上那個網域。
+
+跑完終端機會印出網址，長得像 `https://<專案ID>.web.app`（多站的話網址會是那個 site 自己的網域）。
+把網址給老師，請他用**手機**打開一次（手機是他之後最常用的入口）。
 
 **備選：GitHub Pages。** 把 `site/` 這個資料夾的內容推到一個 repo，開 Pages 指向它。
 注意 `site/js/kit-config.js` 與 `site/js/firebase-config.js` 是 gitignored 的產生檔，
@@ -823,11 +854,18 @@ firebase deploy --only hosting --project <他的專案ID>
 3. 用**手機**打開並登入一次。
 
 - **iPhone 上登入後一直跳回未登入** → 就是步驟 2 講的 `authDomain` 坑。
-  改 `config/kit.json` 裡 `firebase.auth_domain` 成他實際打開網頁的網域（Firebase Hosting ＝ `<專案ID>.web.app`），
-  重跑 `python3 scripts/build_config.py`，重新 `firebase deploy --only hosting`。
+  改 `config/kit.json` 裡 `firebase.auth_domain` 成他實際打開網頁的網域
+  （Firebase Hosting＝`<實際部署的 site>.web.app`；多站安裝是 `<hosting_site>.web.app`，
+  不是 `<專案ID>.web.app`——`python3 scripts/doctor.py` 的「authDomain 跟 Hosting site 同源」
+  那一項會抓到這個對不上），重跑 `python3 scripts/build_config.py`，重新 `firebase deploy --only hosting`。
+  順手到 Firebase 主控台 Authentication → Settings → 已授權網域確認有那個網域。
 - **在 LINE／FB 裡點連結打不開 Google 登入** → 那是 App 內建瀏覽器擋的，
   網頁會導引他改用 Safari／Chrome。教他把網址加到手機主畫面。
 - **停在「還沒有設定檔」** → `site/js/kit-config.js` 沒被部署上去。重跑 `build_config.py` 再部署。
+- **`firebase deploy --only hosting` 說找不到 target `web`、或部署到了錯的網址** → `.firebaserc`
+  沒有或跟 `config/kit.json` 對不上（多半是 `firebase.hosting_site` 改過但沒重跑產生器）。
+  跑 `python3 scripts/build_config.py` 讓它重新產生／合併 `.firebaserc`，`python3 scripts/doctor.py`
+  也會抓到這個不一致並告訴你怎麼修。
 - **想確認網頁本身沒壞、又不想動真資料** → 網址後面加 `?demo=1`，它會完全不連資料庫、用假資料跑一遍。
 
 ---
@@ -1427,8 +1465,8 @@ python3 scripts/build_config.py
 **C. 把金鑰交給 Cloud Function，然後部署三樣**（先跟他講一句再做）：
 
 ```bash
-firebase functions:secrets:set KIT_LINE_CHANNEL_SECRET       # 互動貼上
-firebase functions:secrets:set KIT_LINE_CHANNEL_TOKEN
+firebase functions:secrets:set KIT_LINE_CHANNEL_SECRET --project <他的專案id>       # 互動貼上
+firebase functions:secrets:set KIT_LINE_CHANNEL_TOKEN --project <他的專案id>
 firebase deploy --only storage --project <他的專案id>
 firebase deploy --only functions:line-relay --project <他的專案id>
 ```
@@ -1514,7 +1552,7 @@ python3 scripts/doctor.py        # 「無頭交辦」那一區五項要全綠
    `storage.rules.tmpl`、`config/*.example.json`、`firebase.json`、`functions/`、文件。
    **絕對不要覆蓋**：`config/`（`kit.json`、`tabs.json`）、`data/`、`setup/progress.json`、
    `firestore.rules`、`storage.rules`、`site/js/kit-config.js`、`site/js/firebase-config.js`、
-   `backups/`、`inbox/`。
+   `.firebaserc`、`backups/`、`inbox/`。
 
 2. **轉設定**：
    ```bash
@@ -1539,7 +1577,7 @@ python3 scripts/doctor.py        # 「無頭交辦」那一區五項要全綠
    `scripts/purge_deleted.py` 才做得到）、又加了 `co_owner_emails`（共同擁有者），
    兩者都動了規則字串——沒有重新部署，網頁上刪除鍵會失敗、共同擁有者的帳號也登不進去。
 
-4. **重新部署網站**：
+4. **重新部署網站**（`.firebaserc` 在上一步 `build_config.py` 就自動產生了，這裡不用多做）：
    ```bash
    firebase deploy --only hosting --project <他的專案ID>
    ```
@@ -1697,7 +1735,7 @@ python3 scripts/doctor.py        # 「無頭交辦」那一區五項要全綠
 
 | 可以覆蓋 | 絕對不要覆蓋 |
 |---|---|
-| `scripts/`、`site/dashboard.html`、`site/js/*.example.js`、`templates/`、`config/*.example.json`、`firestore.rules.tmpl`、`storage.rules.tmpl`、`firebase.json`、`functions/`、`AGENTS.md`、`AGENTS-HEADLESS.md`、`README.md`、`docs/` | `config/kit.json`、`config/tabs.json`、`data/`、`setup/progress.json`、`firestore.rules`、`storage.rules`、`site/js/kit-config.js`、`site/js/firebase-config.js`、`backups/`、`inbox/` |
+| `scripts/`、`site/dashboard.html`、`site/js/*.example.js`、`templates/`、`config/*.example.json`、`firestore.rules.tmpl`、`storage.rules.tmpl`、`firebase.json`、`functions/`、`AGENTS.md`、`AGENTS-HEADLESS.md`、`README.md`、`docs/` | `config/kit.json`、`config/tabs.json`、`data/`、`setup/progress.json`、`firestore.rules`、`storage.rules`、`site/js/kit-config.js`、`site/js/firebase-config.js`、`.firebaserc`、`backups/`、`inbox/` |
 
 **更新後一定要跑**（新版的設定產生器可能多產了東西）：
 
@@ -1740,7 +1778,7 @@ firebase deploy --only firestore:rules --project <他的專案ID>
 | 腳本 | 一句話 |
 |---|---|
 | `scripts/setup.py` | 安裝精靈：問完→寫設定→建資料骨架→產生網頁設定與規則→健檢 |
-| `scripts/build_config.py` | 唯一的設定產生器：兩份 JSON 進，三個檔出 |
+| `scripts/build_config.py` | 唯一的設定產生器：兩份 JSON 進，cloud 模式五個檔出（本機模式只出一個） |
 | `scripts/doctor.py` | 健檢：逐項告訴你什麼好了、沒好的怎麼修 |
 | `scripts/install_tools.py` | 裝齊外部工具，三個平台同一支 |
 | `scripts/append_record.py` | **唯一被允許寫入記錄檔的通道** |

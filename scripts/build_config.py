@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""build_config.py — 唯一的設定產生器：兩份 JSON 進，三個檔出。
+"""build_config.py — 唯一的設定產生器：兩份 JSON 進，cloud 模式五個檔出（本機模式只出一個）。
 
   讀：config/kit.json（帳號、Firebase、Drive、語音）
       config/tabs.json（三個分頁要記什麼）
@@ -10,12 +10,16 @@
   產：site/js/kit-config.js     window.KIT = {...}（分頁、業務組庫、擁有者、示範模式）
       site/js/firebase-config.js  window.FIREBASE_CONFIG / window.OWNER_EMAIL / window.OWNER_EMAILS（不是 module）
       firestore.rules            把樣板的 {{OWNER_EMAILS}} 換成擁有者信箱清單（owner_email＋co_owner_emails）
+      storage.rules              同上，Cloud Storage 版
+      .firebaserc                 repo 根目錄；只有 cloud 模式才產生，把 firebase.json 的
+                                  hosting.target "web" 對應到 kit.json 算出來的 Hosting site
+                                  （見 hosting_site()／build_firebaserc()）
 
-  這三個檔都被 .gitignore 擋住，而且**永遠由這支腳本產生**——AI 代理不准手寫。
+  這幾個檔都被 .gitignore 擋住，而且**永遠由這支腳本產生**——AI 代理不准手寫。
   手寫規則檔一旦把 email 打錯，資料庫就變成誰都讀不到（或更糟：誰都讀得到）。
 
 用法：
-  python3 scripts/build_config.py            # 產生三個檔
+  python3 scripts/build_config.py            # 產生設定與規則（cloud 模式再加 .firebaserc）
   python3 scripts/build_config.py --check    # 只檢查設定合不合法，不寫任何檔
   python3 scripts/build_config.py --root DIR # 指定資料根目錄（測試用）
   python3 scripts/build_config.py --allow-placeholders   # 範本值只提醒不當錯誤（測試用）
@@ -70,6 +74,66 @@ def owner_emails(kit):
     return ([o] if o else []) + co_owner_emails(kit)
 
 
+def hosting_site(kit):
+    """這份 kit 實際要部署到哪一個 Firebase Hosting site。
+
+    多數老師一個 Firebase 專案只有一個預設 site，跟 project_id 同名——這是零設定的預設值。
+    只有像同一個專案掛了不只一個 Hosting site 那種進階安裝，才需要在 config/kit.json 的
+    firebase.hosting_site 填一個不一樣的 site 名稱；build_firebaserc() 會把它寫進 .firebaserc。
+    """
+    fb = kit.get("firebase") or {}
+    hs = (fb.get("hosting_site") or "").strip()
+    return hs or (fb.get("project_id") or "").strip()
+
+
+def hosting_pid_usable(pid):
+    """project_id 是空的或還是範本值（例如 --allow-placeholders 的測試流程）。
+
+    `.firebaserc` 的產生（build_firebaserc）與健檢的對應檢查（doctor.py 的
+    check_firebaserc）都用這支判斷「這個 project_id 能不能拿來動 .firebaserc」——
+    別各寫一份，不然兩邊對「算不算填好了」的認知不一致，看起來像 bug。
+    """
+    p = (pid or "").strip()
+    return bool(p) and not p.startswith("your-")
+
+
+HOSTING_SITE_RE = re.compile(r"^[a-z0-9-]+$")
+
+
+def hosting_site_format_ok(value):
+    """hosting_site 的合法格式：純小寫英數字與 `-`，不能是網址、不能帶 `.web.app`／
+    `.firebaseapp.com` 尾巴（那樣會讓 authDomain 算成 `<value>.web.app.web.app` 這種廢話）。
+
+    `validate()` 與 `setup.py` 推算 auth_domain 之前都要驗這個，兩邊共用同一支，別各寫一份 regex。
+    """
+    return bool(HOSTING_SITE_RE.fullmatch(value or ""))
+
+
+def hosting_site_format_hint():
+    """hosting_site 格式錯誤時的修法一句話——validate() 與 setup.py 共用同一份文字。"""
+    return ("只填 site 名稱本身，不要 .web.app、.firebaseapp.com 或 https://"
+            "（只能是小寫英數字與 -，例如 trk-4a）。到 Firebase Console → Hosting "
+            "找那個 site 的名稱，或跑 `firebase hosting:sites:list --project "
+            "<你的專案id>` 列出來對。")
+
+
+def firebaserc_shape_ok(data):
+    """.firebaserc 的形狀合不合理：根、`projects`、`targets` 都要是物件（dict）或乾脆沒有那個鍵。
+
+    doctor.py 的 check_firebaserc 與這支檔案的 build_firebaserc() 共用同一個判斷，
+    別各寫一份。`targets` 底下個別 project 的值再怎麼歪，都只影響那個 project 自己，
+    這裡不管——build_firebaserc() 遇到自己會安全地覆蓋成一份乾淨的，doctor.py 則會在
+    算 `targets.<project_id>.hosting.web` 那一步安全地當成「沒有對應」處理，兩邊都不會丟例外。
+    """
+    if not isinstance(data, dict):
+        return False
+    for key in ("projects", "targets"):
+        v = data.get(key)
+        if v is not None and not isinstance(v, dict):
+            return False
+    return True
+
+
 def _rules_literal(s):
     """把字串跳脫成安全的規則字面值（樣板裡它被包在單引號裡）。
 
@@ -97,7 +161,7 @@ def validate(kit, tabs, problems, notes, allow_placeholders=False):
     """檢查設定的形狀。真正的錯誤進 problems（會 exit 1），可以先放著的進 notes。
 
     範本值（you@example.com、your-firebase-project-id、空白的 apiKey…）**預設算錯誤**：
-    產得出三個檔、印一行「下一步：部署安全規則」然後 exit 0，會讓老師與 AI 以為裝好了，
+    產得出檔、印一行「下一步：部署安全規則」然後 exit 0，會讓老師與 AI 以為裝好了，
     實際上那份規則鎖的是別人的信箱、網頁連不上任何資料庫。
     測試與預覽（build_preview.py）拿範本當形狀用，那種情境才加 `--allow-placeholders`。
     """
@@ -149,7 +213,7 @@ def validate(kit, tabs, problems, notes, allow_placeholders=False):
         # 從 cloud 改成 local 的話，上一次產生的那幾個檔還躺在原地。**不自動刪**
         # （那是老師哪天要改回雲端時的東西，而且刪檔這種事不該是產生器順手做的），
         # 但一定要說一聲——不然他會以為「改成本機了，那份鎖著我信箱的規則檔也不見了」。
-        stale = [rel for rel in ("firestore.rules", "storage.rules",
+        stale = [rel for rel in ("firestore.rules", "storage.rules", ".firebaserc",
                                  os.path.join("site", "js", "firebase-config.js"))
                  if os.path.exists(lib.rpath(rel))]
         if stale:
@@ -168,6 +232,13 @@ def validate(kit, tabs, problems, notes, allow_placeholders=False):
                    "到 Firebase Console → 專案設定 → 一般 → 你的應用程式 → SDK 設定與配置，"
                    "把那六個值填進 config/kit.json 的 firebase 區塊"
                    "（測試或 CI 只想驗形狀的話加 --allow-placeholders）。")
+
+        # hosting_site（選填）：只有值本身的字元集不對才擋——這個值會直接變成
+        # .firebaserc 的 site 名稱與 authDomain 的網域前綴，貼錯格式（網址、.web.app 尾巴）
+        # 會讓兩邊都產出一個沒有意義的值。
+        hs = (fb.get("hosting_site") or "").strip()
+        if hs and not hosting_site_format_ok(hs):
+            problems.append(("firebase.hosting_site 格式不對：%r" % hs, hosting_site_format_hint()))
 
     # 無頭交辦（選用）
     h = lib.headless_cfg(kit)
@@ -333,11 +404,13 @@ def build_firebase_js(kit):
     fb = kit.get("firebase") or {}
     cfg = {
         "apiKey": fb.get("api_key", ""),
-        # 預設 `<專案id>.web.app`＝這份 kit 實際部署的網址（Firebase Hosting）。
-        # Console 給的 `.firebaseapp.com` 跟網頁不同源，iOS Safari 的跨網域儲存分區
-        # 會讓 Google 登入一直跳回未登入（INSTALL.md 那個坑）。填了就照填的。
+        # 預設 `<實際部署的 Hosting site>.web.app`——多數老師這個 site 就是 project_id
+        # （見 hosting_site()）；同一個專案掛了不只一個 site、填了 firebase.hosting_site
+        # 的進階安裝，網址是那個 site 自己的網域，authDomain 要跟著換，不然跟網頁不同源。
+        # Console 給的 `.firebaseapp.com` 也是同一個問題：跟網頁不同源，iOS Safari 的
+        # 跨網域儲存分區會讓 Google 登入一直跳回未登入（INSTALL.md 那個坑）。填了就照填的。
         "authDomain": (fb.get("auth_domain") or "").strip()
-                      or ("%s.web.app" % fb.get("project_id", "")),
+                      or ("%s.web.app" % hosting_site(kit)),
         "projectId": fb.get("project_id", ""),
         "storageBucket": fb.get("storage_bucket", ""),
         "messagingSenderId": str(fb.get("messaging_sender_id", "")),
@@ -392,6 +465,86 @@ def build_storage_rules(kit):
                 .replace("{{HEADLESS_BLOCK}}", HEADLESS_STORAGE_BLOCK if lib.headless_on(kit) else ""))
 
 
+def build_firebaserc(kit):
+    """產生／合併 repo 根目錄的 .firebaserc——Firebase 官方的多站機制：firebase.json 的
+    hosting.target（固定寫死 "web"）要靠這個檔對應到真正的 Hosting site。
+
+    這個檔是每個安裝各自的（已經被 .gitignore 擋住，不會進 git），所以**只改它需要的兩處**：
+    projects.default（還沒有值才填，已經有的不動——那可能是老師自己另外設的 alias）、
+    targets.<project_id>.hosting.web（整個覆蓋成 hosting_site() 算出來的那一個 site）。
+    使用者自己手動加的其他 alias、其他 project 的 targets、同一個 project 底下 web 以外的
+    hosting target，一律原封不動留著。內容跟現在一模一樣就不重寫——不動 mtime，
+    也不會讓人以為「剛剛才幫你改過」。
+
+    project_id 是空的或還是範本值（例如 `--allow-placeholders` 的測試流程）時**整支不動作**、
+    回 (None, False)：不然 `projects.default` 會永久卡在範本值，之後填了真的 project_id
+    重跑也不會自動更新（我們只在 `projects.default` 原本沒值時才填）。
+
+    回傳 (path, changed)。changed=False 時檔案內容沒變（可能是本來就不存在但這次跳過了，
+    也可能是已存在且內容跟算出來的一模一樣——沒寫任何東西）。
+    """
+    fb = kit.get("firebase") or {}
+    pid = (fb.get("project_id") or "").strip()
+    if not hosting_pid_usable(pid):
+        return None, False
+    site = hosting_site(kit)
+    path = lib.rpath(".firebaserc")
+    raw = ""
+    data = {}
+    if os.path.exists(path):
+        # 記事本存成「Unicode」（UTF-16，開頭 fffe/feff）或其他非 UTF-8 編碼：utf-8-sig
+        # 解不動會丟 UnicodeDecodeError（ValueError 的子類別，不是 OSError 也不是
+        # json.JSONDecodeError）——讀檔這一步本身要接住，不然是一份沒接住的 traceback。
+        try:
+            with open(path, encoding="utf-8-sig") as f:
+                raw = f.read()
+        except (UnicodeDecodeError, OSError) as e:
+            lib.die(".firebaserc 格式不對（讀不出來，多半是編碼不是 UTF-8：%s）：%s" % (e, path),
+                    "這個檔由 build_config.py 自動產生／合併，手改壞掉的話直接刪掉它，"
+                    "重跑 `python3 scripts/build_config.py` 會重新產生"
+                    "（多站才要填的 hosting_site 記得先確認 config/kit.json 裡有）。")
+        try:
+            data = json.loads(raw) if raw.strip() else {}
+        except json.JSONDecodeError as e:
+            lib.die(".firebaserc 格式不對（不是合法的 JSON，第 %d 行第 %d 欄：%s）：%s"
+                    % (e.lineno, e.colno, e.msg, path),
+                    "這個檔由 build_config.py 自動產生／合併，手改壞掉的話直接刪掉它，"
+                    "重跑 `python3 scripts/build_config.py` 會重新產生"
+                    "（多站才要填的 hosting_site 記得先確認 config/kit.json 裡有）。")
+        if not firebaserc_shape_ok(data):
+            lib.die(".firebaserc 格式不對（根、projects、targets 都應該是物件）：%s" % path,
+                    "這個檔由 build_config.py 自動產生／合併，形狀被改壞了。刪掉它，"
+                    "重跑 `python3 scripts/build_config.py` 就會重新產生"
+                    "（多站才要填的 hosting_site 記得先確認 config/kit.json 裡有）。")
+
+    # 走到這裡 data 保證是形狀合理的 dict（或全新的 {}）；projects／targets 若原本
+    # 不是 dict（且不是完全沒有那個鍵），上面 firebaserc_shape_ok 已經先擋下來了。
+    raw_projects = data.get("projects")
+    projects = dict(raw_projects) if isinstance(raw_projects, dict) else {}
+    if not projects.get("default"):
+        projects["default"] = pid
+
+    raw_targets = data.get("targets")
+    targets = dict(raw_targets) if isinstance(raw_targets, dict) else {}
+    # 只有我們正要動的這個 project 的 target 需要安全解開；別的 project（或這個 project
+    # 底下 hosting 以外的值）再怎麼歪，原封不動留著，不是我們的責任範圍。
+    raw_proj_targets = targets.get(pid)
+    proj_targets = dict(raw_proj_targets) if isinstance(raw_proj_targets, dict) else {}
+    raw_hosting = proj_targets.get("hosting")
+    hosting_targets = dict(raw_hosting) if isinstance(raw_hosting, dict) else {}
+    hosting_targets["web"] = [site]
+    proj_targets["hosting"] = hosting_targets
+    targets[pid] = proj_targets
+
+    new_data = dict(data)
+    new_data["projects"] = projects
+    new_data["targets"] = targets
+    text = json.dumps(new_data, ensure_ascii=False, indent=2) + "\n"
+    if text == raw:
+        return path, False
+    return write(path, text), True
+
+
 def write(path, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
@@ -403,7 +556,8 @@ def main():
     ap = argparse.ArgumentParser(
         description="從 config/kit.json ＋ config/tabs.json 產生網頁設定與安全規則",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="產生的三個檔：site/js/kit-config.js、site/js/firebase-config.js、firestore.rules")
+        epilog="產生的檔：site/js/kit-config.js、site/js/firebase-config.js、firestore.rules、"
+               "storage.rules、.firebaserc（cloud 模式；本機模式只出 site/js/kit-config.js）")
     ap.add_argument("--check", action="store_true", help="只檢查設定合不合法，不寫任何檔")
     ap.add_argument("--allow-placeholders", action="store_true",
                     help="範本值（you@example.com、your-firebase-project-id、空白的金鑰）降成提醒，"
@@ -470,13 +624,19 @@ def main():
     local = lib.is_local(kit)
     outs = [write(lib.rpath("site", "js", "kit-config.js"),
                   build_kit_js(kit, tabs, library, stream_library))]
+    rc_path = rc_changed = None
     if not local:
         outs.append(write(lib.rpath("site", "js", "firebase-config.js"), build_firebase_js(kit)))
         outs.append(write(lib.rpath("firestore.rules"), build_rules(kit)))
         outs.append(write(lib.rpath("storage.rules"), build_storage_rules(kit)))
+        rc_path, rc_changed = build_firebaserc(kit)
+        if rc_changed:
+            outs.append(rc_path)
     if not a.quiet:
         for p in outs:
             lib.ok("產生 %s" % os.path.relpath(p, lib.root()))
+        if rc_path is not None and not rc_changed:
+            print("%s– .firebaserc 內容沒變，不重寫%s" % (lib.DIM, lib.RESET))
         for n in notes:
             lib.warn(n)
         if local:

@@ -132,6 +132,66 @@ class Exe(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class Java(unittest.TestCase):
+    """macOS 的 /usr/bin/java 空殼不能被當成有 Java（emulator_smoke 曾因此永遠不加 openjdk 進 PATH）。"""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.saved = (hostos.exe, hostos.run, hostos.MAC_BREW_JAVA)
+
+    def tearDown(self):
+        hostos.exe, hostos.run, hostos.MAC_BREW_JAVA = self.saved
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def fake_exe(self, name):
+        p = os.path.join(self.d, name)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("#!/bin/sh\n")
+        os.chmod(p, 0o755)
+        return p
+
+    def test_mac_stub_skipped_for_brew_openjdk(self):
+        brew = self.fake_exe("brew/bin/java")
+        hostos.exe = lambda name: hostos.MAC_JAVA_STUB
+        hostos.MAC_BREW_JAVA = (os.path.join(self.d, "nope", "java"), brew)
+        with _Forced("mac"):
+            self.assertEqual(hostos.java(), brew)
+
+    def test_mac_stub_only_is_none(self):
+        hostos.exe = lambda name: hostos.MAC_JAVA_STUB
+        hostos.MAC_BREW_JAVA = (os.path.join(self.d, "nope", "java"),)
+        hostos.run = lambda cmd, **kw: (1, "", "Unable to locate a Java Runtime.")
+        with _Forced("mac"):
+            self.assertIsNone(hostos.java())
+
+    def test_mac_stub_with_registered_jdk(self):
+        jdk = self.fake_exe("jdk/Contents/Home/bin/java")
+        hostos.exe = lambda name: hostos.MAC_JAVA_STUB
+        hostos.MAC_BREW_JAVA = ()
+        home_dir = os.path.dirname(os.path.dirname(jdk))
+        hostos.run = lambda cmd, **kw: (0, home_dir + "\n", "")
+        with _Forced("mac"):
+            self.assertEqual(hostos.java(), jdk)
+
+    def test_mac_java_home_empty_output_is_none(self):
+        hostos.exe = lambda name: hostos.MAC_JAVA_STUB
+        hostos.MAC_BREW_JAVA = ()
+        hostos.run = lambda cmd, **kw: (0, "\n", "")
+        with _Forced("mac"):
+            self.assertIsNone(hostos.java())
+
+    def test_real_java_on_path_wins(self):
+        hostos.exe = lambda name: "/opt/sdkman/java/bin/java"
+        with _Forced("mac"):
+            self.assertEqual(hostos.java(), "/opt/sdkman/java/bin/java")
+        with _Forced("linux"):
+            self.assertEqual(hostos.java(), "/opt/sdkman/java/bin/java")
+        hostos.exe = lambda name: None
+        with _Forced("win"):
+            self.assertIsNone(hostos.java())
+
+
 class Drive(unittest.TestCase):
     def _with_home(self, fn):
         d = tempfile.mkdtemp()

@@ -15,6 +15,7 @@
     }
   ],
   "hosting": {
+    "target": "web",
     "public": "site",
     "ignore": [
       "firebase.json",

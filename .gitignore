@@ -42,6 +42,9 @@ site/js/kit-config.js
 site/js/firebase-config.js
 firestore.rules
 storage.rules
+# 每個安裝各自的 Firebase 專案／Hosting site 對應（由 build_config.py 產生或合併；
+# firebase.json 的 hosting.target 只是佔位的 target 名字「web」，實際 site 由這個檔決定）
+.firebaserc
 # 已寄/略過紀錄
 .parent-emails-handled.tsv
 # 同步狀態

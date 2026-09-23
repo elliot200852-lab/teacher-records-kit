@@ -198,9 +198,9 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
 - **Windows 尚未有真人老師實測過**；第一位 Windows 使用者的怪狀先當是我們的問題。
 - 所有文字寫入一律 LF（`newline="\n"`，有測試守著），`.gitattributes` 鎖 LF。
 
-## 4. 設定檔（單一產生器、三個輸出）
+## 4. 設定檔（單一產生器、cloud 模式五個輸出）
 
-- `config/kit.json`（**JSON，不再自寫 YAML 解析器**——紅隊 #10）：`owner_email`、`id_prefix`、`firebase{project_id,api_key,auth_domain,storage_bucket,messaging_sender_id,app_id}`、`drive{mode:"desktop"|"gws", desktop_dir, backup_folder_id, keep_backups}`、`voice{model,lang}`、`email{...}`。v2 的 `config.yaml` 由 `setup.py --upgrade` 一次轉成 JSON。**alpha.5 追加** `co_owner_emails`（選填清單）：規則判斷從 `email == '...'` 改成 `email in [...]`，清單裡的信箱與 `owner_email` 權限完全相同（不是分權）。**alpha.6 追加** `auto_dim_tags{enabled, agent, timeout_sec, max_batches}`（選用、預設關；`agent` 空字串＝沿用 `headless.agent`，兩者都空＝視同沒設定；§3.6）。
+- `config/kit.json`（**JSON，不再自寫 YAML 解析器**——紅隊 #10）：`owner_email`、`id_prefix`、`firebase{project_id,api_key,auth_domain,storage_bucket,messaging_sender_id,app_id}`、`drive{mode:"desktop"|"gws", desktop_dir, backup_folder_id, keep_backups}`、`voice{model,lang}`、`email{...}`。v2 的 `config.yaml` 由 `setup.py --upgrade` 一次轉成 JSON。**alpha.5 追加** `co_owner_emails`（選填清單）：規則判斷從 `email == '...'` 改成 `email in [...]`，清單裡的信箱與 `owner_email` 權限完全相同（不是分權）。**alpha.6 追加** `auto_dim_tags{enabled, agent, timeout_sec, max_batches}`（選用、預設關；`agent` 空字串＝沿用 `headless.agent`，兩者都空＝視同沒設定；§3.6）。`firebase{}` 再加一個選填欄位 `hosting_site`：空或沒填＝等於 `project_id`（零設定，多數老師用不到）；只有同一個 Firebase 專案掛了不只一個 Hosting site 的進階安裝才填別的 site 名稱。
 - `config/tabs.json`（分頁與向度）：
   ```json
   {"version":3,
@@ -208,7 +208,9 @@ David 2026-09-10 追加：學生記錄不能混在一起——純班級學生紀
    "courses":{"enabled":true,"categories":[...],"skeleton":["### 課程進度",...],"help":{...}},
    "business":{"enabled":true,"groups":[{"id":"guidance","label":"輔導／個案追蹤","fields":[...],"tags":[...],"custom":false}],"help":{...}}}
   ```
-- `scripts/build_config.py` 讀上面兩份，產生：`site/js/kit-config.js`（`window.KIT = {...}`）、`site/js/firebase-config.js`、`firestore.rules`（換 `{{OWNER_EMAIL}}`，信箱一律去空白轉小寫並跳脫後才插進規則字串）。三個輸出都 gitignored。`auth_domain` 留空時預設 `<專案id>.web.app`。
+- `scripts/build_config.py` 讀上面兩份，產生：`site/js/kit-config.js`（`window.KIT = {...}`）、`site/js/firebase-config.js`、`firestore.rules`（換 `{{OWNER_EMAIL}}`，信箱一律去空白轉小寫並跳脫後才插進規則字串）。輸出都 gitignored。`auth_domain` 留空時預設 `<hosting_site 或 project_id>.web.app`（跟 `.firebaserc`
+算 site 用同一條公式，`build_firebase_js()` 與 `setup.py` 兩處各自算一次，公式要一致）。
+**cloud 模式再多產一個**：repo 根目錄的 `.firebaserc`——把 `firebase.json` 固定寫死的 `hosting.target: "web"` 對應到 `hosting_site`（或 `project_id`）算出來的 Hosting site。這個輸出**不是整份重寫**：檔案已存在就讀進來，只改 `projects.default`（原本沒值才填）與 `targets.<project_id>.hosting.web` 這兩處，其餘 alias／targets 原封不動；內容沒變就不重寫。`doctor.py` 檢查它存不存在、對不對得上。
 - 範本：`config/kit.example.json`、`config/tabs.example.json`、`setup/progress.example.json`。
 - **安裝是確定性的**（紅隊 #3）：`scripts/setup.py` 互動問答（可用 `--answers file.json` 免互動）負責產檔、換規則、自檢；AI 代理只負責解釋題目、幫老師找答案、讀錯誤訊息。規則檔**永遠由腳本產生**，AGENTS.md 禁止 AI 手寫 `firestore.rules`。
 

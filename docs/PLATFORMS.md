@@ -157,6 +157,12 @@ whisper 語音模型三個平台都放 `~/.cache/whisper-cpp/`（Windows 的 `~`
 | whisper 缺 VC++ 執行階段 | `whisper-cli.exe` 在，但一跑就退出碼 0xC0000135 | `install_tools.py` 先裝 `Microsoft.VCRedist.2015+.x64`，裝完真的跑一次 `whisper-cli -h` 才算成功。「在不在」只問 `hostos.vcredist_present()` 一支（doctor 與 install_tools 共用），而且 `vcruntime140.dll` 與 `vcruntime140_1.dll` **兩個都要**——MSVC build 的 whisper 少了後者一樣 0xC0000135 |
 | 沒有 Chrome | 匯出 PDF 失敗 | Windows 一定有 Edge，`hostos.chrome_candidates()` 把 `msedge.exe` 列進候選 |
 
+## macOS 的坑
+
+| 坑 | 症狀 | 我們怎麼擋 |
+|---|---|---|
+| `/usr/bin/java` 是空殼 | 沒裝 JDK 也找得到 `java`，一跑才跳「要安裝 JDK」；Firestore 模擬器起不來 | 要 Java 一律問 `hostos.java()`：略過這支空殼，改找 Homebrew openjdk（keg-only、不在 PATH）與 `/usr/libexec/java_home` 登記的 JDK |
+
 ## 排程在三個平台各是什麼
 
 | 平台 | 機制 | 看得到的東西 | 移除 |

@@ -41,6 +41,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
 import hostos
 import auto_dim_tags  # noqa: E402
+import build_config  # noqa: E402
 
 CONSOLE = "https://console.firebase.google.com"
 WEBCFG_PATH = "專案設定（左上齒輪）→ 一般 → 你的應用程式 → 網頁應用程式 → SDK 設定與配置 → Config"
@@ -354,10 +355,27 @@ def gather(ask, answers, existing_kit):
         fb[key] = ask.text("   %s" % label,
                            default=fb_a.get(key, fb_old.get(key, "")),
                            where=hint, allow_empty=True)
+    # hosting_site：選填、多數老師用不到（同一個 Firebase 專案掛了不只一個 Hosting site 才要）。
+    # 安裝精靈不問這一題（零設定是預設），但答案檔或既有設定裡已經填了就原封不動留著，
+    # 不然一填就會被這支腳本重寫掉的 kit.json 悄悄清空。
+    hs = fb_a.get("hosting_site")
+    if hs in (None, ""):
+        hs = fb_old.get("hosting_site", "")
+    hs = str(hs or "").strip()
+    if hs:
+        # 格式先驗過再往下推算 auth_domain——貼成 "trk-4a.web.app" 這種值不擋的話，
+        # 下面會直接寫出 "trk-4a.web.app.web.app" 這種廢話進 kit.json。跟
+        # build_config.py 的 validate() 共用同一支判斷，別各寫一份 regex。
+        if not build_config.hosting_site_format_ok(hs):
+            lib.die("firebase.hosting_site 格式不對：%r" % hs, build_config.hosting_site_format_hint())
+        fb["hosting_site"] = hs
     if not fb.get("auth_domain") and fb.get("project_id"):
-        # 預設 .web.app＝這份 kit 實際部署的網址（Firebase Hosting）。Console 給的
-        # .firebaseapp.com 跟網頁不同源，iPhone 上會一直登不進去。
-        fb["auth_domain"] = "%s.web.app" % fb["project_id"]
+        # 預設 <實際部署的 Hosting site>.web.app（多數老師這個 site 就是 project_id；
+        # 填了 hosting_site 的多站安裝，網址是那個 site 自己的網域，這裡要跟著換，
+        # 不然網頁跟 authDomain 不同源，iPhone 上會一直登不進去——跟 build_config.py 的
+        # build_firebase_js() 用同一條公式，兩邊要一致，別各寫一份）。Console 給的
+        # .firebaseapp.com 是同一個問題，一樣跟網頁不同源。
+        fb["auth_domain"] = "%s.web.app" % (fb.get("hosting_site") or fb["project_id"])
 
     ask.say("\n── 第 3 步：三個分頁要記什麼 ──")
     ask.say("三個分頁、每一種記錄類型、每一組業務都由你自己勾——一個都不預設幫你打勾。")

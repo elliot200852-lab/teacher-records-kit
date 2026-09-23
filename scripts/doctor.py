@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
 import hostos
 import auto_dim_tags  # noqa: E402
+import build_config  # noqa: E402
 
 
 class Report:
@@ -288,6 +289,104 @@ def check_config(r, kit, tabs, skip_network):
               required=False)
 
 
+def check_firebaserc(r, kit):
+    """.firebaserc：firebase.json 的 hosting.target "web" 要靠它對應到真正的 Hosting site。
+
+    多數老師一個專案一個預設 site，這個檔由 build_config.py 自動產生，平常不會出錯；
+    只有像同一個專案掛了不只一個 site 那種進階安裝，才可能跟 kit.json 的
+    firebase.hosting_site 兜不起來——幾種壞法都算：檔案不存在、格式不對（根／projects／
+    targets 不是物件）、web target 沒有任何對應、或對應到的 site 跟現在算出來的不一樣
+    （多半是 hosting_site 改過但沒重跑產生器）。**不管檔案裡塞了什麼奇怪的形狀都不丟例外**
+    ——doctor.py 一項檢查壞掉不該讓後面的項目都不跑。
+    """
+    label = ".firebaserc（Hosting site 對應）"
+    if lib.is_local(kit):
+        r.add("firebaserc", label, True, "本機模式沒有 Hosting，不需要", required=False, skipped=True)
+        return
+    pid = (kit.get("firebase") or {}).get("project_id") or ""
+    if not build_config.hosting_pid_usable(pid):
+        r.add("firebaserc", label, True, "Firebase 專案 ID 還沒填，這一項先跳過",
+              required=False, skipped=True)
+        return
+    wanted = build_config.hosting_site(kit)
+    path = lib.rpath(".firebaserc")
+    if not os.path.exists(path):
+        r.add("firebaserc", label, False, "檔案不存在", "跑 `python3 scripts/build_config.py`。")
+        return
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        # ValueError 涵蓋 json.JSONDecodeError，也涵蓋 UnicodeDecodeError——記事本存成
+        # 「Unicode」（UTF-16，開頭 fffe/feff）的 .firebaserc 讀到一半就是後者，
+        # 舊版只接 (OSError, json.JSONDecodeError) 接不住，會讓整支 doctor.py 當掉。
+        r.add("firebaserc", label, False, "格式不對：讀不出來（%s）" % e,
+              "刪掉 .firebaserc 再跑 `python3 scripts/build_config.py`。")
+        return
+    if not build_config.firebaserc_shape_ok(data):
+        r.add("firebaserc", label, False, "格式不對（根、projects、targets 都應該是物件）",
+              "刪掉 .firebaserc 再跑 `python3 scripts/build_config.py`。")
+        return
+    targets = data.get("targets") or {}
+    proj_targets = targets.get(pid)
+    proj_targets = proj_targets if isinstance(proj_targets, dict) else {}
+    hosting = proj_targets.get("hosting")
+    hosting = hosting if isinstance(hosting, dict) else {}
+    sites = hosting.get("web")
+    sites = sites if isinstance(sites, list) else []
+    good = sites == [wanted]
+    r.add("firebaserc", label, good,
+          "web → %s" % (", ".join(str(s) for s in sites) if sites else "（沒有對應）") if not good
+          else "web → %s" % wanted,
+          "跑 `python3 scripts/build_config.py`。")
+
+
+def check_auth_domain(r, kit):
+    """authDomain 要跟實際部署的 Hosting site 同源，不然 iOS Safari 上的 Google 登入會一直跳回
+    未登入（AGENTS.md 步驟 2 那個坑）。多站安裝（填了 firebase.hosting_site）最容易踩到：
+    kit.json 裡的 auth_domain 是舊 site 留下的值、或跟現在算出來的 site 對不上。
+
+    `.web.app` 網域看前綴跟現在算出來的 site 一不一樣（比對前都轉小寫，`TRK-4A.web.app`
+    不該被誤判成不對）；`.firebaseapp.com` 網域**不管前綴對不對都算沒過**——AGENTS.md
+    從頭到尾都把它當成 iPhone 登入的坑（跟 Hosting 實際用的 `.web.app` 不同源），
+    不是「前綴對了就沒事」的東西，一律建議改成 `<site>.web.app`。
+    自訂網域（GitHub Pages、嵌入現有站）不受影響、不比對——這一項本來就選用
+    （required=False），別讓它擋掉正常安裝。
+    """
+    label = "authDomain 跟 Hosting site 同源"
+    if lib.is_local(kit):
+        r.add("auth_domain", label, True, "本機模式沒有網址，不需要", required=False, skipped=True)
+        return
+    site = build_config.hosting_site(kit)
+    actual = ((kit.get("firebase") or {}).get("auth_domain") or "").strip()
+    if not actual:
+        r.add("auth_domain", label, True,
+              "留空——build_config.py 會自動填 %s.web.app" % (site or "<專案id>"), required=False)
+        return
+    if not site:
+        r.add("auth_domain", label, True, "%s（還沒填 project_id，這一項先不比對）" % actual,
+              required=False, skipped=True)
+        return
+    low, site_low = actual.lower(), site.lower()
+    fix = ("多站安裝：把 config/kit.json 的 firebase.auth_domain 改成 %s.web.app，"
+          "重跑 `python3 scripts/build_config.py`，並到 Firebase 主控台 Authentication → "
+          "Settings → 已授權網域（Authorized domains）手動加上這個網域——沒對上的話 iOS Safari "
+          "上的 Google 登入會一直跳回未登入。" % site)
+    if low.endswith(".firebaseapp.com"):
+        r.add("auth_domain", label, False,
+              "%s（.firebaseapp.com 跟 Hosting 實際用的網址不同源，iOS 上會登不進去，"
+              "建議改成 %s.web.app）" % (actual, site), fix, required=False)
+        return
+    if low.endswith(".web.app"):
+        prefix = low[:-len(".web.app")]
+        good = prefix == site_low
+        r.add("auth_domain", label, good,
+              actual if good else "%s（現在算出來的 Hosting site 是 %s）" % (actual, site),
+              fix, required=False)
+        return
+    r.add("auth_domain", label, True, "%s（自訂網域，不比對）" % actual, required=False)
+
+
 def check_headless(r, kit, skip_network):
     """無頭交辦（選用）。沒開就只留一項「關著」，不吵人。
 
@@ -454,6 +553,8 @@ def main():
     check_version(r, kit, a.skip_network)
     check_tools(r, kit, a.skip_network)
     check_config(r, kit, tabs, a.skip_network)
+    check_firebaserc(r, kit)
+    check_auth_domain(r, kit)
     check_headless(r, kit, a.skip_network)
     check_auto_dim_tags(r, kit, tabs)
     check_drive(r, kit, a.skip_network)

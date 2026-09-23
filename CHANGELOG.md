@@ -10,7 +10,36 @@
 `sync.py` 把它寫進 Firestore `meta/config.version`（＝這個資料庫最後一次是哪一版同步／部署的），
 `doctor.py` 連得上網時會拿兩邊比對，程式比資料庫新就提醒重新部署規則。
 
-## 未發行
+## v3.0.0-alpha.8 — 2026-09-23
+
+> **規則沒有動**，不用重新部署 `firestore.rules`。升級＝拉新程式 → **`python3 scripts/build_config.py`（這一版必跑）**：
+> `firebase.json` 的 hosting 改成 `target: "web"`，要靠 build_config 產生的 `.firebaserc` 對應到實際的 site；
+> 沒跑就 `firebase deploy --only hosting` 會失敗（「Deploy target web not configured」），`doctor.py` 也會報 `firebaserc` 這一項。
+> 之前為了部署到非預設 site 而手改過 `firebase.json` 的，先 `git checkout firebase.json` 再拉，把 site 名稱改填進 `config/kit.json`。
+
+### 每個安裝可以指定自己的 Hosting site
+
+- `config/kit.json` 的 `firebase` 區塊新增選填 `hosting_site`；空或沒填＝等於 `project_id`（一個專案一個預設 site 的安裝零設定）。
+  只有同一個 Firebase 專案掛了不只一個 Hosting site 時才要填。
+- `build_config.py` 在雲端模式產生／合併 repo 根目錄的 `.firebaserc`（只改 `projects.default`（原本沒值才填）與
+  `targets.<project_id>.hosting.web`，保留你自己加的 alias 與其他 targets；內容沒變不重寫）。`.firebaserc` 已加進 `.gitignore`。
+- 原因：過去要部署到非預設 site 只能改 git 追蹤中的 `firebase.json`，工作區永遠 dirty，上游一改這個檔就拉不下來。
+- `firebase.auth_domain`（登入網域要跟網頁同源，不然 iPhone 登不進去）：`setup.py` 問完一定會把它寫成具體值
+  （留空只是「這次先不填」，存進 `kit.json` 的不是空字串），所以先照單站裝好、事後才補填 `hosting_site` 的安裝，
+  這一格**不會**自動跟著換——要手動改成 `<hosting_site>.web.app`，重跑 `build_config.py`，並到 Firebase 主控台
+  Authentication → 已授權網域手動加上那個網域。只有答案檔一開始就填好 `hosting_site`、`auth_domain` 留空，
+  才會一次直接算出 `<hosting_site>.web.app`。
+- `hosting_site` 只收 site 名稱本身（小寫英數與 `-`），貼成 `xxx.web.app` 或網址會在 `build_config.py` 就擋下。
+- `project_id` 還是空的或範本值時不產生 `.firebaserc`；既有的 `.firebaserc` 格式不對時給「刪掉再跑 build_config.py」而不是當掉。
+- `doctor.py` 新增 `firebaserc` 檢查（檔不在、target 沒對應、site 跟設定不一致、格式不對，修法＝跑 `build_config.py`）
+  與 `auth_domain` 選用提醒（`.web.app` 的前綴跟 site 對不上，或用了 `.firebaseapp.com` 時）。
+
+### macOS：`/usr/bin/java` 空殼不再被當成有 Java
+
+- 新增 `hostos.java()`：略過沒裝 JDK 時也存在的 `/usr/bin/java` 空殼，改找 Homebrew openjdk（keg-only、不在 PATH）
+  與 `/usr/libexec/java_home` 登記的 JDK。`scripts/tests/emulator_smoke.py` 改用它，本機不用再手動把 openjdk 塞進 PATH。
+
+### 網頁頁尾
 
 - 網頁頁尾拿掉「使用上有問題：[[待確認：支援聯絡方式]]」，改成「免費開源（MIT 授權），依現狀提供，不提供維護與支援服務」；
   `README.md` 授權段補同一句。這個 kit 不設支援聯絡方式。

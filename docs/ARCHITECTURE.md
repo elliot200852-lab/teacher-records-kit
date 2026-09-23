@@ -548,7 +548,7 @@ python3 scripts/ledger.py --check      # 三處對帳，印三欄表
 
 ---
 
-## 8. 設定：一個產生器，四個輸出
+## 8. 設定：一個產生器，五個輸出
 
 ```
 config/kit.json            ──┐
@@ -559,11 +559,18 @@ config/student-streams.    ──┼──►  build_config.py  ──►  site/
   library.json             ──┤                          site/js/firebase-config.js
 config/report-formats.     ──┤                          firestore.rules
   library.json             ──┤                          storage.rules
-config/verticals.json      ──┤
+config/verticals.json      ──┤                          .firebaserc
 firestore.rules.tmpl       ──┤
 storage.rules.tmpl         ──┘
 VERSION                    ──┘（版本字串進 window.KIT.version）
 ```
+
+- **`.firebaserc` 是第五個輸出，而且是唯一一個「合併」而不是「整份重寫」的**：它把
+  `firebase.json` 裡固定寫死的 `hosting.target: "web"` 對應到 `config/kit.json` 算出來的
+  Hosting site（`firebase.hosting_site` 留空就等於 `project_id`——多數老師一個專案一個
+  預設 site，這裡零設定）。已經存在的 `.firebaserc` 只改 `projects.default`（原本沒值才填）
+  與 `targets.<project_id>.hosting.web` 這兩處，使用者自己加的其他 alias、其他 targets 都留著；
+  內容沒變就不重寫。只有像同一個專案掛了不只一個 site 的進階安裝才需要填 `hosting_site`。
 
 兩份選單 library（業務組、記錄類型）進的是**網頁上「＋ 選擇類型」「＋ 新增業務組」要顯示的選單**；
 格式庫進的是網頁「產生期末素材 ▾」要列哪幾個格式（`window.KIT.reportFormats`）；
@@ -714,7 +721,7 @@ VERSION                    ──┘（版本字串進 window.KIT.version）
 
 | 腳本 | 本機模式做什麼 |
 |---|---|
-| `build_config.py` | **只產 `site/js/kit-config.js`**，不產 `firestore.rules`、`storage.rules`、`site/js/firebase-config.js`。以前是 cloud 留下來的舊產生檔只提醒、**不刪**（刪別人的檔不是設定產生器的事）。`headless.enabled` 為真時直接報錯 |
+| `build_config.py` | **只產 `site/js/kit-config.js`**，不產 `firestore.rules`、`storage.rules`、`site/js/firebase-config.js`、`.firebaserc`（本機模式沒有 Hosting，用不到 target 對應）。以前是 cloud 留下來的舊產生檔只提醒、**不刪**（刪別人的檔不是設定產生器的事）。`headless.enabled` 為真時直接報錯 |
 | `sync.py` | 印一行「本機模式沒有雲端，不用同步」就 return，**退出碼 0**——排程與 `append_record --sync` 都會叫到它，非 0 會被當成故障 |
 | `ledger.py` | 自動進 offline，只比對本機與備份兩處，並明說「只比對兩處」 |
 | `schedule.py` | 只掛 `backup` 一支 |

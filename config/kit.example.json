@@ -18,11 +18,13 @@
   "firebase": {
     "project_id": "your-firebase-project-id",
     "api_key": "",
-    "_註解_auth_domain": "留空即可——build_config.py 會自動填 <project_id>.web.app（這份 kit 預設部署在 Firebase Hosting，網址就是它）。Console 給的 <project_id>.firebaseapp.com 跟網頁不同源，iPhone 上會一直登不進去。網站掛在別的網域（GitHub Pages、嵌進現有站）才填你實際打開網頁的那個網域。",
+    "_註解_auth_domain": "留空即可——setup.py 問完會自動把它填成 <project_id>.web.app（多數老師這個就是實際部署的 Hosting site，那正是這份 kit 預設部署在 Firebase Hosting 的網址）。Console 給的 <project_id>.firebaseapp.com 跟網頁不同源，iPhone 上會一直登不進去。網站掛在別的網域（GitHub Pages、嵌進現有站）才填你實際打開網頁的那個網域。**老實講**：留空只是『這次先不填』，setup.py 存進 kit.json 的一定是具體值，不是空字串。所以下面的 hosting_site（多站安裝）如果是裝好之後才補填的，這裡**不會**自動跟著換——要手動改成 <hosting_site>.web.app 再重跑 build_config.py，並到 Firebase 主控台 Authentication → Settings → 已授權網域**手動加上**那個網域（不會自動出現）。只有裝的時候答案檔就先填好 hosting_site、這裡留空，才會一次直接算出 <hosting_site>.web.app（`python3 scripts/doctor.py` 有一項會檢查這兩者現在對不對得上，事後改壞了會抓到）。",
     "auth_domain": "",
     "storage_bucket": "",
     "messaging_sender_id": "",
-    "app_id": ""
+    "app_id": "",
+    "_註解_hosting_site": "選填，而且**大多數老師都用不到**——一個 Firebase 專案預設只有一個 Hosting 網站，跟 project_id 同名，這裡留空就是那一個，安裝精靈也不會問這一題。只有你在同一個 Firebase 專案裡另外開了別的 Hosting site（進階用法：一個專案掛好幾個網站）才需要填『這份 kit 要部署到哪一個 site』：**只填 site 名稱本身**（小寫英數與 -，例如 trk-4a），**不要填 .web.app、.firebaseapp.com 或 https://**——那個 site 的名稱在 Firebase Console → Hosting 那張卡片上，或跑 `firebase hosting:sites:list --project <你的專案id>` 列出來對。填了之後重跑 `python3 scripts/build_config.py`，它會把這個對應寫進 repo 根目錄的 .firebaserc（每個安裝各自的檔，已經被 .gitignore 擋住，不會進 git）；`firebase deploy --only hosting --project <你的專案id>` 這行部署指令完全不用改。**這裡填了之後別忘了上面的 auth_domain**——裝好之後才補填這一格的話，auth_domain 不會自動跟著換，細節看 auth_domain 那一條註解。",
+    "hosting_site": ""
   },
 
   "_註解_drive": "每週備份要放到你自己的 Google 雲端硬碟。兩種模式：desktop（預設、零設定）＝把 zip 複製進「Google 雲端硬碟」桌面程式的同步資料夾，由它自己上傳；gws（進階）＝用 googleworkspace-cli 直接上傳，要自己備 OAuth 憑證。",

@@ -95,10 +95,13 @@ python3 scripts/doctor.py                      # 健檢（裝完工具先重開�
 4. 專案設定（左上齒輪）→ 一般 → 你的應用程式 → 加**網頁應用程式** → SDK 設定與配置 → **Config**
    → 抄下六個值：`projectId`、`apiKey`、`authDomain`、`storageBucket`、`messagingSenderId`、`appId`
 
-**iOS Safari 防坑**：`authDomain` 這一格**留空就好**——`build_config.py` 會自動填
-`<專案ID>.web.app`，那正是 Firebase Hosting 的網址。Console 給的預設值是
-`<專案ID>.firebaseapp.com`，跟網頁不同源，iPhone 上 Google 登入會一直失敗。
-網站要掛在別的網域（GitHub Pages、嵌進現有站）才填你實際打開網頁的那個網域。
+**iOS Safari 防坑**：`authDomain` 這一格**留空就好**——`setup.py` 問完會自動把它填成
+`<專案ID>.web.app`（多數老師這個就是實際部署的 Hosting site），那正是 Firebase Hosting
+的網址。Console 給的預設值是 `<專案ID>.firebaseapp.com`，跟網頁不同源，iPhone 上
+Google 登入會一直失敗。網站要掛在別的網域（GitHub Pages、嵌進現有站）才填你實際打開
+網頁的那個網域。（同一個專案掛了不只一個 Hosting site、事後才填 `firebase.hosting_site`
+的多站安裝，這一格**不會**自動跟著換——`setup.py` 這時候已經把它寫成具體值了，要手動改，
+見下面第 5 節。）
 
 ## 3. 想清楚三個分頁要記什麼
 
@@ -154,7 +157,7 @@ python3 scripts/setup.py --answers /tmp/answers.json
 `setup.py` 會自動呼叫 `build_config.py`。手改過 `config/kit.json` 或 `config/tabs.json` 之後要單獨重跑：
 
 ```bash
-python3 scripts/build_config.py            # 產生三個檔
+python3 scripts/build_config.py            # 產生設定與規則（cloud 模式再加 .firebaserc）
 python3 scripts/build_config.py --check    # 只驗設定，不寫檔
 ```
 
@@ -186,6 +189,22 @@ firebase deploy --only hosting --project <你的專案ID>
 ```
 
 網址是 `https://<專案ID>.web.app`。
+
+`firebase.json` 的 `hosting.target` 固定寫死 `"web"`（Firebase 官方的多站機制），實際部署到哪一個
+Hosting site 靠 repo 根目錄的 `.firebaserc` 對應——這個檔由 `build_config.py` 自動產生／合併，
+**多數老師一個專案一個預設 site，這裡不用做任何事**。只有同一個 Firebase 專案掛了不只一個
+Hosting site 才需要在 `config/kit.json` 的 `firebase.hosting_site` 填要用哪一個 site
+（只填 site 名稱本身，不要 `.web.app` 或 `https://`），
+填完重跑一次 `python3 scripts/build_config.py` 再部署；`doctor.py` 會檢查兩邊對不對得上。
+
+**多站的話 `firebase.auth_domain` 幾乎一定要手動改**：`setup.py` 問完一定會把它寫成具體的
+`<專案ID>.web.app`（不是留成空字串），所以先照單站裝好、事後才補填 `hosting_site` 的話，
+`auth_domain` **不會**自動跟著換。把 `config/kit.json` 的 `firebase.auth_domain` 手動改成
+`<hosting_site>.web.app`，重跑 `python3 scripts/build_config.py`，並到 Firebase 主控台
+Authentication → Settings → 已授權網域（Authorized domains）**手動加上**那個網域（不會自動
+出現在清單裡），不然 iOS Safari 的 Google 登入會跳回未登入（`doctor.py` 的「authDomain
+跟 Hosting site 同源」那一項會抓到這個對不上）。只有裝之前答案檔就先填好 `hosting_site`、
+`auth_domain` 留空這種情況，`setup.py` 才會一次直接算出 `<hosting_site>.web.app`。
 
 備選：把 `site/` 丟到 GitHub Pages（`site/js/kit-config.js` 與 `site/js/firebase-config.js`
 是 gitignored 的產生檔，走這條路要另外放上去，而且那個 repo 要設 private）。
@@ -374,8 +393,8 @@ python3 scripts/setup.py
 python3 scripts/build_config.py
 
 # ⑤ 金鑰交給 Cloud Function，部署收件端（一律用 --only，不要跑沒參數的 firebase deploy）
-firebase functions:secrets:set KIT_LINE_CHANNEL_SECRET
-firebase functions:secrets:set KIT_LINE_CHANNEL_TOKEN
+firebase functions:secrets:set KIT_LINE_CHANNEL_SECRET --project <你的專案id>
+firebase functions:secrets:set KIT_LINE_CHANNEL_TOKEN --project <你的專案id>
 firebase deploy --only storage --project <你的專案id>
 firebase deploy --only functions:line-relay --project <你的專案id>
 
@@ -404,7 +423,7 @@ python3 scripts/doctor.py               # 「無頭交辦」那一區五項要�
    `firebase.json`、`functions/`、文件。
    **絕對不要覆蓋** `config/kit.json`、`config/tabs.json`、`data/`、`setup/progress.json`、
    `firestore.rules`、`storage.rules`、`site/js/kit-config.js`、`site/js/firebase-config.js`、
-   `backups/`、`inbox/`。
+   `.firebaserc`、`backups/`、`inbox/`。
 
 2. ```bash
    python3 scripts/setup.py --upgrade
@@ -423,7 +442,8 @@ python3 scripts/doctor.py               # 「無頭交辦」那一區五項要�
    `scripts/purge_deleted.py`）、又加了 `co_owner_emails`，兩者都動了規則字串，
    沒重新部署的話刪除鍵會失敗、共同擁有者也登不進去。
 
-4. ```bash
+4. `.firebaserc` 上一步 `build_config.py` 就自動產生了，不用多做：
+   ```bash
    firebase deploy --only hosting --project <你的專案ID>
    python3 scripts/sync.py --dry-run
    python3 scripts/sync.py

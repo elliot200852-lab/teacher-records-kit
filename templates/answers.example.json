@@ -13,14 +13,16 @@
   "_註解_vertical": "三個垂直方案（config/verticals.json）：qualitative-assessment（質性評量自動化）、iep-tracking（IEP／早療目標追蹤）、soap-casework（SOAP 個案紀錄）。安裝精靈會唸出這個方案建議勾的記錄類型、業務組與期末格式——**只是建議，一項都不會幫你預先勾**，下面 students.streams 勾了什麼就是什麼。都不是就填 \"none\" 或整個鍵拿掉。",
   "vertical": "qualitative-assessment",
 
-  "_註解_firebase": "Console 「專案設定 → 一般 → 你的應用程式 → Config」那六個值。auth_domain 留空就好——build_config.py 會自動填 <project_id>.web.app（這份 kit 預設部署在 Firebase Hosting，網址就是它）。Console 給的 <project_id>.firebaseapp.com 跟網頁不同源，iPhone 上會一直登不進去。網站掛在別的網域（GitHub Pages、嵌進現有站）才填你實際打開網頁的那個網域。",
+  "_註解_firebase": "Console 「專案設定 → 一般 → 你的應用程式 → Config」那六個值。auth_domain 留空就好——setup.py 問完會自動把它填成 <project_id>.web.app（多數老師這個就是實際部署在 Firebase Hosting 的網址）。Console 給的 <project_id>.firebaseapp.com 跟網頁不同源，iPhone 上會一直登不進去。網站掛在別的網域（GitHub Pages、嵌進現有站）才填你實際打開網頁的那個網域。老實講：留空之後 setup.py 存進 kit.json 的是具體值、不是空字串，所以下面的 hosting_site（多站安裝）如果是裝好之後才補填的，auth_domain 不會自動跟著換，要手動改成 <hosting_site>.web.app 再重跑 build_config.py，並到 Firebase 主控台 Authentication → Settings → 已授權網域手動加上那個網域；只有一開始答案檔就先填好 hosting_site、auth_domain 留空，才會一次直接算對。",
   "firebase": {
     "project_id": "your-firebase-project-id",
     "api_key": "AIzaSyEXAMPLE-EXAMPLE-EXAMPLE-EXAMPLE",
     "auth_domain": "",
     "storage_bucket": "your-firebase-project-id.firebasestorage.app",
     "messaging_sender_id": "000000000000",
-    "app_id": "1:000000000000:web:0000000000000000000000"
+    "app_id": "1:000000000000:web:0000000000000000000000",
+    "_註解_hosting_site": "選填，大多數老師用不到，留空就好——安裝精靈也不會問這一題。只有同一個 Firebase 專案掛了不只一個 Hosting site（進階用法）才需要填要部署到哪一個 site：只填 site 名稱本身（小寫英數與 -），不要填 .web.app、.firebaseapp.com 或 https://；欄位的完整說明看 config/kit.example.json 同一個位置。",
+    "hosting_site": ""
   },
 
   "_註解_students": "count＝班級人數，代號會自動生成 S-01…S-NN（前綴看 id_prefix）。也可以改用 ids 明列，例如 [\"S-01\",\"S-02\"]。streams＝從 config/student-streams.library.json 勾選的記錄類型 id（一種都不預設勾；這個範例勾了導師班級紀錄與個案追蹤兩種）。extra_fields／extra_tags＝那一種類型你自己要加的欄位與分類詞。custom_streams＝清單外的類型（AI 問完四件事之後填這裡，scope 是 class＝全班每一位，或 case＝只有列入的學生）。members＝個案型類型列入哪些學生（寫進 data/roster.csv 第三欄，可以先空著）。",
