@@ -392,7 +392,7 @@ MAC_BREW_JAVA = ("/opt/homebrew/opt/openjdk/bin/java", "/usr/local/opt/openjdk/b
 def java():
     """真的跑得起來的 java 絕對路徑；沒有回 None（Firestore 模擬器要用）。"""
     found = exe("java")
-    if OS != "mac" or (found and os.path.realpath(found) != MAC_JAVA_STUB):
+    if OS != "mac" or (found and MAC_JAVA_STUB not in (found, os.path.realpath(found))):
         return found
     for p in MAC_BREW_JAVA:
         if _is_exe(p):
