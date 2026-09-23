@@ -144,7 +144,7 @@ class Java(unittest.TestCase):
         shutil.rmtree(self.d, ignore_errors=True)
 
     def fake_exe(self, name):
-        p = os.path.join(self.d, name)
+        p = os.path.join(self.d, *name.split("/"))      # Windows 上分隔字元要一致，比對路徑才會相等
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
             f.write("#!/bin/sh\n")
